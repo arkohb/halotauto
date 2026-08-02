@@ -1,0 +1,296 @@
+/* ============================================================
+   HALO AUTOS — kente-woven dark theme
+   Signature: the warp band. A vertical woven strip on every card
+   whose stripe sequence encodes the car's status.
+   ============================================================ */
+
+:root{
+  --ink:        #0A0A0C;
+  --ink-raise:  #141419;
+  --ink-line:   #23232B;
+  --bone:       #F2EDE3;
+  --mute:       #8D887F;
+  --gold:       #E9B949;   /* Vault Gold */
+  --gold-deep:  #A67C15;
+  --kente-red:  #C8362B;
+  --kente-green:#128A5C;
+
+  --r: 14px;
+  --shell: 1180px;
+  --ease: cubic-bezier(.2,.7,.3,1);
+}
+
+*{ box-sizing:border-box; }
+
+html{ scroll-behavior:smooth; }
+
+body{
+  margin:0;
+  background:var(--ink);
+  color:var(--bone);
+  font-family:'Space Grotesk', system-ui, sans-serif;
+  font-size:16px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+
+img{ display:block; max-width:100%; }
+button, input, select{ font:inherit; color:inherit; }
+
+.shell{ width:100%; max-width:var(--shell); margin:0 auto; padding:0 20px; }
+
+:focus-visible{ outline:2px solid var(--gold); outline-offset:3px; border-radius:4px; }
+
+/* ---------------------------------------------------- kente band */
+
+.kente-band{
+  height:9px;
+  background:repeating-linear-gradient(90deg,
+    var(--gold)        0 16px,
+    var(--ink)        16px 21px,
+    var(--kente-red)  21px 33px,
+    var(--ink)        33px 38px,
+    var(--kente-green)38px 50px,
+    var(--ink)        50px 55px,
+    var(--gold-deep)  55px 63px,
+    var(--ink)        63px 68px);
+}
+
+/* ---------------------------------------------------- masthead */
+
+.masthead{
+  position:sticky; top:0; z-index:40;
+  background:rgba(10,10,12,.88);
+  backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--ink-line);
+}
+.masthead-inner{ display:flex; align-items:center; justify-content:space-between; gap:16px; height:66px; }
+
+.wordmark{ text-decoration:none; display:flex; align-items:baseline; gap:8px; }
+.wordmark-halo{
+  font-family:Fraunces, serif; font-weight:700; font-size:25px;
+  letter-spacing:.02em; color:var(--gold);
+}
+.wordmark-sub{
+  font-size:11px; letter-spacing:.34em; color:var(--mute); text-transform:uppercase;
+}
+.masthead-actions{ display:flex; align-items:center; gap:14px; }
+.stock-count{ font-size:12.5px; color:var(--mute); letter-spacing:.06em; text-transform:uppercase; }
+
+.btn{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  border:1px solid transparent; border-radius:999px;
+  padding:10px 18px; font-size:14px; font-weight:500;
+  text-decoration:none; cursor:pointer; transition:transform .15s var(--ease), background .15s;
+}
+.btn:active{ transform:translateY(1px); }
+.btn-gold{ background:var(--gold); color:#17130A; font-weight:700; }
+.btn-gold:hover{ background:#F5C95B; }
+.btn-ghost{ background:transparent; border-color:var(--ink-line); color:var(--bone); }
+.btn-ghost:hover{ border-color:var(--gold); color:var(--gold); }
+.btn-block{ width:100%; padding:14px 18px; font-size:15px; }
+
+/* ---------------------------------------------------- hero */
+
+.hero{ padding:56px 0 40px; border-bottom:1px solid var(--ink-line); }
+.eyebrow{
+  margin:0 0 14px; font-size:11px; letter-spacing:.3em; text-transform:uppercase; color:var(--gold);
+}
+.hero-title{
+  font-family:Fraunces, serif; font-weight:600;
+  font-size:clamp(2.2rem, 6vw, 4rem); line-height:1.02; letter-spacing:-.02em;
+  margin:0 0 18px; max-width:16ch;
+}
+.hero-copy{ margin:0; max-width:52ch; color:var(--mute); font-size:16.5px; }
+.hero-meta{ display:flex; flex-wrap:wrap; gap:10px 26px; margin-top:26px; font-size:13.5px; color:var(--mute); }
+.hero-meta strong{ color:var(--bone); font-weight:500; }
+
+/* ---------------------------------------------------- filters */
+
+.filterbar{
+  position:sticky; top:66px; z-index:30;
+  background:rgba(10,10,12,.94); backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--ink-line);
+  padding:12px 0;
+}
+.filterbar-inner{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+
+.search{ position:relative; flex:1 1 220px; min-width:180px; }
+.search svg{
+  position:absolute; left:13px; top:50%; transform:translateY(-50%);
+  width:16px; height:16px; fill:none; stroke:var(--mute); stroke-width:2; stroke-linecap:round;
+}
+.search input{
+  width:100%; background:var(--ink-raise); border:1px solid var(--ink-line);
+  border-radius:999px; padding:11px 16px 11px 38px; font-size:14.5px;
+}
+.search input::placeholder{ color:var(--mute); }
+
+.filterbar select{
+  background:var(--ink-raise); border:1px solid var(--ink-line); border-radius:999px;
+  padding:11px 34px 11px 15px; font-size:14px; cursor:pointer;
+  appearance:none;
+  background-image:linear-gradient(45deg,transparent 50%,var(--mute) 50%),linear-gradient(135deg,var(--mute) 50%,transparent 50%);
+  background-position:calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+  background-size:5px 5px, 5px 5px; background-repeat:no-repeat;
+}
+.filterbar select:hover, .search input:hover{ border-color:#33333d; }
+
+.chip-toggle{
+  background:transparent; border:1px solid var(--ink-line); border-radius:999px;
+  padding:11px 16px; font-size:14px; cursor:pointer; color:var(--mute);
+}
+.chip-toggle[aria-pressed="true"]{ border-color:var(--gold); color:var(--gold); background:rgba(233,185,73,.08); }
+
+.result-line{ margin:24px 0 18px; font-size:13px; color:var(--mute); letter-spacing:.05em; text-transform:uppercase; }
+
+/* ---------------------------------------------------- grid + card */
+
+.grid{
+  display:grid; gap:22px; padding-bottom:64px;
+  grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));
+}
+
+.card{
+  position:relative; display:flex; flex-direction:column;
+  background:var(--ink-raise); border:1px solid var(--ink-line);
+  border-radius:var(--r); overflow:hidden; cursor:pointer;
+  padding-left:10px;                 /* room for the warp band */
+  transition:border-color .2s var(--ease), transform .2s var(--ease);
+  text-align:left;
+}
+.card:hover{ border-color:#34343f; transform:translateY(-3px); }
+.card:hover .card-photo img{ transform:scale(1.045); }
+
+/* THE SIGNATURE — woven warp band, stripe order = status */
+.card-warp{ position:absolute; left:0; top:0; bottom:0; width:10px; }
+.warp-available{
+  background:repeating-linear-gradient(180deg,
+    var(--gold) 0 14px, var(--ink) 14px 18px,
+    var(--kente-green) 18px 30px, var(--ink) 30px 34px);
+}
+.warp-reserved{
+  background:repeating-linear-gradient(180deg,
+    var(--gold) 0 12px, var(--ink) 12px 16px,
+    var(--kente-red) 16px 24px, var(--ink) 24px 28px,
+    var(--gold-deep) 28px 34px, var(--ink) 34px 38px);
+}
+.warp-sold{
+  background:repeating-linear-gradient(180deg,
+    #3a3a42 0 12px, var(--ink) 12px 17px, #2a2a31 17px 26px, var(--ink) 26px 31px);
+}
+
+.card-photo{ position:relative; aspect-ratio:4/3; overflow:hidden; background:#101015; }
+.card-photo img{ width:100%; height:100%; object-fit:cover; transition:transform .4s var(--ease); }
+.card-sold .card-photo img{ filter:grayscale(1) brightness(.6); }
+
+.tag{
+  position:absolute; top:12px; left:12px;
+  font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; font-weight:700;
+  padding:5px 10px; border-radius:4px;
+}
+.tag-featured{ background:var(--gold); color:#17130A; }
+.tag-reserved{ background:var(--kente-red); color:#fff; }
+.tag-sold{ background:#2A2A31; color:var(--mute); }
+.photo-count{
+  position:absolute; right:12px; bottom:12px;
+  background:rgba(10,10,12,.78); color:var(--bone);
+  font-size:11.5px; padding:4px 9px; border-radius:999px;
+}
+
+.card-body{ padding:16px 18px 18px; display:flex; flex-direction:column; gap:10px; flex:1; }
+.card-title{
+  font-family:Fraunces, serif; font-weight:600; font-size:19px; line-height:1.2;
+  margin:0; letter-spacing:-.01em;
+}
+.card-price{
+  font-family:Fraunces, serif; font-weight:700; font-size:24px; color:var(--gold);
+  letter-spacing:-.02em; margin:0; display:flex; align-items:baseline; gap:8px;
+}
+.card-price small{ font-size:11.5px; color:var(--mute); font-family:'Space Grotesk',sans-serif; font-weight:400; letter-spacing:.06em; text-transform:uppercase; }
+.card-specs{
+  display:flex; flex-wrap:wrap; gap:6px 14px; font-size:13px; color:var(--mute);
+  margin-top:auto; padding-top:4px;
+}
+.card-specs span{ display:inline-flex; align-items:center; gap:5px; }
+.card-specs span::before{ content:''; width:3px; height:3px; border-radius:50%; background:var(--gold-deep); }
+
+/* ---------------------------------------------------- empty state */
+
+.empty{ padding:60px 0 90px; max-width:44ch; }
+.empty-title{ font-family:Fraunces,serif; font-size:24px; margin:0 0 8px; }
+.empty p{ color:var(--mute); margin:0 0 18px; }
+
+/* ---------------------------------------------------- detail sheet */
+
+.sheet-backdrop{
+  position:fixed; inset:0; z-index:80;
+  background:rgba(4,4,6,.82); backdrop-filter:blur(6px);
+  display:flex; align-items:flex-end; justify-content:center;
+  padding:0;
+}
+.sheet{
+  position:relative; width:100%; max-width:920px; max-height:94vh; overflow-y:auto;
+  background:var(--ink); border:1px solid var(--ink-line);
+  border-radius:20px 20px 0 0;
+  animation:rise .32s var(--ease);
+}
+@keyframes rise{ from{ transform:translateY(30px); opacity:0; } to{ transform:none; opacity:1; } }
+@media (prefers-reduced-motion:reduce){
+  .sheet{ animation:none; }
+  .card, .card-photo img{ transition:none; }
+  html{ scroll-behavior:auto; }
+}
+.sheet-close{
+  position:absolute; top:14px; right:14px; z-index:3;
+  width:38px; height:38px; border-radius:50%; border:none;
+  background:rgba(10,10,12,.8); color:var(--bone); font-size:24px; line-height:1; cursor:pointer;
+}
+.sheet-close:hover{ background:var(--gold); color:#17130A; }
+
+.gallery{ display:flex; gap:6px; overflow-x:auto; scroll-snap-type:x mandatory; background:#0d0d11; }
+.gallery img{
+  flex:0 0 100%; scroll-snap-align:center; aspect-ratio:4/3; object-fit:cover; width:100%;
+}
+.gallery::-webkit-scrollbar{ height:0; }
+.gallery-hint{ font-size:12px; color:var(--mute); padding:8px 24px 0; }
+
+.sheet-main{ padding:22px 24px 30px; }
+.sheet-title{ font-family:Fraunces,serif; font-weight:600; font-size:clamp(1.5rem,4vw,2.1rem); margin:0 0 6px; letter-spacing:-.02em; }
+.sheet-price{ font-family:Fraunces,serif; font-weight:700; font-size:2rem; color:var(--gold); margin:0 0 4px; }
+.sheet-sub{ color:var(--mute); font-size:14px; margin:0 0 24px; }
+.sheet-desc{ margin:0 0 26px; max-width:62ch; }
+
+.spec-table{ display:grid; grid-template-columns:repeat(auto-fill,minmax(158px,1fr)); gap:1px; background:var(--ink-line); border:1px solid var(--ink-line); border-radius:10px; overflow:hidden; margin-bottom:26px; }
+.spec{ background:var(--ink-raise); padding:12px 14px; }
+.spec dt{ font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--mute); margin-bottom:4px; }
+.spec dd{ margin:0; font-size:14.5px; }
+
+.feature-list{ list-style:none; padding:0; margin:0 0 28px; display:flex; flex-wrap:wrap; gap:8px; }
+.feature-list li{ font-size:13px; border:1px solid var(--ink-line); border-radius:999px; padding:6px 13px; color:var(--bone); }
+
+.sheet-cta{ display:flex; flex-wrap:wrap; gap:10px; }
+.sheet-cta .btn{ flex:1 1 200px; }
+.sold-note{
+  border:1px dashed var(--ink-line); border-radius:10px; padding:14px 16px;
+  color:var(--mute); font-size:14px; margin-bottom:18px;
+}
+
+/* ---------------------------------------------------- footer */
+
+.footer{ border-top:1px solid var(--ink-line); margin-top:auto; }
+.footer .kente-band{ height:6px; }
+.footer-inner{ display:flex; flex-wrap:wrap; gap:28px; justify-content:space-between; padding-top:34px; padding-bottom:46px; }
+.footer-brand{ font-family:Fraunces,serif; font-size:20px; color:var(--gold); margin:0 0 8px; }
+.footer-line{ margin:0 0 4px; color:var(--mute); font-size:14px; }
+.footer-contact{ display:flex; flex-direction:column; gap:6px; font-size:14px; }
+.footer-contact a{ color:var(--bone); text-decoration:none; }
+.footer-contact a:hover{ color:var(--gold); }
+
+@media (max-width:640px){
+  .hero{ padding:38px 0 30px; }
+  .masthead-actions .btn{ padding:9px 14px; font-size:13px; }
+  .stock-count{ display:none; }
+  .filterbar{ top:66px; }
+  .sheet-main{ padding:20px 18px 28px; }
+}

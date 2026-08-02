@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halo Autos — Cars for sale in Ghana</title>
+<meta name="description" content="Hand-picked cars for sale in Kumasi. Inspected, priced clearly, ready to drive home.">
+<meta property="og:title" content="Halo Autos — Cars for sale">
+<meta property="og:description" content="Hand-picked cars for sale in Kumasi. Inspected, priced clearly.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#0A0A0C">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+<link rel="icon" href="assets/favicon.svg">
+</head>
+<body>
+
+<div class="kente-band" aria-hidden="true"></div>
+
+<header class="masthead">
+  <div class="shell masthead-inner">
+    <a class="wordmark" href="./">
+      <span class="wordmark-halo">HALO</span><span class="wordmark-sub">AUTOS</span>
+    </a>
+    <div class="masthead-actions">
+      <span class="stock-count" id="stockCount"></span>
+      <a class="btn btn-gold" id="headerWhatsapp" href="#" target="_blank" rel="noopener">Chat on WhatsApp</a>
+    </div>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="shell">
+    <p class="eyebrow" id="heroLocation">Kumasi, Ghana</p>
+    <h1 class="hero-title" id="heroTagline">Cars worth the drive home.</h1>
+    <p class="hero-copy" id="heroIntro"></p>
+    <div class="hero-meta" id="heroMeta"></div>
+  </div>
+</section>
+
+<div class="filterbar" id="filterbar">
+  <div class="shell filterbar-inner">
+    <label class="search">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5 21 21"/></svg>
+      <input type="search" id="q" placeholder="Search make, model, year…" autocomplete="off" aria-label="Search cars">
+    </label>
+    <select id="fMake" aria-label="Filter by make"><option value="">All makes</option></select>
+    <select id="fBody" aria-label="Filter by body type"><option value="">All body types</option></select>
+    <select id="fPrice" aria-label="Filter by price">
+      <option value="">Any price</option>
+      <option value="0-100000">Under 100,000</option>
+      <option value="100000-200000">100k – 200k</option>
+      <option value="200000-350000">200k – 350k</option>
+      <option value="350000-600000">350k – 600k</option>
+      <option value="600000-999999999">600k and above</option>
+    </select>
+    <select id="fSort" aria-label="Sort listings">
+      <option value="default">Featured first</option>
+      <option value="price-asc">Price: low to high</option>
+      <option value="price-desc">Price: high to low</option>
+      <option value="year-desc">Newest year</option>
+      <option value="mileage-asc">Lowest mileage</option>
+    </select>
+    <button class="chip-toggle" id="fAvailable" aria-pressed="false">Hide sold</button>
+  </div>
+</div>
+
+<main class="shell">
+  <p class="result-line" id="resultLine"></p>
+  <div class="grid" id="grid" aria-live="polite"></div>
+  <div class="empty" id="empty" hidden>
+    <p class="empty-title">No cars match that.</p>
+    <p>Clear the filters, or message us on WhatsApp and tell us what you're looking for — we source to order.</p>
+    <button class="btn btn-ghost" id="clearFilters">Clear filters</button>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="kente-band" aria-hidden="true"></div>
+  <div class="shell footer-inner">
+    <div>
+      <p class="footer-brand" id="footBrand">Halo Autos</p>
+      <p class="footer-line" id="footAddress"></p>
+      <p class="footer-line" id="footHours"></p>
+    </div>
+    <div class="footer-contact" id="footContact"></div>
+  </div>
+</footer>
+
+<!-- Car detail sheet -->
+<div class="sheet-backdrop" id="sheet" hidden>
+  <article class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <button class="sheet-close" id="sheetClose" aria-label="Close">&times;</button>
+    <div class="sheet-body" id="sheetBody"></div>
+  </article>
+</div>
+
+<script src="assets/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "halo-autos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Halo Autos — folder-driven car sales site. Drop photos in, push, done.",
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js && node --watch-path=./cars --watch-path=./src --watch-path=./data serve.js",
+    "serve": "node serve.js"
+  },
+  "engines": { "node": ">=22" }
+}

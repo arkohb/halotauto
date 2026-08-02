@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listing editor — Halo Autos</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+<style>
+  .ed{ max-width:820px; padding-top:34px; padding-bottom:70px; }
+  .ed h1{ font-family:Fraunces,serif; font-size:2rem; margin:0 0 6px; }
+  .ed .lead{ color:var(--mute); margin:0 0 30px; max-width:56ch; }
+  .fields{ display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:16px; }
+  .f{ display:flex; flex-direction:column; gap:6px; }
+  .f.wide{ grid-column:1/-1; }
+  .f label{ font-size:10.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--mute); }
+  .f input, .f select, .f textarea{
+    background:var(--ink-raise); border:1px solid var(--ink-line); border-radius:9px;
+    padding:11px 13px; font-size:14.5px; width:100%;
+  }
+  .f textarea{ min-height:92px; resize:vertical; }
+  .f .hint{ font-size:12px; color:var(--mute); }
+  .row-check{ display:flex; gap:22px; align-items:center; grid-column:1/-1; }
+  .row-check label{ display:flex; gap:8px; align-items:center; text-transform:none; letter-spacing:0; font-size:14.5px; color:var(--bone); }
+  .row-check input{ width:auto; accent-color:var(--gold); }
+  .out{ margin-top:28px; }
+  .out pre{
+    background:#0d0d11; border:1px solid var(--ink-line); border-radius:12px;
+    padding:18px; overflow-x:auto; font-size:13px; color:var(--bone); line-height:1.5;
+  }
+  .out-actions{ display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+  .steps{ border:1px solid var(--ink-line); border-radius:12px; padding:18px 22px; margin-bottom:30px; }
+  .steps ol{ margin:0; padding-left:20px; color:var(--mute); font-size:14.5px; }
+  .steps li{ margin-bottom:6px; }
+  .steps code{ color:var(--gold); }
+</style>
+</head>
+<body>
+<div class="kente-band" aria-hidden="true"></div>
+<header class="masthead"><div class="shell masthead-inner">
+  <a class="wordmark" href="./"><span class="wordmark-halo">HALO</span><span class="wordmark-sub">AUTOS</span></a>
+  <a class="btn btn-ghost" href="./">Back to listings</a>
+</div></header>
+
+<main class="shell ed">
+  <h1>Listing editor</h1>
+  <p class="lead">Fill this in, copy the result, and save it as <code>car.json</code> inside the car's photo folder. Nothing here is uploaded — it just writes the file for you.</p>
+
+  <div class="steps">
+    <ol>
+      <li>Make a folder: <code>cars/2019-toyota-camry-se/</code></li>
+      <li>Drop the photos in. Name them <code>01.jpg, 02.jpg…</code> to set the order.</li>
+      <li>Save the JSON below as <code>car.json</code> in that same folder.</li>
+      <li>Push to GitHub. Netlify rebuilds and the car appears.</li>
+    </ol>
+  </div>
+
+  <div class="fields" id="fields">
+    <div class="f wide"><label for="title">Headline</label><input id="title" placeholder="2019 Toyota Camry SE"></div>
+    <div class="f"><label for="make">Make</label><input id="make" placeholder="Toyota"></div>
+    <div class="f"><label for="model">Model</label><input id="model" placeholder="Camry SE"></div>
+    <div class="f"><label for="year">Year</label><input id="year" type="number" placeholder="2019"></div>
+    <div class="f"><label for="price">Price (GHS)</label><input id="price" type="number" placeholder="285000"></div>
+    <div class="f"><label for="mileage">Mileage (km)</label><input id="mileage" type="number" placeholder="68000"></div>
+    <div class="f"><label for="condition">Condition</label>
+      <select id="condition"><option>Foreign Used</option><option>Home Used</option><option>Brand New</option><option>Accident Free</option></select></div>
+    <div class="f"><label for="registration">Registration</label>
+      <select id="registration"><option>Registered</option><option>Unregistered / Duty Paid</option><option>Duty Not Paid</option></select></div>
+    <div class="f"><label for="transmission">Transmission</label>
+      <select id="transmission"><option>Automatic</option><option>Manual</option><option>CVT</option></select></div>
+    <div class="f"><label for="fuel">Fuel</label>
+      <select id="fuel"><option>Petrol</option><option>Diesel</option><option>Hybrid</option><option>Electric</option><option>LPG</option></select></div>
+    <div class="f"><label for="engine">Engine</label><input id="engine" placeholder="2.5L 4-cylinder"></div>
+    <div class="f"><label for="drivetrain">Drivetrain</label>
+      <select id="drivetrain"><option value="">—</option><option>FWD</option><option>RWD</option><option>AWD</option><option>4WD</option></select></div>
+    <div class="f"><label for="bodyType">Body type</label>
+      <select id="bodyType"><option value="">—</option><option>Sedan</option><option>SUV</option><option>Pickup</option><option>Hatchback</option><option>Coupe</option><option>Bus / Van</option><option>Truck</option></select></div>
+    <div class="f"><label for="colour">Colour</label><input id="colour" placeholder="Pearl White"></div>
+    <div class="f"><label for="interior">Interior</label><input id="interior" placeholder="Black leather"></div>
+    <div class="f"><label for="seats">Seats</label><input id="seats" type="number" value="5"></div>
+    <div class="f"><label for="location">Location</label><input id="location" placeholder="Kumasi"></div>
+    <div class="f"><label for="status">Status</label>
+      <select id="status"><option value="available">Available</option><option value="reserved">Reserved</option><option value="sold">Sold</option></select></div>
+    <div class="f"><label for="sortOrder">Sort order</label><input id="sortOrder" type="number" value="100"><span class="hint">Lower shows first.</span></div>
+    <div class="f"><label for="cover">Cover photo filename</label><input id="cover" placeholder="01.jpg"><span class="hint">Leave blank to use the first photo.</span></div>
+    <div class="f wide"><label for="description">Description</label><textarea id="description" placeholder="One owner, full service history, tyres just replaced."></textarea></div>
+    <div class="f wide"><label for="features">Features</label><input id="features" placeholder="Reverse camera, Alloy rims, Cruise control"><span class="hint">Separate with commas.</span></div>
+    <div class="row-check">
+      <label><input type="checkbox" id="negotiable" checked> Price negotiable</label>
+      <label><input type="checkbox" id="featured"> Feature at the top</label>
+      <label><input type="checkbox" id="hidden"> Hide from the site</label>
+    </div>
+  </div>
+
+  <div class="out">
+    <pre id="out"></pre>
+    <div class="out-actions">
+      <button class="btn btn-gold" id="copy">Copy car.json</button>
+      <button class="btn btn-ghost" id="download">Download car.json</button>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const ids = ['title','make','model','year','price','mileage','condition','registration',
+    'transmission','fuel','engine','drivetrain','bodyType','colour','interior','seats',
+    'location','status','sortOrder','cover','description','features','negotiable','featured','hidden'];
+
+  const num = (v) => (v === '' || v === null ? null : Number(v));
+
+  function build() {
+    const o = {
+      title: $('title').value.trim(),
+      make: $('make').value.trim(),
+      model: $('model').value.trim(),
+      year: num($('year').value),
+      price: num($('price').value) || 0,
+      negotiable: $('negotiable').checked,
+      condition: $('condition').value,
+      registration: $('registration').value,
+      mileage: num($('mileage').value),
+      transmission: $('transmission').value,
+      fuel: $('fuel').value,
+      engine: $('engine').value.trim(),
+      drivetrain: $('drivetrain').value,
+      bodyType: $('bodyType').value,
+      colour: $('colour').value.trim(),
+      interior: $('interior').value.trim(),
+      seats: num($('seats').value),
+      location: $('location').value.trim(),
+      status: $('status').value,
+      featured: $('featured').checked,
+      sortOrder: num($('sortOrder').value) || 100,
+      description: $('description').value.trim(),
+      features: $('features').value.split(',').map((s) => s.trim()).filter(Boolean),
+      cover: $('cover').value.trim()
+    };
+    if ($('hidden').checked) o.hidden = true;
+    return JSON.stringify(o, null, 2);
+  }
+
+  function refresh() { $('out').textContent = build(); }
+  ids.forEach((id) => $(id).addEventListener('input', refresh));
+
+  $('copy').addEventListener('click', async (e) => {
+    await navigator.clipboard.writeText(build());
+    e.target.textContent = 'Copied';
+    setTimeout(() => (e.target.textContent = 'Copy car.json'), 1600);
+  });
+
+  $('download').addEventListener('click', () => {
+    const blob = new Blob([build()], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'car.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+
+  refresh();
+})();
+</script>
+</body>
+</html>
