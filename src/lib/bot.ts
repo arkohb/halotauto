@@ -207,13 +207,32 @@ export async function ensureBoot(): Promise<void> {
   return bot.booting;
 }
 
+// timer lives on globalThis with a generation guard — HMR module reloads
+// must never leave a zombie interval feeding the bot from a stale module
+const gTim = globalThis as unknown as {
+  __haloBotTimer?: ReturnType<typeof setInterval>;
+  __haloTickGen?: number;
+};
+
 function startTimer(): void {
   const bot = getBot();
-  if (bot.timer) clearInterval(bot.timer);
-  bot.timer = setInterval(() => {
+  if (gTim.__haloBotTimer) clearInterval(gTim.__haloBotTimer);
+  if (bot.timer) {
+    clearInterval(bot.timer);
+    bot.timer = null;
+  }
+  const gen = (gTim.__haloTickGen = (gTim.__haloTickGen ?? 0) + 1);
+  gTim.__haloBotTimer = setInterval(() => {
+    if (gTim.__haloTickGen !== gen) {
+      // superseded by a newer module instance — kill this zombie
+      clearInterval(gTim.__haloBotTimer!);
+      gTim.__haloBotTimer = undefined;
+      return;
+    }
     tickBot().catch(() => {});
   }, 2000);
-  (bot.timer as unknown as { unref?: () => void }).unref?.();
+  (gTim.__haloBotTimer as unknown as { unref?: () => void }).unref?.();
+  bot.timer = gTim.__haloBotTimer;
 }
 
 /** Instant mode: trial-run the live candle on a clone; commit only on fire/exit. */
@@ -303,6 +322,7 @@ export async function tickBot(force = false): Promise<void> {
     if (!bot.bootstrapped) return;
   }
   try {
+    const prevSource = bot.feedSource;
     const { candles, source, stale } = await getKlines(bot.symbol, bot.tf, 4, { fresh: true });
     bot.feedSource = source;
     bot.feedNote =
@@ -311,6 +331,12 @@ export async function tickBot(force = false): Promise<void> {
         : stale
           ? "Feed slow — using cached candles"
           : "";
+    // feed upgraded (simulator → real OHLC): re-anchor the engine onto the
+    // real series so levels/pips track actual market prices
+    if (prevSource === "simulator" && source !== "simulator" && !bot.engine.snapshot().trade) {
+      await warmEngine();
+      return;
+    }
     const secMs = tfSec(bot.tf) * 1000;
 
     for (const c of candles) {
@@ -359,6 +385,10 @@ export async function stopBot(): Promise<void> {
   await ensureBoot();
   bot.enabled = false;
   bot.autoAttach = false; // explicit detach — survives reboots
+  if (gTim.__haloBotTimer) {
+    clearInterval(gTim.__haloBotTimer);
+    gTim.__haloBotTimer = undefined;
+  }
   if (bot.timer) {
     clearInterval(bot.timer);
     bot.timer = null;

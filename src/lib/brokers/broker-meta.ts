@@ -67,13 +67,29 @@ export const BROKERS: BrokerMeta[] = [
     sizeLabel: "LOTS",
     sizeHint: "Volume in lots (0.01 min). Percent sizing uses the symbol's contract size fetched live.",
     fields: [
-      { key: "token", label: "MetaApi token", type: "password", placeholder: "eyeJwt token from app.metaapi.cloud" },
-      { key: "accountId", label: "Account ID", type: "text", placeholder: "account id from metaapi cloud" },
+      {
+        key: "token",
+        label: "MetaApi token override",
+        type: "password",
+        placeholder: "optional — platform key is built into this deployment",
+        hint: "Leave empty and HALO uses the platform key baked into the server. Only paste a token if the deployment has none.",
+      },
+      {
+        key: "accountId",
+        label: "MetaApi account ID",
+        type: "text",
+        placeholder: "optional — for an existing metaapi.cloud account",
+        hint: "Leave empty and HALO provisions a new connection from your MT login details automatically.",
+      },
+      { key: "login", label: "MT login", type: "text", placeholder: "e.g. 51234567" },
+      { key: "password", label: "MT password", type: "password", placeholder: "master password" },
+      { key: "server", label: "MT server", type: "text", placeholder: "ICMarketsSC-MT5" },
+      { key: "platform", label: "Platform", type: "select", options: ["mt5", "mt4"] },
     ],
     notes: [
-      "EASIEST PATH — use the gold MT4/MT5 LOGIN card above: paste your MT login + password + server and HALO provisions everything automatically.",
+      "ZERO MANUAL API SETUP — the broker API layer ships inside HALO. The MT4/MT5 LOGIN card above needs only your login · password · server.",
       "One connection covers virtually every MT4/MT5 CFD broker on earth.",
-      "Free tier works. All forex majors/crosses and metals (XAUUSD, XAGUSD…) map to your broker's MT symbols by default.",
+      "All forex majors/crosses and metals (XAUUSD, XAGUSD…) map to your broker's MT symbols by default.",
     ],
   },
   {

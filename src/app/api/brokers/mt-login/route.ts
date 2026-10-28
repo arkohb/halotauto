@@ -8,9 +8,13 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
 // ════════════════════════════════════════════════════════════════════════
-//  MT4 / MT5 DIRECT LOGIN · the user pastes their broker MT credentials
-//  (login · password · server) and HALO provisions the MetaApi cloud
-//  connection automatically:
+//  MT4 / MT5 DIRECT LOGIN · ZERO-MANUAL-API EDITION
+//  Every broker API already ships inside HALO. The user pastes ONLY their
+//  broker MT credentials (login · password · server) and HALO provisions
+//  the MetaApi cloud bridge automatically — no API keys to add, nothing to
+//  wire up. The platform key is resolved from the server environment:
+//    token = body token (Advanced override)  →  env METAAPI_TOKEN
+//  Flow:
 //    1) POST /users/current/accounts   (login + password + server + platform)
 //    2) PUT  /users/current/accounts/:id/deploy
 //    3) poll state until DEPLOYED (bounded)
@@ -19,6 +23,11 @@ export const maxDuration = 90;
 // ════════════════════════════════════════════════════════════════════════
 
 const BASE = "https://api.metaapi.cloud";
+
+/** the platform key baked into this deployment (traders never touch it) */
+function platformToken(): string {
+  return String(process.env.METAAPI_TOKEN ?? "").trim();
+}
 
 interface Body {
   token?: string; // MetaApi account token (app.metaapi.cloud)
@@ -52,14 +61,25 @@ function friendly(e: unknown): Error {
   return e as Error;
 }
 
+// ── platform-key status for the UI badge ─────────────────────────────
+export async function GET() {
+  const baked = !!platformToken();
+  return NextResponse.json({ ok: true, platformKey: baked });
+}
+
 export async function POST(req: Request) {
   try {
     const b = (await req.json()) as Body;
-    const token = String(b.token ?? "").trim();
+    // zero-manual-api: the deployment's own platform key, or an Advanced override
+    const token = String(b.token ?? "").trim() || platformToken();
     const platform = b.platform === "mt4" ? "mt4" : "mt5";
     if (!token)
       return NextResponse.json(
-        { ok: false, error: "MetaApi token is required — create a free one at app.metaapi.cloud" },
+        {
+          ok: false,
+          error:
+            "This HALO deployment has no built-in MT platform key yet. The operator sets METAAPI_TOKEN once on the server (free at app.metaapi.cloud) — or paste your own MetaApi token under ADVANCED below. Your MT login details alone cannot reach the cloud bridge without it.",
+        },
         { status: 400 }
       );
 
@@ -70,7 +90,7 @@ export async function POST(req: Request) {
 
     if (!directId && (!login || !password || !server)) {
       return NextResponse.json(
-        { ok: false, error: "MT login, password and server are all required (or paste an existing MetaApi account ID under Advanced)" },
+        { ok: false, error: "Your MT login, password and server are all required — exactly as shown in your MT4/MT5 terminal." },
         { status: 400 }
       );
     }

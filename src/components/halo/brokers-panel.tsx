@@ -455,19 +455,23 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
   const [accountId, setAccountId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [platKey, setPlatKey] = useState<boolean | null>(null); // platform key baked into this deployment?
+
+  useEffect(() => {
+    fetch("/api/brokers/mt-login", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { platformKey?: boolean }) => setPlatKey(!!j.platformKey))
+      .catch(() => setPlatKey(false));
+  }, []);
 
   const submit = async () => {
     setError("");
-    if (!token.trim()) {
-      setError("MetaApi token is required — step 1 below gets you one free.");
-      return;
-    }
     if (!advanced && (!login.trim() || !password || !server.trim())) {
       setError("Enter your MT login, password and server — exactly as shown in your MT4/MT5 terminal.");
       return;
     }
-    if (advanced && !accountId.trim()) {
-      setError("Paste the MetaApi account ID (or switch the Advanced toggle off to use your MT login).");
+    if (advanced && !accountId.trim() && (!login.trim() || !password || !server.trim())) {
+      setError("Provide either your MT login details, or paste an existing MetaApi account ID under Advanced.");
       return;
     }
     setBusy(true);
@@ -476,13 +480,13 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token: token.trim(),
+          token: token.trim() || undefined, // optional — the platform key built into this deployment is used when empty
           platform,
           login: login.trim(),
           password,
           server: server.trim(),
           label: label.trim() || undefined,
-          accountId: advanced ? accountId.trim() : undefined,
+          accountId: advanced && accountId.trim() ? accountId.trim() : undefined,
         }),
       });
       const j = (await r.json()) as {
@@ -529,31 +533,37 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
     <div className="rounded-xl border border-[#D4AF37] bg-[rgba(212,175,55,0.04)] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-bold tracking-wider text-[#D4AF37]">MT4 / MT5 LOGIN · TRADE THE EA ON YOUR OWN BROKER</div>
+          <div className="text-sm font-bold tracking-wider text-[#D4AF37]">MT4 / MT5 LOGIN · JUST YOUR BROKER LOGIN DETAILS</div>
           <div className="text-[11px] text-[#8C98AE] mt-0.5 max-w-2xl leading-relaxed">
             Works with virtually any MT4/MT5 broker — IC Markets, Pepperstone, XM, Exness, FTMO, Vantage, Deriv, Axi, FxPro…
-            HALO provisions the cloud connection from your MT credentials automatically, then the built-in EA autotrades it live.
+            Every broker API is already built into HALO — nothing to install, no keys to wire up. Paste your MT login
+            details and the system provisions everything automatically, then the built-in EA autotrades the account live.
           </div>
         </div>
-        <Badge variant="outline" className="text-[9px] border-[#D4AF37] text-[#D4AF37] uppercase shrink-0">
-          recommended
-        </Badge>
+        <div className="flex flex-col items-end gap-1.5 shrink-0">
+          <span
+            className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-extrabold tracking-[0.12em] border"
+            style={
+              platKey
+                ? { borderColor: "rgba(8,153,129,0.6)", color: C.green, background: "rgba(8,153,129,0.08)" }
+                : { borderColor: "rgba(212,175,55,0.6)", color: C.gold, background: "rgba(212,175,55,0.08)" }
+            }
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: platKey ? C.green : C.gold }} />
+            {platKey === null ? "CHECKING PLATFORM…" : platKey ? "BROKER APIs · BUILT-IN" : "PLATFORM KEY · MISSING"}
+          </span>
+          <Badge variant="outline" className="text-[9px] border-[#D4AF37] text-[#D4AF37] uppercase">
+            recommended
+          </Badge>
+        </div>
       </div>
 
       {/* ── how-to steps ── */}
       <ol className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] leading-relaxed">
         {[
           <>
-            Get a free MetaApi token at{" "}
-            <a
-              href="https://app.metaapi.cloud/sign-up/token"
-              target="_blank"
-              rel="noreferrer"
-              className="text-[#D4AF37] underline underline-offset-2"
-            >
-              app.metaapi.cloud
-            </a>{" "}
-            (Copy account token). One token handles all your MT accounts.
+            Nothing to install — every broker API (MT4/MT5 cloud bridge, OANDA, IG, Binance, bridges) already ships inside
+            this app. No manual API adding, ever.
           </>,
           <>
             Enter your MT <span className="text-[#E8ECF4]">login</span> (account number),{" "}
@@ -561,8 +571,8 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
             exactly as they appear in your MT4/MT5 terminal&apos;s login window.
           </>,
           <>
-            Press <span className="text-[#D4AF37]">CONNECT MT ACCOUNT</span> — HALO creates + deploys the connection,
-            then auto-tests it and shows your balance.
+            Press <span className="text-[#D4AF37]">CONNECT MT ACCOUNT</span> — HALO provisions + deploys the cloud
+            connection from your login details automatically, then auto-tests it and shows your balance.
           </>,
           <>
             Press <span className="text-[#D4AF37]">GO LIVE</span> on the account card (or flip the switch below),{" "}
@@ -602,6 +612,7 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
             value={login}
             onChange={(e) => setLogin(e.target.value)}
             placeholder="e.g. 51234567"
+            aria-label="MT login"
             autoComplete="off"
             className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
           />
@@ -612,6 +623,7 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="your trading password — not the investor/read-only one"
+            aria-label="MT password"
             autoComplete="new-password"
             className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
           />
@@ -622,6 +634,7 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
             onChange={(e) => setServer(e.target.value)}
             placeholder={platform === "mt5" ? "ICMarketsSC-MT5" : "ICMarketsSC-MT4"}
             list="mt-server-suggestions"
+            aria-label="MT server"
             autoComplete="off"
             className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
           />
@@ -631,45 +644,55 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
             ))}
           </datalist>
         </Field>
-        <Field label="METAAPI TOKEN" hint="Secret — stored server-side only.">
-          <Input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="eyJhbGciOi… (app.metaapi.cloud)"
-            autoComplete="off"
-            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
-          />
-        </Field>
         <Field label="LABEL (OPTIONAL)">
           <Input
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="IC Markets gold · live"
+            aria-label="MT account label"
             className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
           />
         </Field>
       </div>
 
-      {/* advanced: existing MetaApi account */}
+      {/* advanced: existing MetaApi account / optional token override */}
       <button
         type="button"
         onClick={() => setAdvanced((v) => !v)}
         className="mt-3 text-[11px] text-[#8C98AE] hover:text-[#D4AF37] tracking-wider"
       >
-        {advanced ? "▾" : "▸"} ADVANCED — I ALREADY HAVE A METAAPI ACCOUNT ID
+        {advanced ? "▾" : "▸"} ADVANCED — EXISTING METAAPI ACCOUNT / TOKEN OVERRIDE
       </button>
       {advanced && (
-        <div className="mt-2 max-w-md">
+        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl">
           <Field
-            label="METAAPI ACCOUNT ID"
+            label="METAAPI ACCOUNT ID (OPTIONAL)"
             hint="Skips auto-provisioning — HALO connects straight to this account."
           >
             <Input
               value={accountId}
               onChange={(e) => setAccountId(e.target.value)}
               placeholder="uuid of the account in app.metaapi.cloud"
+              aria-label="MetaApi account id"
               className="h-9 bg-[#0B1426] border-[#1C2A47] text-xs font-mono text-[#E8ECF4]"
+            />
+          </Field>
+          <Field
+            label="METAAPI TOKEN OVERRIDE (OPTIONAL)"
+            hint={
+              platKey
+                ? "Leave empty — this deployment's built-in platform key is used automatically."
+                : "This deployment has no built-in platform key yet — paste a free token from app.metaapi.cloud, or ask the operator to set METAAPI_TOKEN on the server."
+            }
+          >
+            <Input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="eyJhbGciOi… (only if the platform key is missing)"
+              aria-label="MetaApi token override"
+              autoComplete="off"
+              className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
             />
           </Field>
         </div>
@@ -689,7 +712,7 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
           disabled={busy}
           className="h-10 px-5 rounded-lg bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold text-xs tracking-wider shrink-0"
         >
-          {busy ? "PROVISIONING… DEPLOYING ON METAAPI CLOUD (up to 1 min)" : "CONNECT MT ACCOUNT"}
+          {busy ? "PROVISIONING · DEPLOYING · TESTING (up to 1 min)" : "CONNECT MT ACCOUNT"}
         </Button>
       </div>
 
@@ -700,8 +723,9 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
       )}
 
       <div className="mt-3 text-[10px] text-[#5D606B] leading-relaxed">
-        Autotrading checklist: account TEST passes · GO LIVE armed · EA started on the dashboard · a scanned symbol fires C3 →
-        market order with SL/TP hits your MT terminal instantly. Telegram/email/push alerts fire on every fill.
+        Broker APIs are part of the system — your MT login details are the only input. Autotrading checklist: account TEST
+        passes · GO LIVE armed · EA started on the dashboard · a scanned symbol fires C3 → market order with SL/TP hits your
+        MT terminal instantly. Telegram/email/push alerts fire on every fill.
       </div>
     </div>
   );
