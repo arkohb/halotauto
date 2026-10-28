@@ -9,7 +9,7 @@
 //  • GO LIVE = activate account + route the EA's real C3 orders to it
 // ════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -23,6 +23,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { C } from "@/lib/halo/ui-helpers";
 import { BROKERS, brokerMeta, MT_SERVERS, type CredField } from "@/lib/brokers/broker-meta";
+import {
+  BROKER_DIRECTORY,
+  DIRECTORY_MT_SERVERS,
+  searchFirms,
+  viaLabel,
+  type DirectoryCategory,
+  type FirmEntry,
+} from "@/lib/brokers/broker-directory";
 
 export interface BrokerRow {
   id: string;
@@ -51,6 +59,22 @@ export function BrokersPanel({ notify }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [presetKind, setPresetKind] = useState<string>("oanda");
+  const [presetLabel, setPresetLabel] = useState<string>("");
+  const [query, setQuery] = useState("");
+  const [cat, setCat] = useState<DirectoryCategory>("all");
+  const [mtPrefill, setMtPrefill] = useState<{
+    server: string;
+    platform: "mt4" | "mt5";
+    label: string;
+    nonce: number;
+  } | null>(null);
+  const mtCardRef = useRef<HTMLDivElement>(null);
+
+  const serverOptions = useMemo(
+    () => Array.from(new Set([...MT_SERVERS, ...DIRECTORY_MT_SERVERS])),
+    []
+  );
+  const firms = useMemo(() => searchFirms(query, cat), [query, cat]);
 
   const load = useCallback(async () => {
     try {
@@ -165,6 +189,24 @@ export function BrokersPanel({ notify }: Props) {
     }
   };
 
+  /** directory pick: MT firms pre-fill the featured login card; others open their connect dialog */
+  const pickFirm = (f: FirmEntry) => {
+    if (f.kind === "metaapi") {
+      setMtPrefill({
+        server: f.servers[0] ?? "",
+        platform: f.platform ?? "mt5",
+        label: f.name,
+        nonce: Date.now(),
+      });
+      notify("SERVER PRE-FILLED", `${f.name} — paste your MT login + master password, then CONNECT MT ACCOUNT.`);
+      mtCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    setPresetKind(f.kind);
+    setPresetLabel(f.name);
+    setAddOpen(true);
+  };
+
   return (
     <div className="space-y-4">
       {/* ── header strip ── */}
@@ -191,7 +233,24 @@ export function BrokersPanel({ notify }: Props) {
       </div>
 
       {/* ── featured: MT4/MT5 direct login ── */}
-      <MtLoginCard notify={notify} onDone={() => void load()} />
+      <div ref={mtCardRef} className="scroll-mt-4">
+        <MtLoginCard
+          notify={notify}
+          onDone={() => void load()}
+          prefill={mtPrefill}
+          serverOptions={serverOptions}
+        />
+      </div>
+
+      {/* ── broker directory · all prop firms + CFD brokers ── */}
+      <DirectorySection
+        query={query}
+        setQuery={setQuery}
+        cat={cat}
+        setCat={setCat}
+        firms={firms}
+        onPick={pickFirm}
+      />
 
       {/* ── connected accounts ── */}
       {rows.length > 0 && (
@@ -433,7 +492,15 @@ export function BrokersPanel({ notify }: Props) {
 
       {/* connect dialog for the other platforms */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
-        <AddBrokerDialog presetKind={presetKind} onDone={() => { setAddOpen(false); void load(); }} notify={notify} />
+        <AddBrokerDialog
+          presetKind={presetKind}
+          presetLabel={presetLabel}
+          onDone={() => {
+            setAddOpen(false);
+            void load();
+          }}
+          notify={notify}
+        />
       </Dialog>
     </div>
   );
@@ -443,7 +510,17 @@ export function BrokersPanel({ notify }: Props) {
 //  MT4 / MT5 LOGIN CARD · paste broker MT credentials → auto-provision
 // ════════════════════════════════════════════════════════════════════════
 
-function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () => void }) {
+function MtLoginCard({
+  notify,
+  onDone,
+  prefill,
+  serverOptions,
+}: {
+  notify: Props["notify"];
+  onDone: () => void;
+  prefill?: { server: string; platform: "mt4" | "mt5"; label: string; nonce: number } | null;
+  serverOptions?: string[];
+}) {
   const [platform, setPlatform] = useState<"mt5" | "mt4">("mt5");
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -465,6 +542,14 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
       )
       .catch(() => setPlatKey("missing"));
   }, []);
+
+  // directory pick: pre-fill server / platform / label (identity bumps on every pick)
+  useEffect(() => {
+    if (!prefill) return;
+    setPlatform(prefill.platform);
+    setServer(prefill.server);
+    setLabel(prefill.label);
+  }, [prefill]);
 
   const submit = async () => {
     setError("");
@@ -651,7 +736,7 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
             className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
           />
           <datalist id="mt-server-suggestions">
-            {MT_SERVERS.map((s) => (
+            {(serverOptions && serverOptions.length > 0 ? serverOptions : MT_SERVERS).map((s) => (
               <option key={s} value={s} />
             ))}
           </datalist>
@@ -743,14 +828,150 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
   );
 }
 
+// ════════════════════════════════════════════════════════════════════════
+//  BROKER DIRECTORY · every prop firm + CFD broker, one tap to connect
+// ════════════════════════════════════════════════════════════════════════
+
+function DirectorySection({
+  query,
+  setQuery,
+  cat,
+  setCat,
+  firms,
+  onPick,
+}: {
+  query: string;
+  setQuery: (v: string) => void;
+  cat: DirectoryCategory;
+  setCat: (c: DirectoryCategory) => void;
+  firms: FirmEntry[];
+  onPick: (f: FirmEntry) => void;
+}) {
+  const props = firms.filter((f) => f.category === "prop");
+  const cfds = firms.filter((f) => f.category === "cfd");
+  const propTotal = BROKER_DIRECTORY.filter((x) => x.category === "prop").length;
+  const cfdTotal = BROKER_DIRECTORY.filter((x) => x.category === "cfd").length;
+
+  const tile = (f: FirmEntry) => (
+    <button
+      key={f.id}
+      type="button"
+      onClick={() => onPick(f)}
+      aria-label={`Connect ${f.name}`}
+      className="text-left rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-3 transition-colors hover:border-[#D4AF37] group"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="font-bold text-sm text-[#E8ECF4] group-hover:text-[#D4AF37]">{f.name}</span>
+        <Badge
+          variant="outline"
+          className="text-[8px] uppercase shrink-0"
+          style={{
+            borderColor: f.category === "prop" ? "rgba(212,175,55,0.55)" : "rgba(140,152,174,0.4)",
+            color: f.category === "prop" ? C.gold : "#8C98AE",
+          }}
+        >
+          {f.category === "prop" ? "PROP" : "CFD"}
+        </Badge>
+      </div>
+      <div className="text-[10px] text-[#8C98AE] mt-1 leading-snug">{f.assets}</div>
+      {f.servers[0] ? (
+        <div className="mt-2 text-[9px] font-mono text-[#5D606B] truncate">
+          <span className="text-[#8C98AE]">server:</span> {f.servers[0]}
+          {f.servers.length > 1 && <span className="text-[#5D606B]"> +{f.servers.length - 1}</span>}
+        </div>
+      ) : (
+        <div className="mt-2 text-[9px] font-mono text-[#5D606B] truncate">{viaLabel(f.kind)}</div>
+      )}
+      {f.note && <div className="mt-1.5 text-[9px] text-[#5D606B] leading-snug line-clamp-2">{f.note}</div>}
+      <div
+        className="mt-2 text-[10px] font-bold tracking-wider text-[#D4AF37] opacity-0 group-hover:opacity-100 transition-opacity"
+      >
+        CONNECT →
+      </div>
+    </button>
+  );
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[11px] font-bold tracking-wider text-[#8C98AE]">
+          BROKER DIRECTORY · {BROKER_DIRECTORY.length} PROP FIRMS & CFD BROKERS · PICK YOURS
+        </div>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search firm, broker or server…"
+          aria-label="Search broker directory"
+          className="h-8 w-56 bg-[#0B1426] border-[#1C2A47] text-[11px] text-[#E8ECF4] placeholder:text-[#5D606B]"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {([
+          ["all", `ALL (${BROKER_DIRECTORY.length})`],
+          ["prop", `PROP FIRMS (${propTotal})`],
+          ["cfd", `CFD BROKERS (${cfdTotal})`],
+        ] as [DirectoryCategory, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setCat(key)}
+            className={`h-8 px-3 rounded-lg text-[10px] font-bold tracking-wider border transition-colors ${
+              cat === key ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#1C2A47] text-[#8C98AE] hover:border-[#2A3A5C]"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {firms.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[#2A3A5C] bg-[#0F1A30] p-6 text-center text-[11px] text-[#8C98AE]">
+          No firm matches &ldquo;{query}&rdquo; — the MT4/MT5 LOGIN card above accepts <span className="text-[#E8ECF4]">any</span> MT
+          broker on earth: paste your login · password · server.
+        </div>
+      ) : (
+        <>
+          {(cat === "all" || cat === "prop") && props.length > 0 && (
+            <div className="space-y-2">
+              {cat === "all" && (
+                <div className="text-[10px] font-bold tracking-wider text-[#D4AF37]">
+                  PROP FIRMS — FUNDED ACCOUNTS ({props.length})
+                </div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">{props.map(tile)}</div>
+            </div>
+          )}
+          {(cat === "all" || cat === "cfd") && cfds.length > 0 && (
+            <div className="space-y-2">
+              {cat === "all" && (
+                <div className="text-[10px] font-bold tracking-wider text-[#8C98AE]">CFD BROKERS ({cfds.length})</div>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">{cfds.map(tile)}</div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="text-[10px] text-[#5D606B] leading-relaxed">
+        MT4/MT5 firms connect with your broker login (login · master password · server — pre-filled from this directory).
+        Futures desks (Topstep, Apex…) and platform-native props route through the webhook bridge. Every adapter is part
+        of the system — nothing to install, no API keys to add.
+      </div>
+    </div>
+  );
+}
+
 // ───────────────────────── add-broker dialog (other platforms) ─────────────────────────
 
 function AddBrokerDialog({
   presetKind,
+  presetLabel,
   onDone,
   notify,
 }: {
   presetKind: string;
+  presetLabel?: string;
   onDone: () => void;
   notify: Props["notify"];
 }) {
@@ -765,9 +986,9 @@ function AddBrokerDialog({
   useEffect(() => {
     setKind(presetKind);
     setValues({});
-    setLabel("");
+    setLabel(presetLabel ?? "");
     setSymbolMap("");
-  }, [presetKind]);
+  }, [presetKind, presetLabel]);
 
   const pickKind = (k: string) => {
     setKind(k);
