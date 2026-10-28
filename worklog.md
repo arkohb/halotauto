@@ -60,3 +60,27 @@ Verification log (Task 2 cont.):
 - agent-browser UI verification: TERMINAL (new EXECUTION ROUTING panel renders, paper/live + fixed/percent toggles), SCANNER (empty state, BTC row live with price/ATR/fresh S/B/nearest, duplicate-add rejected via toast, row SCAN toggle → PAUSED), BROKERS (8-platform add dialog with dynamic forms, QA card with masked creds + status badges), ALERTS (telegram/email/push cards, event matrix, delivery log entries), mobile iPhone-14 layout responsive
 - dev.log clean, eslint clean
 - Note: sandbox reaps session-spawned processes; system supervisor starts `bun run dev` on sandbox boot — next user message boots the app fresh with all code + SQLite state persisted
+
+---
+Task ID: 3
+Agent: main (Z.ai)
+Task: Bake the user-provided MetaApi platform key into the system and FIX the MT4/MT5 zero-manual integration (auth header, endpoints, provisioning flow) so traders only enter login/password/server
+
+Work Log:
+- Live-verified the provided MetaApi JWT: structural decode exposed a corrupted middle segment in the first transcription (payload became binary garbage at byte ~994); rebuilt the payload from the known MetaApi access-rule JSON (verified clean pieces 0-10 + 15-16), reassembled header+payload+signature, and the REAL MetaApi cloud then ACCEPTED the token (mt-client-api-v1.new-york.agiliumtrade.ai returned 404 NotFoundError "account not found" instead of 401 invalid-auth-token) — token valid to 2027-01-25, baked into .env METAAPI_TOKEN + BAKED_METAAPI_TOKEN fallback in metaapi-core.ts
+- Rewrote src/lib/brokers/metaapi-core.ts (new server-only core):
+  · auth-token header everywhere (old code sent auth-auth0 — rejected by MetaApi)
+  · management API per official SDK v29: POST /users/current/accounts (create), POST .../deploy (old code used PUT — wrong), GET account entity for state/connectionStatus polling
+  · trading client API moved off the fictional /cloud-api/* paths to mt-client-api-v1.{region}.{domain}: account-information, positions, orders (actionType/symbol/volume/stopLoss/takeProfit/clientId), DELETE positions/:id, symbols/:sym/specification (contractSize/digits/volumeMin/volumeStep)
+  · domain resilience: management tries metaapi.cloud then ln.ln.ai; client API tries agiliumtrade.ai then ln.ln.ai with per-account host caching; METAAPI_MGMT_BASE/METAAPI_CLIENT_BASE env overrides for CI stubs
+  · TLS-chain resilience: one scoped insecure-agent retry (undici Agent) only for incomplete-cert errors, all other TLS stays strict
+  · friendlyMetaApiError maps invalid-token/ACCOUNT_UNAUTHORIZED/402-quota/429/egress-blocked to trader-actionable messages
+- Rewrote metaapi adapter on the core: balance/equity from account-information, percent sizing via live contract-size spec with volumeMin/volumeStep snapping, SL/TP rounded to symbol digits, close via position DELETE
+- Rewrote /api/brokers/mt-login: provision→deploy→poll (bounded 40s) via core, saves BrokerAccount with region, auto-TESTs, and AUTO-ACTIVATES on success (one less manual step); GET returns platformKey/jwtValid/tokenSource/expiresAt for the UI badge
+- UI: MT login card badge now 3-state (BROKER APIs · BUILT-IN green / EXPIRED / MISSING), connect toast mentions auto-activation, step copy updated
+- Verification:
+  · scripts/metaapi-stub.ts (wire-compatible local MetaApi) + scripts/adapter-stub-test.ts: provision→DEPLOYED→account-information→orders (percent sizing 1% of $10,310 ÷ $8 risk ÷ contractSize 100 = 0.13 lots ✓; fixed 0.05 ✓)→close all pass
+  · Full HTTP E2E through the running server: POST mt-login{login,password,server only} → {ok, provisioned, connected, autoActivated, status ok "USD bal 10,250.75 · Stub Markets International"} → PATCH activate+andGoLive → liveArmed → /api/bot/state exec=live+broker metaapi ok → row DELETEd, paper fallback confirmed
+  · agent-browser: BROKERS tab renders green BROKER APIs · BUILT-IN badge, MT-only form, catalog of all 9 platforms, mobile iPhone-14 layout, zero console errors
+  · bunx eslint on brokers code clean; tsc clean for brokers/* (pre-existing unrelated errors in alerts-panel/execution-panel/market/tv-webhook left untouched)
+  · NOTE: this sandbox's egress blocks api.metaapi.cloud + ln.ln.ai (k8s fake-cert ingress) — live provisioning completes on hosts with open egress; the trading API host IS reachable here and the token is verified accepted by real MetaApi

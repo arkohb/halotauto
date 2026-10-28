@@ -455,13 +455,15 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
   const [accountId, setAccountId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [platKey, setPlatKey] = useState<boolean | null>(null); // platform key baked into this deployment?
+  const [platKey, setPlatKey] = useState<"active" | "expired" | "missing" | null>(null); // platform key status
 
   useEffect(() => {
     fetch("/api/brokers/mt-login", { cache: "no-store" })
       .then((r) => r.json())
-      .then((j: { platformKey?: boolean }) => setPlatKey(!!j.platformKey))
-      .catch(() => setPlatKey(false));
+      .then((j: { platformKey?: boolean; jwtValid?: boolean }) =>
+        setPlatKey(j.platformKey ? (j.jwtValid === false ? "expired" : "active") : "missing")
+      )
+      .catch(() => setPlatKey("missing"));
   }, []);
 
   const submit = async () => {
@@ -490,7 +492,7 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
         }),
       });
       const j = (await r.json()) as {
-        ok: boolean; id?: string; status?: string; statusMsg?: string; error?: string;
+        ok: boolean; id?: string; status?: string; statusMsg?: string; autoActivated?: boolean; error?: string;
       };
       if (!j.ok) {
         setError(j.error ?? "MT connection failed");
@@ -498,7 +500,10 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
         return;
       }
       if (j.status === "ok") {
-        notify("MT ACCOUNT CONNECTED", j.statusMsg ?? "Balance fetched from your broker.");
+        notify(
+          j.autoActivated ? "MT ACCOUNT CONNECTED · ACTIVE" : "MT ACCOUNT CONNECTED",
+          j.statusMsg ?? "Balance fetched from your broker." + (j.autoActivated ? " Account set ACTIVE automatically — GO LIVE is one tap." : "")
+        );
       } else {
         notify("ADDED — BUT TEST FAILED", j.statusMsg ?? "Deployment may still be running — press TEST on the account card in a minute.", true);
       }
@@ -544,13 +549,19 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
           <span
             className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-extrabold tracking-[0.12em] border"
             style={
-              platKey
+              platKey === "active"
                 ? { borderColor: "rgba(8,153,129,0.6)", color: C.green, background: "rgba(8,153,129,0.08)" }
                 : { borderColor: "rgba(212,175,55,0.6)", color: C.gold, background: "rgba(212,175,55,0.08)" }
             }
           >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: platKey ? C.green : C.gold }} />
-            {platKey === null ? "CHECKING PLATFORM…" : platKey ? "BROKER APIs · BUILT-IN" : "PLATFORM KEY · MISSING"}
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: platKey === "active" ? C.green : C.gold }} />
+            {platKey === null
+              ? "CHECKING PLATFORM…"
+              : platKey === "active"
+                ? "BROKER APIs · BUILT-IN"
+                : platKey === "expired"
+                  ? "PLATFORM KEY · EXPIRED — OVERRIDE BELOW"
+                  : "PLATFORM KEY · MISSING"}
           </span>
           <Badge variant="outline" className="text-[9px] border-[#D4AF37] text-[#D4AF37] uppercase">
             recommended
@@ -572,7 +583,8 @@ function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () =
           </>,
           <>
             Press <span className="text-[#D4AF37]">CONNECT MT ACCOUNT</span> — HALO provisions + deploys the cloud
-            connection from your login details automatically, then auto-tests it and shows your balance.
+            connection from your login details automatically, auto-tests it, shows your balance and sets the account
+            <span className="text-[#E8ECF4]"> ACTIVE</span> for live routing.
           </>,
           <>
             Press <span className="text-[#D4AF37]">GO LIVE</span> on the account card (or flip the switch below),{" "}
