@@ -3,14 +3,18 @@
 // ════════════════════════════════════════════════════════════════════════
 //  HALO 3EL CHART · dual engine, indicator attached to BOTH views
 //
+//  CURRENT-SIGNAL MODE — the chart stays clean:
+//  only the signal the EA is acting on RIGHT NOW is drawn — the live C1/C2
+//  equal level, the C3 forming tracker, and the open trade's ENTRY/SL/TP.
+//  Old levels, old fires, old TP/SL hits are never rendered.
+//
 //  • TRADINGVIEW  — Advanced Chart widget + floating 3EL indicator rail
-//    (fresh C1/C2 levels, C3 forming tracker, ENTRY/SL/TP position card).
+//    (current C1/C2 level, C3 forming tracker, ENTRY/SL/TP position card).
 //  • 3EL INDICATOR — lightweight-charts (TradingView's own chart engine)
-//    with the full 3EL indicator drawn ON the chart: shaded C1/C2
-//    equal-level zones, trigger lines, C3 FORMING marker on the live bar,
-//    level price tags on the axis, and the TradingView-style position tool
-//    (green profit zone entry→TP, red risk zone entry→SL, ENTRY/SL/TP
-//    axis labels).
+//    with the 3EL indicator drawn ON the chart: shaded equal-level zone,
+//    trigger lines, C3 FORMING marker on the live bar, level price tag on
+//    the axis, and the TradingView-style position tool (green profit zone
+//    entry→TP, red risk zone entry→SL, ENTRY/SL/TP axis labels).
 //
 //  ⚠ Presentation layer only — the live strategy / EA is never touched.
 // ════════════════════════════════════════════════════════════════════════
@@ -317,7 +321,23 @@ export default function ChartPanel(props: ChartProps) {
 
     const firstT = candles.length > 0 ? candles[0].time : 0;
     const lastT = candles.length > 0 ? candles[candles.length - 1].time : Date.now();
-    const visible = drawings.filter((d) => (d.endTime ?? lastT) >= firstT).slice(-26);
+
+    // ── CURRENT SIGNAL ONLY ─────────────────────────────────────────
+    // Old signals are removed: what renders is exactly what the EA acts on.
+    //   • the newest FRESH equal level  → the signal the EA is watching
+    //   • while a trade is open         → the fired level that produced it
+    // Everything else (burned / fired-and-closed levels) stays off the chart.
+    const freshAll = drawings.filter((d) => d.state === "fresh");
+    const newestFresh =
+      freshAll.length > 0 ? freshAll.reduce((a, b) => (b.b2Time >= a.b2Time ? b : a)) : null;
+    let firedForTrade: LevelSnapshot | null = null;
+    if (trade) {
+      firedForTrade =
+        drawings.find((d) => d.state === "fired" && d.endTime === trade.entryTime) ??
+        [...drawings].reverse().find((d) => d.state === "fired") ??
+        null;
+    }
+    const visible = [newestFresh, firedForTrade].filter((d): d is LevelSnapshot => d !== null);
 
     const addLevelLine = (t1: number, t2: number, px: number, color: string, width: 1 | 2, dashed: boolean) => {
       const a = Math.max(t1, firstT) / 1000;
@@ -454,34 +474,17 @@ export default function ChartPanel(props: ChartProps) {
       });
     }
 
-    // ── 5. event markers (fires + results) ──
-    for (const e of log.slice(-30)) {
-      if (e.kind === "fire") {
+    // ── 5. the current trade's fire marker — old signals never clutter the chart ──
+    if (trade) {
+      const f = log.find((e) => e.kind === "fire" && e.time === trade.entryTime);
+      if (f) {
         markers.push({
-          time: (e.time / 1000) as UTCTimestamp,
-          position: e.dir === -1 ? "aboveBar" : "belowBar",
-          shape: e.dir === -1 ? "arrowDown" : "arrowUp",
-          text: e.dir === -1 ? "C3 SELL" : "C3 BUY",
+          time: (f.time / 1000) as UTCTimestamp,
+          position: f.dir === -1 ? "aboveBar" : "belowBar",
+          shape: f.dir === -1 ? "arrowDown" : "arrowUp",
+          text: f.dir === -1 ? "C3 SELL" : "C3 BUY",
           color: C.gold,
           size: 1.5,
-        });
-      } else if (e.kind === "win") {
-        markers.push({
-          time: (e.time / 1000) as UTCTimestamp,
-          position: e.dir === -1 ? "belowBar" : "aboveBar",
-          shape: "circle",
-          text: `TP ${e.pips.toFixed(0)}p`,
-          color: C.green,
-          size: 1,
-        });
-      } else if (e.kind === "loss") {
-        markers.push({
-          time: (e.time / 1000) as UTCTimestamp,
-          position: e.dir === -1 ? "aboveBar" : "belowBar",
-          shape: "square",
-          text: `SL ${e.pips.toFixed(0)}p`,
-          color: C.red,
-          size: 1,
         });
       }
     }

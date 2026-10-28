@@ -24,6 +24,7 @@ export interface HaloConfig {
   minSepATR: number; // Too-close distance (× ATR) (1.0)
   maxLevels: number; // Max fresh levels per side (3)
   expiryBars: number; // Level expiry (bars) (150)
+  focusCurrent: boolean; // EA follows ONLY the current signal — a new C1/C2 pair discards older fresh levels (true)
   // ② CANDLE 3 TRIGGER
   sigMode: SignalMode; // Instant (intrabar) | Bar close
   breakATR: number; // Min break beyond the line (× ATR) (0.02)
@@ -46,6 +47,7 @@ export const DEFAULT_CONFIG: HaloConfig = {
   minSepATR: 1.0,
   maxLevels: 3,
   expiryBars: 150,
+  focusCurrent: true,
   sigMode: "instant",
   breakATR: 0.02,
   eqTolATR: 0.05,

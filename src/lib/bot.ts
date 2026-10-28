@@ -76,6 +76,7 @@ function clampConfig(cfg: HaloConfig): HaloConfig {
   c.minSepATR = Math.min(10, Math.max(0, Number(c.minSepATR) || 0));
   c.maxLevels = Math.min(10, Math.max(1, Math.round(Number(c.maxLevels) || 3)));
   c.expiryBars = Math.min(2000, Math.max(5, Math.round(Number(c.expiryBars) || 150)));
+  c.focusCurrent = c.focusCurrent !== false; // default ON — follow the current signal only
   c.sigMode = c.sigMode === "barclose" ? "barclose" : "instant";
   c.breakATR = Math.min(3, Math.max(0, Number(c.breakATR) || 0));
   c.eqTolATR = Math.min(3, Math.max(0, Number(c.eqTolATR) || 0));

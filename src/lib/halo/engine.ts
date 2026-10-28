@@ -9,6 +9,8 @@
 //    (equal level) while leaving a wick → SELL at resistance / BUY at support.
 //  • Same-bar SL+TP counts as SL (conservative, as 2CRB).
 //  • Pairs forming too close: only the farther one is kept.
+//  • focusCurrent (default ON): a new C1/C2 pair REPLACES every older fresh
+//    level — the EA follows only the CURRENT signal, never stale ones.
 // ════════════════════════════════════════════════════════════════════════
 
 import {
@@ -384,7 +386,20 @@ export class HaloEngine {
               endTime: null,
               state: "fresh",
             });
-            if (s.drawings.length > 80) s.drawings.splice(0, s.drawings.length - 80);
+            if (s.drawings.length > 30) s.drawings.splice(0, s.drawings.length - 30);
+
+            // ── FOCUS CURRENT SIGNAL ── the new pair is now THE signal:
+            // every older fresh level is discarded (burned) so the EA
+            // never acts on stale levels and the chart stays clean.
+            if (cfg.focusCurrent) {
+              for (let j = s.levels.length - 1; j >= 0; j--) {
+                const O = s.levels[j];
+                if (O.id === lvl.id) continue;
+                this.markLevel(O.id, "burned", bar.time);
+                s.levels.splice(j, 1);
+                ev.push({ type: "expired", id: O.id });
+              }
+            }
             ev.push({ type: "level", id, side: lvl.side });
           }
         }

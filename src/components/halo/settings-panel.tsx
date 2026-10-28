@@ -82,6 +82,12 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
             <NumRow label="Too-close distance (×ATR)" k="minSepATR" step="0.1" draft={shown} onChange={num("minSepATR")} />
             <NumRow label="Max fresh levels / side" k="maxLevels" draft={shown} onChange={num("maxLevels")} />
             <NumRow label="Level expiry (bars)" k="expiryBars" draft={shown} onChange={num("expiryBars")} />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] text-[#8C98AE] leading-tight">
+                Focus current signal — a new C1/C2 replaces older levels, the EA follows the latest signal only
+              </span>
+              <Switch checked={shown.focusCurrent} onCheckedChange={(v) => edit({ focusCurrent: v })} />
+            </div>
           </AccordionContent>
         </AccordionItem>
 

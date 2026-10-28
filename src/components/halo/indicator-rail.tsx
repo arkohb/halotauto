@@ -4,9 +4,11 @@
 //  3EL INDICATOR RAIL · the indicator ATTACHED to the TradingView chart
 //  The Advanced Chart widget is a cross-origin iframe — custom drawings
 //  cannot be injected inside it. So the 3EL indicator attaches as a live
-//  legend rail floating over the chart: fresh C1/C2 equal levels, the C3
-//  forming tracker and the open position's ENTRY / SL / TP card drawn in
-//  the TradingView position-tool style (risk vs reward split bar).
+//  legend rail floating over the chart: the CURRENT C1/C2 equal level (old
+//  signals are never shown — the rail follows the same single signal the
+//  EA acts on), the C3 forming tracker and the open position's ENTRY / SL /
+//  TP card drawn in the TradingView position-tool style (risk vs reward
+//  split bar).
 //  ⚠ Presentation only — the live strategy runs untouched.
 // ════════════════════════════════════════════════════════════════════════
 
@@ -38,7 +40,10 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick }:
   const best = bestC3Form(forming);
   const pip = mintick * cfg.pipMult;
   const ref = price > 0 ? price : live?.close ?? 0;
-  const shown = [...levels].sort((a, b) => b.b2Time - a.b2Time).slice(0, 4);
+  // CURRENT SIGNAL ONLY — the newest fresh level is the one the EA follows;
+  // older levels are never rendered, keeping the chart clean.
+  const current = [...levels].sort((a, b) => b.b2Time - a.b2Time)[0] ?? null;
+  const shown = current ? [current] : [];
 
   return (
     <div
@@ -54,7 +59,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick }:
           className="rounded px-1 py-[1px] text-[7.5px] font-extrabold tracking-wider"
           style={{ background: "rgba(212,175,55,0.16)", color: C.gold }}
         >
-          {levels.length} FRESH
+          {current ? "CURRENT SIGNAL" : "SCANNING"}
         </span>
       </div>
 
