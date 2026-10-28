@@ -85,6 +85,17 @@ model AlertSettings {
   updatedAt        DateTime @updatedAt
 }
 
+// TradingView webhook receiver (id = "tv") — attaches the EA to any
+// TradingView chart: Pine EA alert → this webhook → linked broker account
+model WebhookConfig {
+  id         String    @id @default("tv")
+  secret     String    @default("") // shared secret embedded in the alert JSON
+  enabled    Boolean   @default(true)
+  fireCount  Int       @default(0)
+  lastFireAt DateTime?
+  updatedAt  DateTime  @updatedAt
+}
+
 // Web-push device subscription
 model PushSubscription {
   id        String   @id @default(cuid())

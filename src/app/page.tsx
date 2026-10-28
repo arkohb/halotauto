@@ -13,11 +13,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
-import { C, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { C, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { Header } from "@/components/halo/header";
 import { ControlDeck, type DeckView } from "@/components/halo/control-deck";
 import { StatusBanner } from "@/components/halo/status-banner";
 import ChartPanel from "@/components/halo/chart-panel";
+import { EaAttachCard } from "@/components/halo/ea-attach";
 import { TradeCard } from "@/components/halo/trade-card";
 import { LevelsCard } from "@/components/halo/levels-card";
 import { DashboardPanel } from "@/components/halo/dashboard-panel";
@@ -307,7 +308,14 @@ export default function Page() {
                   symbol={state.symbol}
                   tf={state.tf}
                   source={candleSource}
+                  statusLine={statusOf(state).text}
+                  routing={
+                    state.exec.executionMode === "live"
+                      ? `LIVE → ${state.exec.broker?.label ?? "broker"}`
+                      : "PAPER"
+                  }
                 />
+                <EaAttachCard state={state} notify={notify} />
                 <TradeCard state={state} />
                 <LevelsCard state={state} />
               </div>

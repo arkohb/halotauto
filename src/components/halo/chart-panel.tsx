@@ -35,6 +35,10 @@ interface ChartProps {
   symbol: string;
   tf: string;
   source: string;
+  /** live EA status line, e.g. "WAITING FOR C3 · 2 FRESH LEVELS" */
+  statusLine?: string;
+  /** where fires are routed, e.g. "LIVE → ICMarketsSC-MT5 · 12345" */
+  routing?: string;
 }
 
 interface LevelLines {
@@ -51,7 +55,7 @@ type ChartMode = "tv" | "halo";
 const MODE_KEY = "halo3el.chartmode";
 
 export default function ChartPanel(props: ChartProps) {
-  const { candles, drawings, log, trade, mintick, symbol, tf, source } = props;
+  const { candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing } = props;
   const [mode, setMode] = useState<ChartMode>("tv");
   const [tvNote, setTvNote] = useState<string | null>(null);
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -319,6 +323,36 @@ export default function ChartPanel(props: ChartProps) {
               }
             }}
           />
+          {/* EA attach HUD — EA state drawn over the TradingView chart */}
+          <div
+            aria-label="EA attach status"
+            className="pointer-events-none absolute bottom-2.5 left-3 z-10 max-w-[78%] rounded-lg border border-[#1C2A47] bg-[#0F1A30]/92 px-3 py-2 backdrop-blur-sm"
+          >
+            <div className="flex items-center gap-1.5 text-[9px] font-extrabold tracking-[0.16em]">
+              <span
+                className="h-1.5 w-1.5 rounded-full"
+                style={{ background: routing?.startsWith("LIVE") ? C.gold : C.green }}
+              />
+              <span style={{ color: C.gold }}>EA ATTACHED</span>
+              {routing && <span className="text-[#8C98AE]">· {routing}</span>}
+            </div>
+            {statusLine && (
+              <div className="mt-0.5 text-[10px] font-bold tracking-wide text-[#E8ECF4]">{statusLine}</div>
+            )}
+            {trade ? (
+              <div className="mt-0.5 flex flex-wrap gap-x-3 text-[9px] tracking-wide">
+                <span style={{ color: trade.dir === -1 ? C.red : C.green }}>
+                  {trade.dir === -1 ? "SELL" : "BUY"} @ {fmtPx(trade.entry, mintick)}
+                </span>
+                <span style={{ color: C.red }}>SL {fmtPx(trade.sl, mintick)}</span>
+                <span style={{ color: C.green }}>TP {fmtPx(trade.tp, mintick)}</span>
+              </div>
+            ) : (
+              <div className="mt-0.5 text-[9px] tracking-wide text-[#8C98AE]">
+                C3 fires auto-execute on the linked account · attach card below
+              </div>
+            )}
+          </div>
         </div>
       ) : (
         <div ref={elRef} className={`${heightCls} w-full`} />
