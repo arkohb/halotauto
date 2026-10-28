@@ -22,6 +22,8 @@ export interface BotRuntime {
   tf: string;
   engine: HaloEngine;
   enabled: boolean;
+  /** AUTO-ATTACH: EA attaches itself to the chart & auto-starts on boot (no manual start) */
+  autoAttach: boolean;
   bootstrapped: boolean;
   lastConfirmedTime: number;
   lastTickAt: number;
@@ -47,6 +49,7 @@ export function getBot(): BotRuntime {
       tf: "5m",
       engine: new HaloEngine(DEFAULT_CONFIG, 0.01),
       enabled: false,
+      autoAttach: true,
       bootstrapped: false,
       lastConfirmedTime: 0,
       lastTickAt: 0,
@@ -93,6 +96,7 @@ async function loadPersisted(): Promise<void> {
     const row = await db.botConfig.findUnique({ where: { id: "main" } });
     if (row) {
       bot.enabled = row.enabled;
+      bot.autoAttach = row.autoAttach;
       bot.symbol = row.symbol;
       bot.tf = row.timeframe;
       bot.realizedPips = row.realizedPips;
@@ -106,6 +110,7 @@ async function loadPersisted(): Promise<void> {
         data: {
           id: "main",
           enabled: false,
+          autoAttach: true,
           symbol: bot.symbol,
           timeframe: bot.tf,
           configJson: JSON.stringify(bot.cfg),
@@ -125,6 +130,7 @@ async function persistBot(): Promise<void> {
       create: {
         id: "main",
         enabled: bot.enabled,
+        autoAttach: bot.autoAttach,
         symbol: bot.symbol,
         timeframe: bot.tf,
         configJson: JSON.stringify(bot.cfg),
@@ -133,6 +139,7 @@ async function persistBot(): Promise<void> {
       },
       update: {
         enabled: bot.enabled,
+        autoAttach: bot.autoAttach,
         symbol: bot.symbol,
         timeframe: bot.tf,
         configJson: JSON.stringify(bot.cfg),
@@ -184,6 +191,15 @@ export async function ensureBoot(): Promise<void> {
     await loadPersisted();
     await warmEngine();
     bot.bootstrapped = true;
+    // ── AUTO-ATTACH ────────────────────────────────────────────────
+    // The EA attaches itself to the TradingView chart automatically:
+    // unless the user explicitly detached it (STOP sets autoAttach=false),
+    // the engine boots watching the chart symbol & trading it — no manual
+    // "START" press, no Pine paste, no manual alert creation.
+    if (!bot.enabled && bot.autoAttach) {
+      bot.enabled = true;
+      void persistBot();
+    }
     if (bot.enabled) startTimer();
   })().finally(() => {
     bot.booting = null;
@@ -327,6 +343,7 @@ export async function startBot(): Promise<void> {
     await warmEngine();
   }
   bot.enabled = true;
+  bot.autoAttach = true; // re-attaching (re)arms the auto-attach behaviour
   startTimer();
   await persistBot();
   void sendAlert({
@@ -341,6 +358,7 @@ export async function stopBot(): Promise<void> {
   const bot = getBot();
   await ensureBoot();
   bot.enabled = false;
+  bot.autoAttach = false; // explicit detach — survives reboots
   if (bot.timer) {
     clearInterval(bot.timer);
     bot.timer = null;
@@ -367,8 +385,9 @@ export async function resetBot(): Promise<void> {
 export async function closeOpenTrade(): Promise<void> {
   const bot = getBot();
   await ensureBoot();
-  if (!bot.engine.snapshot().trade) throw new Error("No open trade to close.");
-  const price = bot.lastPrice || bot.engine.snapshot().trade.entry;
+  const openTrade = bot.engine.snapshot().trade;
+  if (!openTrade) throw new Error("No open trade to close.");
+  const price = bot.lastPrice || openTrade.entry;
   const events = bot.engine.forceClose(price, Date.now());
   await handleEvents(events, { time: Date.now(), open: price, high: price, low: price, close: price });
 }
@@ -433,6 +452,7 @@ export interface ExecSummary {
 
 export async function botState(): Promise<{
   enabled: boolean;
+  autoAttach: boolean;
   symbol: string;
   tf: string;
   mintick: number;
@@ -460,6 +480,7 @@ export async function botState(): Promise<{
   }
   return {
     enabled: bot.enabled,
+    autoAttach: bot.autoAttach,
     symbol: bot.symbol,
     tf: bot.tf,
     mintick: meta.mintick,

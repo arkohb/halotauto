@@ -1,10 +1,12 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  EA ATTACH CARD · wires the HALO 3EL EA onto any TradingView chart
-//  1. copy the Pine EA (secret pre-embedded) → add to the TV chart
-//  2. create the alert with the HALO webhook URL
-//  3. every C3 fire posts back and auto-trades the linked broker account
+//  EA AUTO-ATTACH CARD · the built-in EA attaches itself to the chart
+//  PRIMARY (zero manual steps): the EA engine watches the exact symbol &
+//  timeframe shown on the TradingView chart and every C3 fire routes to
+//  the linked broker account — attaches automatically on boot.
+//  OPTIONAL (collapsed): the Pine webhook bridge for external TradingView
+//  alerts — copy Pine EA → TV alert → /api/webhook/tv → same engine.
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from "react";
@@ -33,6 +35,9 @@ interface WebhookInfo {
 interface Props {
   state: BotStateRes;
   notify: (title: string, desc?: string, bad?: boolean) => void;
+  busy: string | null;
+  /** attach (start) / detach (stop) the EA straight from this card */
+  onToggleBot: () => void;
 }
 
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
@@ -49,9 +54,9 @@ function Step({ n, children }: { n: number; children: React.ReactNode }) {
   );
 }
 
-export function EaAttachCard({ state, notify }: Props) {
+export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
   const [info, setInfo] = useState<WebhookInfo | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [pineBusy, setPineBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +75,8 @@ export function EaAttachCard({ state, notify }: Props) {
 
   const live = state.exec.executionMode === "live";
   const brokerLabel = state.exec.broker?.label ?? "";
+  const attached = state.enabled;
+  const routing = live ? `LIVE → ${brokerLabel || "broker"}` : "PAPER";
 
   const copy = useCallback(
     async (text: string, what: string) => {
@@ -85,19 +92,19 @@ export function EaAttachCard({ state, notify }: Props) {
 
   const copyPine = useCallback(async () => {
     if (!info?.secret) return;
-    setBusy("pine");
+    setPineBusy("pine");
     try {
       await navigator.clipboard.writeText(buildPineEa(info.secret));
       notify("PINE EA COPIED", "Secret embedded — paste into TradingView Pine Editor.");
     } catch {
       notify("Cannot copy Pine EA", "Clipboard blocked by the browser.", true);
     } finally {
-      setBusy(null);
+      setPineBusy(null);
     }
   }, [info, notify]);
 
   const regenerate = useCallback(async () => {
-    setBusy("regen");
+    setPineBusy("regen");
     try {
       const r = await fetch("/api/webhook/tv/config", {
         method: "POST",
@@ -110,12 +117,12 @@ export function EaAttachCard({ state, notify }: Props) {
         notify("SECRET REGENERATED", "Re-paste the Pine EA into TradingView — the old alerts are now rejected.");
       }
     } finally {
-      setBusy(null);
+      setPineBusy(null);
     }
   }, [notify]);
 
   const testFire = useCallback(async () => {
-    setBusy("test");
+    setPineBusy("test");
     try {
       const r = await fetch("/api/webhook/tv/test", {
         method: "POST",
@@ -135,11 +142,12 @@ export function EaAttachCard({ state, notify }: Props) {
     } catch (e) {
       notify("TEST FIRE FAILED", (e as Error).message, true);
     } finally {
-      setBusy(null);
+      setPineBusy(null);
     }
   }, [state.symbol, notify, load]);
 
   const webhookUrl = typeof window === "undefined" ? "" : `${window.location.origin}/api/webhook/tv`;
+  const toggling = busy === "start" || busy === "stop";
 
   return (
     <section
@@ -150,7 +158,7 @@ export function EaAttachCard({ state, notify }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-[11px] font-extrabold tracking-[0.18em] text-[#D4AF37]">
-            EA → TRADINGVIEW ATTACH
+            EA · TRADINGVIEW AUTO-ATTACH
           </span>
           {live ? (
             <span
@@ -177,121 +185,199 @@ export function EaAttachCard({ state, notify }: Props) {
         </span>
       </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-[#8C98AE]">
-        Attach the built-in EA to the TradingView chart above: the Pine EA fires C3 signals on
-        TradingView, posts them to your private webhook, and HALO instantly executes them on your
-        linked account — MT4/MT5 (MetaApi), OANDA, IG, Binance or any bridge. Attach as many chart
-        symbols as you like; every fire lands in the same execution engine.
-      </p>
-
-      {/* actions */}
-      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <button
-          type="button"
-          onClick={() => void copyPine()}
-          disabled={!info || busy !== null}
-          aria-label="Copy Pine EA source code"
-          className="rounded-lg px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] transition-opacity hover:opacity-90 disabled:opacity-50"
-          style={{ background: C.gold, color: C.navy }}
-        >
-          {busy === "pine" ? "COPYING…" : "COPY PINE EA"}
-        </button>
-        <button
-          type="button"
-          onClick={() => void copy(webhookUrl, "WEBHOOK URL")}
-          aria-label="Copy webhook URL"
-          className="rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#E8ECF4] transition-colors hover:bg-[#16233D]"
-        >
-          COPY WEBHOOK URL
-        </button>
-        <button
-          type="button"
-          onClick={() => void testFire()}
-          disabled={busy !== null}
-          aria-label="Send test fire through webhook pipeline"
-          className="rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#E8ECF4] transition-colors hover:bg-[#16233D] disabled:opacity-50"
-        >
-          {busy === "test" ? "FIRING…" : "SEND TEST FIRE"}
-        </button>
-      </div>
-
-      {/* secret + url readouts */}
-      <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="rounded-lg border border-[#1C2A47] bg-[#0B1426] px-3 py-2">
-          <div className="text-[8px] font-bold tracking-[0.2em] text-[#8C98AE]">WEBHOOK URL</div>
-          <div className="truncate font-mono text-[11px] text-[#E8ECF4]" title={webhookUrl}>
-            {webhookUrl || "…"}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 rounded-lg border border-[#1C2A47] bg-[#0B1426] px-3 py-2">
+      {/* ── PRIMARY · auto-attach panel ── */}
+      <div
+        className="mt-3 rounded-lg border p-3"
+        style={{
+          borderColor: attached ? "rgba(8,153,129,0.45)" : "#1C2A47",
+          background: attached ? "rgba(8,153,129,0.06)" : "#0B1426",
+        }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[8px] font-bold tracking-[0.2em] text-[#8C98AE]">SECRET</div>
-            <div className="truncate font-mono text-[11px]" style={{ color: C.gold }}>
-              {info ? info.secret : "…"}
+            <div className="flex items-center gap-2 text-[12px] font-extrabold tracking-wide">
+              <span
+                className={`h-2 w-2 shrink-0 rounded-full ${attached ? "animate-pulse" : ""}`}
+                style={{ background: attached ? C.green : "#5D606B" }}
+              />
+              <span style={{ color: attached ? C.txt : C.muted }}>
+                {attached ? "ATTACHED — EA IS WATCHING THIS CHART" : "DETACHED — EA NOT WATCHING"}
+              </span>
+            </div>
+            <div className="mt-1 text-[10.5px] leading-relaxed text-[#8C98AE]">
+              {attached ? (
+                <>
+                  Built-in EA locked to <span className="font-bold text-[#E8ECF4]">{state.symbol} · {state.tf}</span> — every C3
+                  fire auto-executes on <span style={{ color: live ? C.gold : C.green }}>{routing}</span>. Zero manual steps.
+                </>
+              ) : (
+                <>Press ATTACH EA — the engine re-attaches to the chart instantly and resumes auto-trading.</>
+              )}
             </div>
           </div>
           <button
             type="button"
-            onClick={() => info && void copy(info.secret, "SECRET")}
-            aria-label="Copy webhook secret"
-            className="rounded border border-[#1C2A47] px-2 py-1 text-[9px] font-bold tracking-wider text-[#8C98AE] hover:text-[#E8ECF4]"
+            onClick={onToggleBot}
+            disabled={busy !== null}
+            aria-label={attached ? "Detach EA from chart" : "Attach EA to chart"}
+            className="rounded-lg px-4 py-2.5 text-[10px] font-extrabold tracking-[0.14em] transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={attached ? { border: "1px solid #1C2A47", background: "#101C33", color: C.txt } : { background: C.gold, color: C.navy }}
           >
-            COPY
+            {toggling ? "WORKING…" : attached ? "DETACH EA" : "ATTACH EA"}
           </button>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <button
-                type="button"
-                aria-label="Regenerate webhook secret"
-                disabled={busy !== null}
-                className="rounded border border-[#1C2A47] px-2 py-1 text-[9px] font-bold tracking-wider text-[#8C98AE] hover:text-[#F23645] disabled:opacity-50"
-              >
-                REGEN
-              </button>
-            </AlertDialogTrigger>
-            <AlertDialogContent className="border-[#1C2A47] bg-[#0F1A30] text-[#E8ECF4]">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Regenerate webhook secret?</AlertDialogTitle>
-                <AlertDialogDescription className="text-[#8C98AE]">
-                  Alerts signed with the old secret are rejected immediately. After regenerating,
-                  re-copy the Pine EA into TradingView so the new secret is embedded.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel className="border-[#1C2A47] bg-transparent text-[#E8ECF4] hover:bg-[#16233D]">
-                  Cancel
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => void regenerate()}
-                  className="bg-[#F23645] text-white hover:bg-[#d92c3a]"
-                >
-                  Regenerate
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+        </div>
+
+        {/* status mini-row */}
+        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 border-t border-[#1C2A47] pt-2.5 text-[9px] font-bold tracking-[0.12em] text-[#8C98AE]">
+          <span>
+            WATCHING <span className="text-[#E8ECF4]">{state.symbol} · {state.tf}</span>
+          </span>
+          <span>
+            MODE <span style={{ color: live ? C.gold : C.green }}>{live ? "LIVE ORDERS" : "PAPER"}</span>
+          </span>
+          <span>
+            ROUTING{" "}
+            <span className="text-[#E8ECF4]">
+              {live ? brokerLabel || "broker account" : "simulated fills"}
+            </span>
+          </span>
+          <span>
+            AUTO-ATTACH <span style={{ color: state.autoAttach ? C.gold : C.muted }}>{state.autoAttach ? "ON · RE-ATTACHES ON BOOT" : "OFF"}</span>
+          </span>
         </div>
       </div>
 
-      {/* steps */}
-      <ol className="mt-3 space-y-1.5 rounded-lg border border-[#1C2A47] bg-[#0B1426] p-3 text-[10.5px] text-[#8C98AE]">
-        <Step n={1}>
-          Press <span style={{ color: C.gold }}>COPY PINE EA</span> → TradingView Pine Editor → paste →
-          {" "}“Add to chart”. The webhook secret is already embedded.
-        </Step>
-        <Step n={2}>
-          On TradingView press <span style={{ color: C.gold }}>ALERT</span> → condition “HALO 3EL EA” →
-          check <span style={{ color: C.gold }}>Webhook URL</span> → paste the URL above → Create.
-        </Step>
-        <Step n={3}>
-          Go <span style={{ color: C.gold }}>LIVE</span> in HALO with your linked account
-          (BROKERS → MT4/MT5 login card → GO LIVE) so fires execute for real.
-        </Step>
-        <Step n={4}>
-          Watch it work: <span style={{ color: C.gold }}>SEND TEST FIRE</span> pushes a synthetic C3
-          through the same pipeline (always paper) — check TRADE HISTORY.
-        </Step>
-      </ol>
+      <p className="mt-2 text-[11px] leading-relaxed text-[#8C98AE]">
+        The EA attaches itself to the TradingView chart above — switch the symbol or timeframe on the
+        chart and the EA follows automatically, scanning for C1/C2 equal levels and sending every C3
+        fire to your linked account (MT4/MT5 via MetaApi, OANDA, IG, Binance or any bridge). The Pine
+        webhook bridge below is <span className="font-bold text-[#E8ECF4]">optional</span> — only for
+        forwarding alerts from external TradingView charts into the same engine.
+      </p>
+
+      {/* ── OPTIONAL · manual Pine webhook bridge (collapsed) ── */}
+      <details className="group mt-3 rounded-lg border border-[#1C2A47] bg-[#0B1426]">
+        <summary
+          className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#8C98AE] transition-colors hover:text-[#E8ECF4]"
+          aria-label="Toggle optional Pine webhook bridge"
+        >
+          <span>
+            OPTIONAL · EXTERNAL TV ALERTS <span style={{ color: C.gold }}>(PINE WEBHOOK BRIDGE)</span>
+          </span>
+          <span className="text-[9px] transition-transform group-open:rotate-180" aria-hidden>▼</span>
+        </summary>
+
+        <div className="border-t border-[#1C2A47] p-3">
+          {/* actions */}
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <button
+              type="button"
+              onClick={() => void copyPine()}
+              disabled={!info || pineBusy !== null}
+              aria-label="Copy Pine EA source code"
+              className="rounded-lg px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] transition-opacity hover:opacity-90 disabled:opacity-50"
+              style={{ background: C.gold, color: C.navy }}
+            >
+              {pineBusy === "pine" ? "COPYING…" : "COPY PINE EA"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void copy(webhookUrl, "WEBHOOK URL")}
+              aria-label="Copy webhook URL"
+              className="rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#E8ECF4] transition-colors hover:bg-[#16233D]"
+            >
+              COPY WEBHOOK URL
+            </button>
+            <button
+              type="button"
+              onClick={() => void testFire()}
+              disabled={pineBusy !== null}
+              aria-label="Send test fire through webhook pipeline"
+              className="rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#E8ECF4] transition-colors hover:bg-[#16233D] disabled:opacity-50"
+            >
+              {pineBusy === "test" ? "FIRING…" : "SEND TEST FIRE"}
+            </button>
+          </div>
+
+          {/* secret + url readouts */}
+          <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="rounded-lg border border-[#1C2A47] bg-[#0B1426] px-3 py-2">
+              <div className="text-[8px] font-bold tracking-[0.2em] text-[#8C98AE]">WEBHOOK URL</div>
+              <div className="truncate font-mono text-[11px] text-[#E8ECF4]" title={webhookUrl}>
+                {webhookUrl || "…"}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-[#1C2A47] bg-[#0B1426] px-3 py-2">
+              <div className="min-w-0">
+                <div className="text-[8px] font-bold tracking-[0.2em] text-[#8C98AE]">SECRET</div>
+                <div className="truncate font-mono text-[11px]" style={{ color: C.gold }}>
+                  {info ? info.secret : "…"}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => info && void copy(info.secret, "SECRET")}
+                aria-label="Copy webhook secret"
+                className="rounded border border-[#1C2A47] px-2 py-1 text-[9px] font-bold tracking-wider text-[#8C98AE] hover:text-[#E8ECF4]"
+              >
+                COPY
+              </button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Regenerate webhook secret"
+                    disabled={pineBusy !== null}
+                    className="rounded border border-[#1C2A47] px-2 py-1 text-[9px] font-bold tracking-wider text-[#8C98AE] hover:text-[#F23645] disabled:opacity-50"
+                  >
+                    REGEN
+                  </button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="border-[#1C2A47] bg-[#0F1A30] text-[#E8ECF4]">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Regenerate webhook secret?</AlertDialogTitle>
+                    <AlertDialogDescription className="text-[#8C98AE]">
+                      Alerts signed with the old secret are rejected immediately. After regenerating,
+                      re-copy the Pine EA into TradingView so the new secret is embedded.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="border-[#1C2A47] bg-transparent text-[#E8ECF4] hover:bg-[#16233D]">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={() => void regenerate()}
+                      className="bg-[#F23645] text-white hover:bg-[#d92c3a]"
+                    >
+                      Regenerate
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          </div>
+
+          {/* steps */}
+          <ol className="mt-3 space-y-1.5 rounded-lg border border-[#1C2A47] bg-[#0B1426] p-3 text-[10.5px] text-[#8C98AE]">
+            <Step n={1}>
+              Press <span style={{ color: C.gold }}>COPY PINE EA</span> → TradingView Pine Editor → paste →
+              {" "}“Add to chart”. The webhook secret is already embedded.
+            </Step>
+            <Step n={2}>
+              On TradingView press <span style={{ color: C.gold }}>ALERT</span> → condition “HALO 3EL EA” →
+              check <span style={{ color: C.gold }}>Webhook URL</span> → paste the URL above → Create.
+            </Step>
+            <Step n={3}>
+              Go <span style={{ color: C.gold }}>LIVE</span> in HALO with your linked account
+              (BROKERS → MT4/MT5 login card → GO LIVE) so fires execute for real.
+            </Step>
+            <Step n={4}>
+              Watch it work: <span style={{ color: C.gold }}>SEND TEST FIRE</span> pushes a synthetic C3
+              through the same pipeline (always paper) — check TRADE HISTORY.
+            </Step>
+          </ol>
+        </div>
+      </details>
     </section>
   );
 }

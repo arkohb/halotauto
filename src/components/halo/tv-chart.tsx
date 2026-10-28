@@ -21,6 +21,7 @@ interface TradingViewConfig {
   backgroundColor?: string;
   gridColor?: string;
   hide_side_toolbar?: boolean;
+  hide_top_toolbar?: boolean;
   allow_symbol_change?: boolean;
   save_image?: boolean;
   withdateranges?: boolean;
@@ -103,7 +104,11 @@ export function TvChart({ symbol, tf, height, onUnavailable }: Props) {
           backgroundColor: "#0B1426",
           gridColor: "rgba(28, 42, 71, 0.55)",
           hide_side_toolbar: false,
-          allow_symbol_change: true,
+          // the EA is auto-attached to this chart — HALO's own overlay is the
+          // single control surface, so the TV top toolbar (symbol/intervals)
+          // is hidden: chart symbol & interval can never drift from the EA.
+          hide_top_toolbar: true,
+          allow_symbol_change: false,
           save_image: false,
           withdateranges: true,
           studies: [],

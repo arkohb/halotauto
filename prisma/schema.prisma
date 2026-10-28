@@ -37,6 +37,7 @@ model Trade {
 model BotConfig {
   id              String   @id @default("main")
   enabled         Boolean  @default(false)
+  autoAttach      Boolean  @default(true) // EA auto-attaches to the chart & auto-starts on boot
   symbol          String   @default("BTCUSDT")
   timeframe       String   @default("5m")
   configJson      String   @default("{}") // full HALO 3EL settings JSON

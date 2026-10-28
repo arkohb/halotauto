@@ -26,6 +26,7 @@ export interface ExecRes {
 
 export interface BotStateRes {
   enabled: boolean;
+  autoAttach: boolean;
   symbol: string;
   tf: string;
   mintick: number;

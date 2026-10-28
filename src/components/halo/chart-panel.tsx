@@ -6,6 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef, useState } from "react";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CandlestickSeries,
   ColorType,
@@ -24,6 +25,7 @@ import {
 import type { Candle, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
 import { C, fmtPx } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
+import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
 import { TvChart } from "./tv-chart";
 
 interface ChartProps {
@@ -39,6 +41,17 @@ interface ChartProps {
   statusLine?: string;
   /** where fires are routed, e.g. "LIVE → ICMarketsSC-MT5 · 12345" */
   routing?: string;
+  /** EA bot running */
+  enabled: boolean;
+  /** EA auto-attaches to this chart (auto-start on boot) */
+  autoAttach: boolean;
+  busy: string | null;
+  /** start/stop the EA straight from the chart */
+  onToggleBot: () => void;
+  /** switch the chart symbol — the EA follows automatically */
+  onSymbol: (s: string) => void;
+  /** switch the chart timeframe — the EA follows automatically */
+  onTf: (t: string) => void;
 }
 
 interface LevelLines {
@@ -55,7 +68,10 @@ type ChartMode = "tv" | "halo";
 const MODE_KEY = "halo3el.chartmode";
 
 export default function ChartPanel(props: ChartProps) {
-  const { candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing } = props;
+  const {
+    candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf,
+  } = props;
   const [mode, setMode] = useState<ChartMode>("tv");
   const [tvNote, setTvNote] = useState<string | null>(null);
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -270,10 +286,46 @@ export default function ChartPanel(props: ChartProps) {
 
   return (
     <div className="relative rounded-xl border border-[#1C2A47] bg-[#0B1426] overflow-hidden">
-      <div className="absolute left-3 top-2.5 z-10 flex items-center gap-2 text-[11px] pointer-events-none">
-        <span className="font-semibold text-[#E8ECF4]">{symbol}</span>
-        <span className="text-[#8C98AE]">· {tf} ·</span>
-        <span className="uppercase tracking-wide text-[#D4AF37]">{source}</span>
+      {/* ── EA AUTO-ATTACH OVERLAY · the chart IS the EA control surface ── */}
+      <div className="absolute left-2.5 top-2 z-20 flex flex-wrap items-center gap-1.5">
+        <Select value={symbol} onValueChange={(v) => onSymbol(v)} disabled={busy !== null}>
+          <SelectTrigger
+            aria-label="Chart symbol — the EA follows automatically"
+            className="h-7 w-[132px] rounded-md border-[#2A3A5C] bg-[#0F1A30]/95 text-[10.5px] font-bold text-[#E8ECF4] backdrop-blur"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="max-h-[380px] border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+            {SYMBOL_GROUPS.map((g) => (
+              <SelectGroup key={g.key}>
+                <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#D4AF37]/80">{g.label}</SelectLabel>
+                {symbolsByGroup(g.key).map((s) => (
+                  <SelectItem key={s.id} value={s.id} className="text-xs">
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={tf} onValueChange={(v) => onTf(v)} disabled={busy !== null}>
+          <SelectTrigger
+            aria-label="Chart timeframe — the EA follows automatically"
+            className="h-7 w-[62px] rounded-md border-[#2A3A5C] bg-[#0F1A30]/95 text-[10.5px] font-bold text-[#E8ECF4] backdrop-blur"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+            {TIMEFRAMES.map((t) => (
+              <SelectItem key={t} value={t} className="text-xs">
+                {t}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="hidden rounded-md border border-[#1C2A47] bg-[#0F1A30]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#D4AF37] backdrop-blur md:inline">
+          {source}
+        </span>
         {tvNote && mode === "tv" && (
           <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(212,175,55,0.5)", color: C.gold }}>
             TV FALLBACK
@@ -281,8 +333,34 @@ export default function ChartPanel(props: ChartProps) {
         )}
       </div>
 
-      {/* chart engine toggle */}
-      <div className="absolute right-2.5 top-2 z-20 flex overflow-hidden rounded-lg border border-[#1C2A47] bg-[#0F1A30]/95 backdrop-blur">
+      {/* right controls: EA attach toggle + chart engine toggle */}
+      <div className="absolute right-2.5 top-2 z-20 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onToggleBot}
+          disabled={busy !== null}
+          aria-label={enabled ? "Stop EA bot" : "Start EA bot"}
+          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] backdrop-blur transition-colors disabled:opacity-50"
+          style={{
+            borderColor: enabled ? "rgba(8,153,129,0.55)" : "#1C2A47",
+            background: enabled ? "rgba(8,153,129,0.16)" : "rgba(15,26,48,0.95)",
+            color: enabled ? C.green : C.muted,
+          }}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full ${enabled ? "animate-pulse" : ""}`} style={{ background: enabled ? C.green : "#5D606B" }} />
+          EA {enabled ? "ON" : "OFF"}
+        </button>
+        {autoAttach && (
+          <span
+            aria-label="EA auto-attach enabled"
+            title="Auto-attach: the EA re-attaches to this chart on boot — no manual start"
+            className="hidden rounded-lg border px-1.5 py-1 text-[8px] font-extrabold tracking-[0.18em] sm:inline"
+            style={{ borderColor: "rgba(212,175,55,0.5)", background: "rgba(212,175,55,0.1)", color: C.gold }}
+          >
+            AUTO
+          </span>
+        )}
+        <div className="flex overflow-hidden rounded-lg border border-[#1C2A47] bg-[#0F1A30]/95 backdrop-blur">
         {(
           [
             ["tv", "TRADINGVIEW"],
@@ -304,6 +382,7 @@ export default function ChartPanel(props: ChartProps) {
             {label}
           </button>
         ))}
+        </div>
       </div>
 
       {mode === "tv" ? (
@@ -331,10 +410,10 @@ export default function ChartPanel(props: ChartProps) {
             <div className="flex items-center gap-1.5 text-[9px] font-extrabold tracking-[0.16em]">
               <span
                 className="h-1.5 w-1.5 rounded-full"
-                style={{ background: routing?.startsWith("LIVE") ? C.gold : C.green }}
+                style={{ background: !enabled ? "#5D606B" : routing?.startsWith("LIVE") ? C.gold : C.green }}
               />
-              <span style={{ color: C.gold }}>EA ATTACHED</span>
-              {routing && <span className="text-[#8C98AE]">· {routing}</span>}
+              <span style={{ color: enabled ? C.gold : C.muted }}>{enabled ? "EA AUTO-ATTACHED" : "EA DETACHED"}</span>
+              {routing && enabled && <span className="text-[#8C98AE]">· {routing}</span>}
             </div>
             {statusLine && (
               <div className="mt-0.5 text-[10px] font-bold tracking-wide text-[#E8ECF4]">{statusLine}</div>
@@ -349,7 +428,9 @@ export default function ChartPanel(props: ChartProps) {
               </div>
             ) : (
               <div className="mt-0.5 text-[9px] tracking-wide text-[#8C98AE]">
-                C3 fires auto-execute on the linked account · attach card below
+                {enabled
+                  ? "C3 fires auto-execute on the linked account — no manual steps"
+                  : "Press EA ON — the EA re-attaches to this chart instantly"}
               </div>
             )}
           </div>

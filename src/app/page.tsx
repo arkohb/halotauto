@@ -314,8 +314,19 @@ export default function Page() {
                       ? `LIVE → ${state.exec.broker?.label ?? "broker"}`
                       : "PAPER"
                   }
+                  enabled={state.enabled}
+                  autoAttach={state.autoAttach}
+                  busy={busy}
+                  onToggleBot={() => void control(state.enabled ? "stop" : "start")}
+                  onSymbol={(s) => void changeSymbol(s)}
+                  onTf={(t) => void changeTf(t)}
                 />
-                <EaAttachCard state={state} notify={notify} />
+                <EaAttachCard
+                  state={state}
+                  notify={notify}
+                  busy={busy}
+                  onToggleBot={() => void control(state.enabled ? "stop" : "start")}
+                />
                 <TradeCard state={state} />
                 <LevelsCard state={state} />
               </div>
