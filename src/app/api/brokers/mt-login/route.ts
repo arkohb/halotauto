@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { testBrokerAccount } from "@/lib/brokers/service";
-import { friendlyMetaApiError, platformKeyStatus, provisionMtAccount } from "@/lib/brokers/metaapi-core";
+import { friendlyMetaApiError, mgmtReachable, platformKeyStatus, provisionMtAccount } from "@/lib/brokers/metaapi-core";
 import { sendAlert } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
@@ -33,15 +33,18 @@ interface Body {
   label?: string;
 }
 
-// ── platform-key status for the UI badge ─────────────────────────────
+// ── platform-key + cloud-reachability status for the UI badge ────────
 export async function GET() {
   const st = platformKeyStatus();
+  const cloud = st.present ? await mgmtReachable() : { ok: false, httpSeen: false };
   return NextResponse.json({
     ok: true,
     platformKey: st.present,
     jwtValid: st.jwtValid,
     tokenSource: st.source,
     expiresAt: st.expiresAt,
+    reachable: cloud.ok,
+    checkedAt: new Date().toISOString(),
   });
 }
 
@@ -80,6 +83,7 @@ export async function POST(req: Request) {
     let region = String(b.region ?? "").trim() || "new-york";
     let provisioned = false;
     let connected = false;
+    let reused = false;
 
     if (!accountId) {
       // ── 1+2+3) provision → deploy → poll, all inside metaapi-core ──
@@ -96,6 +100,7 @@ export async function POST(req: Request) {
       region = r.region || region;
       provisioned = true;
       connected = r.connected;
+      reused = Boolean(r.reused);
 
       if (r.state === "DEPLOY_FAILED") {
         throw new Error(
@@ -128,7 +133,7 @@ export async function POST(req: Request) {
     void sendAlert({
       kind: "broker",
       title: "HALO 3EL · MT ACCOUNT ADDED",
-      body: `${label} (${platform.toUpperCase()}${directId && !login ? " · existing MetaApi account" : " · auto-provisioned"}${connected ? " · connected" : ""}) — TEST runs now, then press GO LIVE.`,
+      body: `${label} (${platform.toUpperCase()}${reused ? " · existing connection redeployed" : directId && !login ? " · existing MetaApi account" : " · auto-provisioned"}${connected ? " · connected" : ""}) — TEST runs now, then press GO LIVE.`,
     });
 
     // ── 5) auto test ──
@@ -153,6 +158,7 @@ export async function POST(req: Request) {
       accountId,
       region,
       provisioned,
+      reused,
       connected,
       autoActivated,
       status: t.status ?? "untested",

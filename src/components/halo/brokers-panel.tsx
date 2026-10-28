@@ -533,14 +533,19 @@ function MtLoginCard({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [platKey, setPlatKey] = useState<"active" | "expired" | "missing" | null>(null); // platform key status
+  const [cloud, setCloud] = useState<"live" | "down" | null>(null); // MetaApi cloud reachability
 
   useEffect(() => {
     fetch("/api/brokers/mt-login", { cache: "no-store" })
       .then((r) => r.json())
-      .then((j: { platformKey?: boolean; jwtValid?: boolean }) =>
-        setPlatKey(j.platformKey ? (j.jwtValid === false ? "expired" : "active") : "missing")
-      )
-      .catch(() => setPlatKey("missing"));
+      .then((j: { platformKey?: boolean; jwtValid?: boolean; reachable?: boolean }) => {
+        setPlatKey(j.platformKey ? (j.jwtValid === false ? "expired" : "active") : "missing");
+        setCloud(j.reachable ? "live" : "down");
+      })
+      .catch(() => {
+        setPlatKey("missing");
+        setCloud("down");
+      });
   }, []);
 
   // directory pick: pre-fill server / platform / label (identity bumps on every pick)
@@ -634,16 +639,18 @@ function MtLoginCard({
           <span
             className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-extrabold tracking-[0.12em] border"
             style={
-              platKey === "active"
+              platKey === "active" && cloud === "live"
                 ? { borderColor: "rgba(8,153,129,0.6)", color: C.green, background: "rgba(8,153,129,0.08)" }
                 : { borderColor: "rgba(212,175,55,0.6)", color: C.gold, background: "rgba(212,175,55,0.08)" }
             }
           >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: platKey === "active" ? C.green : C.gold }} />
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: platKey === "active" && cloud === "live" ? C.green : C.gold }} />
             {platKey === null
               ? "CHECKING PLATFORM…"
               : platKey === "active"
-                ? "BROKER APIs · BUILT-IN"
+                ? cloud === "live"
+                  ? "BROKER CLOUD · LIVE"
+                  : "BROKER CLOUD · UNREACHABLE"
                 : platKey === "expired"
                   ? "PLATFORM KEY · EXPIRED — OVERRIDE BELOW"
                   : "PLATFORM KEY · MISSING"}
