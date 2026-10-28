@@ -15,6 +15,7 @@ import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
 import { C, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { Header } from "@/components/halo/header";
+import { ControlDeck, type DeckView } from "@/components/halo/control-deck";
 import { StatusBanner } from "@/components/halo/status-banner";
 import ChartPanel from "@/components/halo/chart-panel";
 import { TradeCard } from "@/components/halo/trade-card";
@@ -30,7 +31,7 @@ import { BrokersPanel } from "@/components/halo/brokers-panel";
 import { AlertsPanel } from "@/components/halo/alerts-panel";
 import { PwaRegister } from "@/components/halo/pwa";
 
-type View = "terminal" | "scanner" | "brokers" | "alerts";
+type View = DeckView;
 
 export default function Page() {
   const [state, setState] = useState<BotStateRes | null>(null);
@@ -115,7 +116,7 @@ export default function Page() {
 
   // ── actions ──
   const control = useCallback(
-    async (action: "start" | "stop" | "reset") => {
+    async (action: "start" | "stop" | "reset" | "close") => {
       setBusy(action);
       try {
         const r = await fetch("/api/bot/control", {
@@ -132,8 +133,40 @@ export default function Page() {
           toast({ title: "EA BOT STOPPED", description: "Engine keeps watching — no new executions." });
         if (j.ok && action === "reset")
           toast({ title: "ENGINE RESET", description: "Fresh levels and counters cleared, engine re-warmed." });
+        if (j.ok && action === "close")
+          toast({ title: "POSITION CLOSED", description: "Trade flattened at market and result booked." });
       } catch (e) {
         toast({ title: "Action failed", description: (e as Error).message, variant: "destructive" });
+      } finally {
+        setBusy(null);
+      }
+    },
+    [toast]
+  );
+
+  const setExecMode = useCallback(
+    async (mode: "paper" | "live") => {
+      setBusy("exec");
+      try {
+        const r = await fetch("/api/bot/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ exec: { executionMode: mode } }),
+        });
+        const j = (await r.json()) as { ok: boolean; state?: BotStateRes; error?: string };
+        if (j.ok && j.state) setState(j.state);
+        if (j.ok)
+          toast({
+            title: mode === "live" ? "LIVE ORDER ROUTING ON" : "PAPER MODE ON",
+            description:
+              mode === "live"
+                ? "C3 fires now go to the active broker with real SL/TP."
+                : "All fills simulated — safe to experiment.",
+            variant: mode === "live" ? "destructive" : "default",
+          });
+        else toast({ title: "Mode change rejected", description: j.error, variant: "destructive" });
+      } catch (e) {
+        toast({ title: "Mode change failed", description: (e as Error).message, variant: "destructive" });
       } finally {
         setBusy(null);
       }
@@ -230,6 +263,14 @@ export default function Page() {
       <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
 
       <main className="mx-auto w-full max-w-[1720px] flex-1 px-3 py-4 lg:px-5">
+        <ControlDeck
+          state={state}
+          busy={busy}
+          view={view}
+          onView={(v) => setView(v)}
+          onControl={control}
+          onExecMode={setExecMode}
+        />
         <Tabs value={view} onValueChange={(v) => setView(v as View)}>
           <TabsList className="grid w-full max-w-[560px] grid-cols-4 bg-[#101C33] border border-[#1C2A47] rounded-lg h-10 mb-4">
             <TabsTrigger value="terminal" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
