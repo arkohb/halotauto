@@ -25,3 +25,38 @@ Stage Summary:
 - Deliverable: runnable Next.js PWA at / (port 3000) — HALO 3EL Autotrader with EA paper-trading bot
 - Key files: src/lib/halo/{types,engine,ui-helpers}.ts, src/lib/{market,market-symbols,bot}.ts, src/components/halo/*, src/app/api/**, public/{manifest.webmanifest,sw.js,icons}
 - Verified: lint clean, no runtime errors, all interactive flows work in browser
+
+---
+Task ID: 2
+Agent: main (Z.ai)
+Task: Add real CFD broker API hookups (live orders), push alerts (Telegram/email/web-push), and multi-symbol scanning to the HALO 3EL Autotrader PWA
+
+Work Log:
+- Installed nodemailer, web-push, ws (+types); pushed extended Prisma schema: Trade(+execMode/brokerKind/brokerOrderId/note), BotConfig(+executionMode/brokerAccountId/sizingMode/sizeFixed/sizePercent), BrokerAccount, AlertSettings, PushSubscription, AlertLog, ScannerSymbol
+- Broker adapter layer (src/lib/brokers/):
+  · types.ts — BrokerAdapter contract (mapSymbol/testConnection/getAccount/marketOrder/closePosition/getPositions) + shared helpers
+  · oanda.ts — OANDA v20 REST (practice+live), market FOK orders with stopLossOnFill/takeProfitOnFill, position close, open positions
+  · ig.ts — IG dealing API v3 (demo+live), v1 session with CST/XST cache, /positions/otc market orders + confirms polling, point-size inference (FX 0.0001 / JPY 0.01 / metals 0.1 / crypto 1) with creds.pointSizes override
+  · metaapi.ts — MetaApi cloud REST for MT4/MT5 (IC Markets, Pepperstone, XM, Exness, FTMO…), auto-deploy, symbol contractSize fetch for risk-% lots
+  · binance.ts — HMAC-signed spot market order + protective OCO (SL/TP), exchange filter rounding, testnet option, long-only
+  · bridge.ts — secure order bridge (FXCM / cTrader / Deriv / generic webhook): {action:open/close/positions/ping} + X-HALO-SIGN HMAC-SHA256 when secret set
+  · paper.ts — simulated fills for risk-free pipeline testing
+  · index.ts registry + credential masking (maskCreds/mergeCreds keep secrets server-side), service.ts (testBrokerAccount), broker-meta.ts (client-safe dynamic form metadata)
+- Execution layer (src/lib/execution.ts): PAPER→SQLite record, LIVE→active broker adapter market order; sizing fixed native units or risk-% of equity (units = riskAmt/SL-distance, MT lots via contract size); rejections → Trade status REJECTED + broker alert
+- EA bot (src/lib/bot.ts) rewired: fires route through executeFire; win/loss backstops with live broker position close; start/stop status alerts; manual close action (engine.forceClose) exposed at /api/bot/control action:"close"; exec settings in /api/bot/config (live requires an active broker); botState returns exec summary (mode + broker label/status)
+- Alert service (src/lib/alerts.ts): Telegram Bot API (HTML messages), SMTP email via nodemailer, web-push with auto-generated VAPID keys (dead subscriptions pruned on 404/410), per-event gate matrix (fire/win/loss/scanner/broker/status), 20s title dedupe, AlertLog persistence
+- Multi-symbol scanner (src/lib/scanner.ts): up to 12 symbol+tf rows, per-row HaloEngine warmed over 500 bars, staggered round-robin ticks (2 rows/3s), instant-mode intrabar trials on clones, fires → alerts + optional auto-trade per row through the shared execution routing, nearest-level ATR distance + status per row (SCANNING/C3 WATCH/RUNNING/ERROR/PAUSED)
+- API routes: /api/brokers (GET/POST), /api/brokers/[id] (PATCH test/activate/update, DELETE with paper fallback), /api/alerts/settings (GET masked/PUT with keep-masked-secret merge), /api/alerts/test, /api/alerts/log, /api/push (GET VAPID key, POST subscribe, DELETE unsubscribe), /api/scanner (GET state, POST add/remove/patch/scan)
+- UI (navy/gold): global TERMINAL | SCANNER | BROKERS | ALERTS tabs on /; ExecutionPanel (paper↔live routing, fixed/percent sizing, close-position button); BrokersPanel (add-broker dialog with per-broker credential forms + symbol map, test/activate/remove cards); AlertsPanel (Telegram/email/push cards with tests, event matrix, delivery log); ScannerPanel (watchlist table with status/ATR/fresh S/B/nearest/last-signal, add row, scan now, per-row scan/auto-trade switches, jump-to-terminal); BotPanel header shows live broker; footer reflects execution mode
+- PWA: sw.js v2 adds push + notificationclick handlers (focus/open window)
+
+Stage Summary:
+- Added capabilities: real CFD broker orders (OANDA/IG/MT4-MT5/Binance/bridge), Telegram+email+web-push alerts, 12-symbol 3EL scanner with optional per-row auto-trade
+- Secrets stay server-side (masked to browser); live mode guard-railed (broker required, rejections logged + alerted)
+
+Verification log (Task 2 cont.):
+- Fixed 3 bugs found by the API test suite: prisma findMany({limit})→take in alerts.ts; missing db import in alerts/settings PUT; BotConfig.configJson needed @default("{}") for upsert create branch (+ cleared stale .next Turbopack cache so regenerated Prisma client loads)
+- API suite (scripts/verify.sh): all endpoints 200; broker create→test→activate→update→delete lifecycle OK (fake OANDA creds get REAL 401/400 from api-fxpractice.oanda.com — adapter genuinely reaches OANDA); exec→live guard rejects without broker, allows with one; scanner add/scan/state with 2 rows warmed from live Binance/Bybit feed (fresh levels S/B detected); alerts settings save + masked-secret merge (re-PUT of "••••" keeps stored token); telegram test → real Telegram API 401 for fake token (pipeline correct); push test → graceful "no devices subscribed"; VAPID keys auto-generated (87-char key)
+- agent-browser UI verification: TERMINAL (new EXECUTION ROUTING panel renders, paper/live + fixed/percent toggles), SCANNER (empty state, BTC row live with price/ATR/fresh S/B/nearest, duplicate-add rejected via toast, row SCAN toggle → PAUSED), BROKERS (8-platform add dialog with dynamic forms, QA card with masked creds + status badges), ALERTS (telegram/email/push cards, event matrix, delivery log entries), mobile iPhone-14 layout responsive
+- dev.log clean, eslint clean
+- Note: sandbox reaps session-spawned processes; system supervisor starts `bun run dev` on sandbox boot — next user message boots the app fresh with all code + SQLite state persisted

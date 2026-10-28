@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { botState, resetBot, startBot, stopBot } from "@/lib/bot";
+import { botState, resetBot, startBot, stopBot, closeOpenTrade } from "@/lib/bot";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ export async function POST(req: Request) {
     if (action === "start") await startBot();
     else if (action === "stop") await stopBot();
     else if (action === "reset") await resetBot();
+    else if (action === "close") await closeOpenTrade();
     else return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
     const state = await botState();
     return NextResponse.json({ ok: true, state });

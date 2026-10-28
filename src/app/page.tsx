@@ -2,7 +2,9 @@
 
 // ════════════════════════════════════════════════════════════════════════
 //  HALO 3EL AUTOTRADER · main PWA page
-//  Live chart + full strategy settings + EA paper-trading bot + dashboard
+//  TERMINAL: live chart + full strategy settings + EA bot + dashboard
+//  SCANNER : multi-symbol 3EL watchlist · BROKERS: real CFD order routing
+//  ALERTS  : Telegram / email / browser push
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -20,9 +22,15 @@ import { LevelsCard } from "@/components/halo/levels-card";
 import { DashboardPanel } from "@/components/halo/dashboard-panel";
 import { SettingsPanel } from "@/components/halo/settings-panel";
 import { BotPanel } from "@/components/halo/bot-panel";
+import { ExecutionPanel } from "@/components/halo/execution-panel";
 import { HistoryPanel } from "@/components/halo/history-panel";
 import { BacktestPanel } from "@/components/halo/backtest-panel";
+import { ScannerPanel } from "@/components/halo/scanner-panel";
+import { BrokersPanel } from "@/components/halo/brokers-panel";
+import { AlertsPanel } from "@/components/halo/alerts-panel";
 import { PwaRegister } from "@/components/halo/pwa";
+
+type View = "terminal" | "scanner" | "brokers" | "alerts";
 
 export default function Page() {
   const [state, setState] = useState<BotStateRes | null>(null);
@@ -30,9 +38,17 @@ export default function Page() {
   const [candleSource, setCandleSource] = useState("—");
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [view, setView] = useState<View>("terminal");
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
+
+  const notify = useCallback(
+    (title: string, desc?: string, bad?: boolean) => {
+      toast({ title, description: desc, variant: bad ? "destructive" : "default" });
+    },
+    [toast]
+  );
 
   // ── poll bot state every 2s (also drives the server-side engine) ──
   useEffect(() => {
@@ -110,9 +126,12 @@ export default function Page() {
         const j = (await r.json()) as { ok: boolean; state?: BotStateRes; error?: string };
         if (j.ok && j.state) setState(j.state);
         if (!j.ok) toast({ title: `Cannot ${action}`, description: j.error, variant: "destructive" });
-        if (j.ok && action === "start") toast({ title: "EA BOT STARTED", description: "Scanning for C1/C2 equal levels · auto-executing C3 fires." });
-        if (j.ok && action === "stop") toast({ title: "EA BOT STOPPED", description: "Engine keeps watching — no new executions." });
-        if (j.ok && action === "reset") toast({ title: "ENGINE RESET", description: "Fresh levels and counters cleared, engine re-warmed." });
+        if (j.ok && action === "start")
+          toast({ title: "EA BOT STARTED", description: "Scanning for C1/C2 equal levels · auto-executing C3 fires." });
+        if (j.ok && action === "stop")
+          toast({ title: "EA BOT STOPPED", description: "Engine keeps watching — no new executions." });
+        if (j.ok && action === "reset")
+          toast({ title: "ENGINE RESET", description: "Fresh levels and counters cleared, engine re-warmed." });
       } catch (e) {
         toast({ title: "Action failed", description: (e as Error).message, variant: "destructive" });
       } finally {
@@ -181,11 +200,20 @@ export default function Page() {
     [toast]
   );
 
+  const jumpToSymbol = useCallback(
+    (sym: string) => {
+      setView("terminal");
+      void changeSymbol(sym);
+    },
+    [changeSymbol]
+  );
+
   if (!state) {
     return (
       <div className="flex min-h-screen flex-col bg-[#0B1426] text-[#E8ECF4]">
         <div className="mx-auto flex w-full max-w-[1720px] flex-1 flex-col gap-4 px-4 py-8">
           <Skeleton className="h-14 w-full rounded-xl bg-[#101C33]" />
+          <Skeleton className="h-10 w-72 rounded-lg bg-[#101C33]" />
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[330px_minmax(0,1fr)_350px]">
             <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
             <Skeleton className="h-[540px] rounded-xl bg-[#101C33]" />
@@ -202,65 +230,108 @@ export default function Page() {
       <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
 
       <main className="mx-auto w-full max-w-[1720px] flex-1 px-3 py-4 lg:px-5">
-        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[330px_minmax(0,1fr)_352px]">
-          {/* left: settings */}
-          <div className="order-3 xl:order-1">
-            <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
-          </div>
+        <Tabs value={view} onValueChange={(v) => setView(v as View)}>
+          <TabsList className="grid w-full max-w-[560px] grid-cols-4 bg-[#101C33] border border-[#1C2A47] rounded-lg h-10 mb-4">
+            <TabsTrigger value="terminal" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+              TERMINAL
+            </TabsTrigger>
+            <TabsTrigger value="scanner" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+              SCANNER
+            </TabsTrigger>
+            <TabsTrigger value="brokers" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+              BROKERS
+            </TabsTrigger>
+            <TabsTrigger value="alerts" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+              ALERTS
+            </TabsTrigger>
+          </TabsList>
 
-          {/* center: banner + chart + trade */}
-          <div className="order-1 min-w-0 space-y-4 xl:order-2">
-            <StatusBanner state={state} />
-            <ChartPanel
-              candles={candles}
-              drawings={state.engine.drawings}
-              log={state.engine.log}
-              trade={state.engine.trade}
-              mintick={state.mintick}
-              symbol={state.symbol}
-              tf={state.tf}
-              source={candleSource}
-            />
-            <TradeCard state={state} />
-            <LevelsCard state={state} />
-          </div>
+          {/* ════════ TERMINAL ════════ */}
+          <TabsContent value="terminal" className="mt-0">
+            <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[330px_minmax(0,1fr)_352px]">
+              {/* left: settings */}
+              <div className="order-3 xl:order-1">
+                <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
+              </div>
 
-          {/* right: bot + dashboard + history */}
-          <div className="order-2 space-y-4 xl:order-3">
-            <BotPanel
-              state={state}
-              busy={busy}
-              onStart={() => control("start")}
-              onStop={() => control("stop")}
-              onReset={() => control("reset")}
-            />
-            <DashboardPanel state={state} />
-            <Tabs defaultValue="history">
-              <TabsList className="grid w-full grid-cols-2 bg-[#101C33] border border-[#1C2A47] rounded-lg h-9">
-                <TabsTrigger value="history" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-                  TRADE HISTORY
-                </TabsTrigger>
-                <TabsTrigger value="backtest" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-                  BACKTEST
-                </TabsTrigger>
-              </TabsList>
-              <TabsContent value="history" className="mt-3">
-                <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
-              </TabsContent>
-              <TabsContent value="backtest" className="mt-3">
-                <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
-              </TabsContent>
-            </Tabs>
-          </div>
-        </div>
+              {/* center: banner + chart + trade */}
+              <div className="order-1 min-w-0 space-y-4 xl:order-2">
+                <StatusBanner state={state} />
+                <ChartPanel
+                  candles={candles}
+                  drawings={state.engine.drawings}
+                  log={state.engine.log}
+                  trade={state.engine.trade}
+                  mintick={state.mintick}
+                  symbol={state.symbol}
+                  tf={state.tf}
+                  source={candleSource}
+                />
+                <TradeCard state={state} />
+                <LevelsCard state={state} />
+              </div>
+
+              {/* right: bot + execution + dashboard + history */}
+              <div className="order-2 space-y-4 xl:order-3">
+                <BotPanel
+                  state={state}
+                  busy={busy}
+                  onStart={() => control("start")}
+                  onStop={() => control("stop")}
+                  onReset={() => control("reset")}
+                />
+                <ExecutionPanel state={state} onSaved={(m) => notify(m)} onError={(t, d) => notify(t, d, true)} />
+                <DashboardPanel state={state} />
+                <Tabs defaultValue="history">
+                  <TabsList className="grid w-full grid-cols-2 bg-[#101C33] border border-[#1C2A47] rounded-lg h-9">
+                    <TabsTrigger value="history" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+                      TRADE HISTORY
+                    </TabsTrigger>
+                    <TabsTrigger value="backtest" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+                      BACKTEST
+                    </TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="history" className="mt-3">
+                    <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
+                  </TabsContent>
+                  <TabsContent value="backtest" className="mt-3">
+                    <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ════════ SCANNER ════════ */}
+          <TabsContent value="scanner" className="mt-0">
+            <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />
+          </TabsContent>
+
+          {/* ════════ BROKERS ════════ */}
+          <TabsContent value="brokers" className="mt-0">
+            <BrokersPanel notify={notify} />
+          </TabsContent>
+
+          {/* ════════ ALERTS ════════ */}
+          <TabsContent value="alerts" className="mt-0">
+            <AlertsPanel notify={notify} />
+          </TabsContent>
+        </Tabs>
       </main>
 
       <footer className="mt-auto border-t border-[#1C2A47] py-3">
         <div className="mx-auto flex w-full max-w-[1720px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">
           <span>
-            HALO SUITE · 3EL v1.1 · {state.config.sigMode === "instant" ? "INSTANT" : "BAR CLOSE"} MODE
+            HALO SUITE · 3EL v1.1 · {state.config.sigMode === "instant" ? "INSTANT" : "BAR CLOSE"} MODE ·{" "}
+            <span style={{ color: state.exec.executionMode === "live" ? C.red : C.green }}>
+              {state.exec.executionMode === "live" ? "LIVE ORDERS" : "PAPER"}
+            </span>
           </span>
-          <span>Paper trading only — not financial advice.</span>
+          <span>
+            {state.exec.executionMode === "live"
+              ? "Real orders armed — trade at your own risk. Not financial advice."
+              : "Paper trading only — not financial advice."}
+          </span>
         </div>
       </footer>
     </div>

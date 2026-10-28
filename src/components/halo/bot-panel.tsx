@@ -25,7 +25,9 @@ export function BotPanel({ state, busy, onStart, onStop, onReset }: Props) {
   return (
     <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
       <div className="px-4 py-3 border-b border-[#1C2A47] flex items-center justify-between">
-        <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">EA BOT · PAPER EXECUTION</span>
+        <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">
+          EA BOT · {state.exec.executionMode === "live" ? `LIVE · ${state.exec.broker?.label ?? "NO BROKER"}` : "PAPER EXECUTION"}
+        </span>
         <span className="flex items-center gap-1.5 text-[11px] font-mono" style={{ color: running ? C.green : C.muted }}>
           <span className={`h-2 w-2 rounded-full ${running ? "animate-pulse" : ""}`} style={{ background: running ? C.green : "#5D606B" }} />
           {running ? "LIVE" : "OFF"}

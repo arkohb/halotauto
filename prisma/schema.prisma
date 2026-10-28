@@ -7,37 +7,113 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// EA bot paper-trade record
+// Trade record (paper + live broker executions)
 model Trade {
-  id         String    @id @default(cuid())
-  mode       String    // BOT | BACKTEST | MANUAL
-  symbol     String
-  timeframe  String
-  direction  Int // -1 = SELL (short) · +1 = BUY (long)
-  entry      Float
-  sl         Float
-  tp         Float
-  riskPips   Float
-  rewardPips Float
-  status     String    // OPEN | WIN | LOSS
-  resultPips Float?
-  levelTop   Float // C1/C2 zone top
-  levelBot   Float // C1/C2 zone bottom
-  slMode     String // Fixed points | C3 wick + buffer | ATR
-  openedAt   DateTime
-  closedAt   DateTime?
-  createdAt  DateTime  @default(now())
+  id            String    @id @default(cuid())
+  mode          String // BOT | SCAN | MANUAL | BACKTEST
+  execMode      String    @default("PAPER") // PAPER | LIVE
+  brokerKind    String    @default("")
+  brokerOrderId String    @default("")
+  symbol        String
+  timeframe     String
+  direction     Int // -1 = SELL (short) · +1 = BUY (long)
+  entry         Float
+  sl            Float
+  tp            Float
+  riskPips      Float
+  rewardPips    Float
+  status        String // OPEN | WIN | LOSS | REJECTED
+  resultPips    Float?
+  levelTop      Float // C1/C2 zone top
+  levelBot      Float // C1/C2 zone bottom
+  slMode        String // Fixed points | C3 wick + buffer | ATR
+  note          String    @default("")
+  openedAt      DateTime
+  closedAt      DateTime?
+  createdAt     DateTime  @default(now())
 }
 
 // Singleton bot config row (id = "main")
 model BotConfig {
-  id             String   @id @default("main")
-  enabled        Boolean  @default(false)
-  symbol         String   @default("BTCUSDT")
-  timeframe      String   @default("5m")
-  configJson     String // full HALO 3EL settings JSON
-  startingPips   Float    @default(0)
-  realizedPips   Float    @default(0)
-  lastFeedSource String   @default("binance")
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default("main")
+  enabled         Boolean  @default(false)
+  symbol          String   @default("BTCUSDT")
+  timeframe       String   @default("5m")
+  configJson      String   @default("{}") // full HALO 3EL settings JSON
+  startingPips    Float    @default(0)
+  realizedPips    Float    @default(0)
+  lastFeedSource  String   @default("binance")
+  executionMode   String   @default("paper") // paper | live
+  brokerAccountId String    @default("")
+  sizingMode      String   @default("fixed") // fixed | percent
+  sizeFixed       Float    @default(0.01)
+  sizePercent     Float    @default(1.0)
+  updatedAt       DateTime @updatedAt
+}
+
+// CFD broker connection (real orders)
+model BrokerAccount {
+  id          String    @id @default(cuid())
+  kind        String // paper | oanda | ig | metaapi | binance | fxcm | ctrader | deriv | webhook
+  label       String
+  credsJson   String // credentials JSON (kept server-side only)
+  status      String    @default("untested") // untested | ok | error
+  statusMsg   String    @default("")
+  active      Boolean   @default(false)
+  lastCheckAt DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+// Alert channel settings (id = "main")
+model AlertSettings {
+  id               String   @id @default("main")
+  telegramEnabled  Boolean  @default(false)
+  telegramBotToken String   @default("")
+  telegramChatId   String   @default("")
+  emailEnabled     Boolean  @default(false)
+  smtpHost         String   @default("")
+  smtpPort         Int      @default(587)
+  smtpSecure       Boolean  @default(false)
+  smtpUser         String   @default("")
+  smtpPass         String   @default("")
+  smtpFrom         String   @default("")
+  smtpTo           String   @default("")
+  pushEnabled      Boolean  @default(true)
+  eventsJson       String   @default("{\"fire\":true,\"win\":true,\"loss\":true,\"scanner\":true,\"broker\":true,\"status\":false}")
+  vapidPublicKey   String   @default("")
+  vapidPrivateKey  String   @default("")
+  updatedAt        DateTime @updatedAt
+}
+
+// Web-push device subscription
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+}
+
+// Delivery log for every alert attempt
+model AlertLog {
+  id        String   @id @default(cuid())
+  kind      String // fire | win | loss | scanner | broker | status | test
+  channel   String // telegram | email | push | app
+  title     String
+  body      String
+  ok        Boolean
+  error     String   @default("")
+  createdAt DateTime @default(now())
+}
+
+// Multi-symbol scanner watchlist
+model ScannerSymbol {
+  id        String   @id @default(cuid())
+  symbol    String
+  tf        String   @default("5m")
+  enabled   Boolean  @default(true)
+  autoTrade Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([symbol, tf])
 }

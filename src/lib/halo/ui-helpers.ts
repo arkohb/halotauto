@@ -16,6 +16,14 @@ export const C = {
   gray: "#787B86",
 };
 
+export interface ExecRes {
+  executionMode: "paper" | "live";
+  sizingMode: "fixed" | "percent";
+  sizeFixed: number;
+  sizePercent: number;
+  broker: { id: string; label: string; kind: string; status: string; statusMsg: string } | null;
+}
+
 export interface BotStateRes {
   enabled: boolean;
   symbol: string;
@@ -24,6 +32,7 @@ export interface BotStateRes {
   feed: { source: string; note: string; price: number; lastTickAt: number; realizedPips: number };
   config: HaloConfig;
   engine: EngineSnapshot;
+  exec: ExecRes;
 }
 
 export function decimalsOf(mintick: number): number {

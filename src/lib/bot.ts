@@ -4,13 +4,17 @@
 //  • Polls the feed every ~2s, processes newly confirmed bars
 //  • Instant mode: executes intrabar fires (trial run on engine clone,
 //    committed only when a fire/exit actually happens — Pine rollback semantics)
-//  • Persists every paper trade to SQLite via Prisma
+//  • PAPER or LIVE execution: live fires route through the active CFD
+//    broker adapter (OANDA / IG / MT4-MT5 / Binance / bridge) with SL+TP
+//  • Every signal + fill + SL/TP fans out to Telegram / email / web push
 // ════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
 import { HaloEngine } from "./halo/engine";
 import { Candle, DEFAULT_CONFIG, EngineEvent, HaloConfig } from "./halo/types";
 import { getKlines, getSymbolMeta, tfSec } from "./market";
+import { closeBrokerPosition, clampExec, executeFire, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
+import { sendAlert } from "./alerts";
 
 export interface BotRuntime {
   cfg: HaloConfig;
@@ -25,6 +29,9 @@ export interface BotRuntime {
   feedNote: string;
   lastPrice: number;
   openTradeDbId: string | null;
+  openTradeExec: "PAPER" | "LIVE";
+  openTradeDir: -1 | 1 | 0;
+  liveBroker: ActiveBroker | null;
   realizedPips: number;
   timer: ReturnType<typeof setInterval> | null;
   booting: Promise<void> | null;
@@ -47,6 +54,9 @@ export function getBot(): BotRuntime {
       feedNote: "",
       lastPrice: 0,
       openTradeDbId: null,
+      openTradeExec: "PAPER",
+      openTradeDir: 0,
+      liveBroker: null,
       realizedPips: 0,
       timer: null,
       booting: null,
@@ -205,32 +215,38 @@ function liveTrial(live: Candle): void {
 
 async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
   const bot = getBot();
+  const meta = getSymbolMeta(bot.symbol);
+  const symLabel = meta.label.split("·")[0].trim() || bot.symbol;
   for (const e of events) {
     if (e.type === "fire") {
-      try {
-        const tr = await db.trade.create({
-          data: {
-            mode: "BOT",
-            symbol: bot.symbol,
-            timeframe: bot.tf,
-            direction: e.dir,
-            entry: e.entry,
-            sl: e.sl,
-            tp: e.tp,
-            riskPips: e.riskPips,
-            rewardPips: e.rewardPips,
-            status: "OPEN",
-            levelTop: e.levelTop,
-            levelBot: e.levelBot,
-            slMode: bot.cfg.slMode,
-            openedAt: new Date(e.time),
-          },
-        });
-        bot.openTradeDbId = tr.id;
-      } catch {
-        // persistence failure shouldn't kill the bot
-      }
+      const exec = await loadExecSettings();
+      const live = exec.executionMode === "live";
+      const tradeId = await executeFire({
+        source: "BOT",
+        symbol: bot.symbol,
+        tf: bot.tf,
+        fire: e,
+        levelTop: e.levelTop,
+        levelBot: e.levelBot,
+        slModeLabel: bot.cfg.slMode === "points" ? "Fixed points" : bot.cfg.slMode === "atr" ? "ATR" : "C3 wick + buffer",
+        exec,
+      });
+      bot.openTradeDbId = tradeId;
+      bot.openTradeExec = live ? "LIVE" : "PAPER";
+      bot.openTradeDir = e.dir;
+      bot.liveBroker = live ? await resolveBroker(exec.brokerAccountId) : null;
+      void sendAlert({
+        kind: "fire",
+        title: `HALO 3EL ${e.dir === -1 ? "SELL" : "BUY"} · ${symLabel}`,
+        body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nMode: ${live ? `LIVE · ${bot.liveBroker?.label ?? "broker"}` : "PAPER"}\nRisk ${e.riskPips.toFixed(1)} pips → reward ${e.rewardPips.toFixed(1)} pips`,
+      });
     } else if (e.type === "win" || e.type === "loss") {
+      const wasLive = bot.openTradeExec === "LIVE";
+      if (wasLive && bot.liveBroker) {
+        // broker-side SL/TP usually fired already; market-close as backstop
+        const d = bot.openTradeDir;
+        await closeBrokerPosition(bot.liveBroker, bot.symbol, d === 0 ? undefined : d).catch(() => {});
+      }
       try {
         if (bot.openTradeDbId) {
           await db.trade.update({
@@ -248,6 +264,14 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
         // ignore
       }
       bot.openTradeDbId = null;
+      bot.openTradeExec = "PAPER";
+      bot.openTradeDir = 0;
+      bot.liveBroker = null;
+      void sendAlert({
+        kind: e.type,
+        title: `HALO 3EL ${e.type === "win" ? "TP HIT +" : "SL HIT −"}${e.pips.toFixed(1)} PIPS · ${symLabel}`,
+        body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nRealized book: ${bot.realizedPips >= 0 ? "+" : "−"}${Math.abs(bot.realizedPips).toFixed(1)} pips`,
+      });
     }
   }
   void bar;
@@ -292,6 +316,8 @@ export async function tickBot(force = false): Promise<void> {
   }
 }
 
+export { clampConfig };
+
 export async function startBot(): Promise<void> {
   const bot = getBot();
   await ensureBoot();
@@ -303,6 +329,11 @@ export async function startBot(): Promise<void> {
   bot.enabled = true;
   startTimer();
   await persistBot();
+  void sendAlert({
+    kind: "status",
+    title: "HALO 3EL · EA BOT STARTED",
+    body: `${bot.symbol} ${bot.tf} · ${bot.cfg.sigMode === "instant" ? "Instant" : "Bar close"} mode — scanning for C1/C2 equal levels.`,
+  });
   tickBot(true).catch(() => {});
 }
 
@@ -315,6 +346,11 @@ export async function stopBot(): Promise<void> {
     bot.timer = null;
   }
   await persistBot();
+  void sendAlert({
+    kind: "status",
+    title: "HALO 3EL · EA BOT STOPPED",
+    body: `${bot.symbol} ${bot.tf} — no new executions. Open positions stay managed by broker SL/TP.`,
+  });
 }
 
 export async function resetBot(): Promise<void> {
@@ -327,10 +363,21 @@ export async function resetBot(): Promise<void> {
   await persistBot();
 }
 
+/** Manual market close of the open trade at the last known price. */
+export async function closeOpenTrade(): Promise<void> {
+  const bot = getBot();
+  await ensureBoot();
+  if (!bot.engine.snapshot().trade) throw new Error("No open trade to close.");
+  const price = bot.lastPrice || bot.engine.snapshot().trade.entry;
+  const events = bot.engine.forceClose(price, Date.now());
+  await handleEvents(events, { time: Date.now(), open: price, high: price, low: price, close: price });
+}
+
 export interface ConfigPatch {
   cfg?: Partial<HaloConfig>;
   symbol?: string;
   tf?: string;
+  exec?: Partial<ExecSettings>;
 }
 
 export async function updateBotConfig(patch: ConfigPatch): Promise<void> {
@@ -350,7 +397,35 @@ export async function updateBotConfig(patch: ConfigPatch): Promise<void> {
   }
   bot.cfg = nextCfg;
   bot.engine.cfg = nextCfg;
+
+  if (patch.exec) {
+    const nextExec = clampExec(patch.exec);
+    if (nextExec.executionMode === "live") {
+      const broker = await resolveBroker(nextExec.brokerAccountId);
+      if (!broker) throw new Error("Pick an active broker account before switching to LIVE execution.");
+    }
+    await saveExecSettings(nextExec);
+    // mirror into the persisted BotConfig row
+    try {
+      await db.botConfig.upsert({
+        where: { id: "main" },
+        create: { id: "main", ...nextExec },
+        update: nextExec,
+      });
+    } catch {
+      // ignore
+    }
+  }
+
   await persistBot();
+}
+
+export interface ExecSummary {
+  executionMode: "paper" | "live";
+  sizingMode: "fixed" | "percent";
+  sizeFixed: number;
+  sizePercent: number;
+  broker: { id: string; label: string; kind: string; status: string; statusMsg: string } | null;
 }
 
 export async function botState(): Promise<{
@@ -361,11 +436,25 @@ export async function botState(): Promise<{
   feed: { source: string; note: string; price: number; lastTickAt: number; realizedPips: number };
   config: HaloConfig;
   engine: ReturnType<HaloEngine["snapshot"]>;
+  exec: ExecSummary;
 }> {
   await ensureBoot();
   const bot = getBot();
   await tickBot().catch(() => {});
   const meta = getSymbolMeta(bot.symbol);
+  const exec = await loadExecSettings();
+  let broker: ExecSummary["broker"] = null;
+  if (exec.executionMode === "live") {
+    const row = await resolveBroker(exec.brokerAccountId);
+    if (row) {
+      try {
+        const acct = await db.brokerAccount.findUnique({ where: { id: row.id } });
+        if (acct) broker = { id: acct.id, label: acct.label, kind: acct.kind, status: acct.status, statusMsg: acct.statusMsg };
+      } catch {
+        // ignore
+      }
+    }
+  }
   return {
     enabled: bot.enabled,
     symbol: bot.symbol,
@@ -380,5 +469,12 @@ export async function botState(): Promise<{
     },
     config: bot.cfg,
     engine: bot.engine.snapshot(),
+    exec: {
+      executionMode: exec.executionMode,
+      sizingMode: exec.sizingMode,
+      sizeFixed: exec.sizeFixed,
+      sizePercent: exec.sizePercent,
+      broker,
+    },
   };
 }

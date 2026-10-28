@@ -397,6 +397,36 @@ export class HaloEngine {
     return ev;
   }
 
+  /** Manually close the open trade at `price` (market close). Returns the close event. */
+  forceClose(price: number, time: number): EngineEvent[] {
+    const s = this.state;
+    const t = s.trade;
+    if (!t) return [];
+    const pips = ((price - t.entry) * t.dir) / this.pip;
+    const win = pips >= 0;
+    if (win) {
+      s.stats.wins += 1;
+      s.stats.sumTP += Math.abs(pips);
+      s.stats.lastResult = { text: `CLOSED  +${Math.abs(pips).toFixed(1)} pips`, kind: "win" };
+    } else {
+      s.stats.losses += 1;
+      s.stats.sumSL += Math.abs(pips);
+      s.stats.lastResult = { text: `CLOSED  −${Math.abs(pips).toFixed(1)} pips`, kind: "loss" };
+    }
+    this.pushLog({ time, kind: win ? "win" : "loss", dir: t.dir, pips: Math.abs(pips), entry: t.entry });
+    const ev: EngineEvent = {
+      type: win ? "win" : "loss",
+      pips: Math.abs(pips),
+      entry: t.entry,
+      sl: t.sl,
+      tp: t.tp,
+      time,
+      message: `HALO 3EL MANUAL CLOSE ${win ? "+" : "−"}${Math.abs(pips).toFixed(1)} pips`,
+    };
+    s.trade = null;
+    return [ev];
+  }
+
   snapshot(): EngineSnapshot {
     const s = this.state;
     const fresh: LevelSnapshot[] = s.levels.map((L) => ({

@@ -9,6 +9,13 @@ interface Body {
   cfg?: Partial<HaloConfig>;
   symbol?: string;
   tf?: string;
+  exec?: {
+    executionMode?: "paper" | "live";
+    brokerAccountId?: string;
+    sizingMode?: "fixed" | "percent";
+    sizeFixed?: number;
+    sizePercent?: number;
+  };
 }
 
 export async function POST(req: Request) {
@@ -17,7 +24,7 @@ export async function POST(req: Request) {
     const symbol =
       body.symbol && SYMBOLS.some((s) => s.id === body.symbol) ? body.symbol : undefined;
     const tf = body.tf && (TIMEFRAMES as readonly string[]).includes(body.tf) ? body.tf : undefined;
-    await updateBotConfig({ cfg: body.cfg, symbol, tf });
+    await updateBotConfig({ cfg: body.cfg, symbol, tf, exec: body.exec });
     const state = await botState();
     return NextResponse.json({ ok: true, state });
   } catch (e) {
