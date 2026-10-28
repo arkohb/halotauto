@@ -17,6 +17,16 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
 
   return (
     <header className="sticky top-0 z-40 border-b border-[#1C2A47] bg-[#0B1426]/92 backdrop-blur supports-[backdrop-filter]:bg-[#0B1426]/80">
+      {/* copyright strip · gold */}
+      <div className="border-b border-[#1C2A47]/70 bg-gradient-to-r from-[#0B1426] via-[#101C33] to-[#0B1426]">
+        <div className="mx-auto flex w-full max-w-[1720px] items-center justify-center gap-2 px-3 py-1.5">
+          <span aria-hidden className="h-px w-8 shrink-0" style={{ background: `linear-gradient(to right, transparent, ${C.gold}66)` }} />
+          <span className="text-[10px] font-bold tracking-[0.24em] whitespace-nowrap" style={{ color: C.gold, textShadow: "0 0 12px rgba(212,175,55,0.35)" }}>
+            © {new Date().getFullYear()} · CREATED BY BISMARK ARKO-OFORI
+          </span>
+          <span aria-hidden className="h-px w-8 shrink-0" style={{ background: `linear-gradient(to left, transparent, ${C.gold}66)` }} />
+        </div>
+      </div>
       <div className="mx-auto w-full max-w-[1720px] px-3 lg:px-5">
         <div className="flex h-14 items-center gap-3">
           {/* logo */}

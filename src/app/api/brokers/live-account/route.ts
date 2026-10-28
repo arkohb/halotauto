@@ -279,10 +279,9 @@ async function buildPayload(): Promise<Payload> {
   return base;
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   const now = Date.now();
-  const demo = new URL(req.url).searchParams.get("demo") === "1"; // TEMP probe
-  if (cache && now - cache.at < 2000 && !demo) {
+  if (cache && now - cache.at < 2000) {
     return NextResponse.json({ ...cache.data, cached: true });
   }
   if (!inflight) {
@@ -311,33 +310,6 @@ export async function GET(req: Request) {
       });
   }
   const data = await inflight;
-  // TEMP probe: preview the panel with a synthetic running trade
-  if (demo) {
-    const demoPos: LivePos = {
-      id: "ea-demo-probe",
-      symbol: "XAUUSD",
-      side: -1,
-      volume: 0.05,
-      entryPrice: 4061.2,
-      currentPrice: 4048.1,
-      sl: 4073.8,
-      tp: 4022.9,
-      pnl: 64.55,
-      swap: -0.42,
-      commission: -0.25,
-      openTime: Date.now() - 5 * 3600_000,
-      comment: "HALO 3EL · C3 fire · C3 wick + buffer",
-      ea: true,
-      paper: true,
-      pips: 129.1,
-    };
-    return NextResponse.json({
-      ...data,
-      positions: [demoPos],
-      eaOpen: true,
-      account: data.account ? { ...data.account, equity: data.account.equity + demoPos.pnl, margin: 404.81, freeMargin: data.account.equity - 404.81, marginLevel: 1240 } : data.account,
-    });
-  }
   return NextResponse.json(data);
 }
 
