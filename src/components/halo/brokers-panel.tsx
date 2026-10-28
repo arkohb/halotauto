@@ -1,9 +1,12 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  BROKERS PANEL · connect CFD broker accounts for REAL order execution
-//  OANDA v20 · IG Markets · MT4/MT5 (MetaApi) · Binance · FXCM / cTrader /
-//  Deriv / custom via secure order bridge.
+//  BROKERS PANEL · every CFD platform live out of the box
+//  • Featured MT4/MT5 LOGIN card — paste your broker login/password/server
+//    and HALO provisions the MetaApi cloud connection automatically
+//  • Auto catalog of ALL platforms (OANDA · IG · MT4/MT5 · Binance · FXCM ·
+//    cTrader · Deriv · custom bridge) — connect, auto-test, GO LIVE
+//  • GO LIVE = activate account + route the EA's real C3 orders to it
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from "react";
@@ -19,7 +22,7 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { C } from "@/lib/halo/ui-helpers";
-import { BROKERS, brokerMeta, type CredField } from "@/lib/brokers/broker-meta";
+import { BROKERS, brokerMeta, MT_SERVERS, type CredField } from "@/lib/brokers/broker-meta";
 
 export interface BrokerRow {
   id: string;
@@ -37,17 +40,29 @@ interface Props {
   notify: (title: string, desc?: string, bad?: boolean) => void;
 }
 
+// platform tiles of the always-on catalog (metaapi has the featured card; paper is built-in)
+const CATALOG_KINDS = ["oanda", "ig", "binance", "fxcm", "ctrader", "deriv", "webhook"] as const;
+
 export function BrokersPanel({ notify }: Props) {
   const [rows, setRows] = useState<BrokerRow[]>([]);
+  const [execMode, setExecMode] = useState<"paper" | "live">("paper");
+  const [execBroker, setExecBroker] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [presetKind, setPresetKind] = useState<string>("oanda");
 
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/brokers", { cache: "no-store" });
       const j = (await r.json()) as { brokers?: BrokerRow[] };
       setRows(j.brokers ?? []);
+      const s = await fetch("/api/bot/state", { cache: "no-store" });
+      if (s.ok) {
+        const sj = (await s.json()) as { exec?: { executionMode?: string; broker?: { label?: string } | null } };
+        setExecMode(sj.exec?.executionMode === "live" ? "live" : "paper");
+        setExecBroker(sj.exec?.broker?.label ?? null);
+      }
     } catch {
       // ignore
     } finally {
@@ -59,28 +74,79 @@ export function BrokersPanel({ notify }: Props) {
     void load();
   }, [load]);
 
-  const action = async (id: string, act: "test" | "activate", after?: () => void) => {
-    setBusyId(`${id}:${act}`);
+  const test = async (id: string) => {
+    setBusyId(`${id}:test`);
     try {
       const r = await fetch(`/api/brokers/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: act }),
+        body: JSON.stringify({ action: "test" }),
       });
-      const j = (await r.json()) as { ok: boolean; status?: string; statusMsg?: string; warn?: string; error?: string };
-      if (!j.ok) notify(`${act} failed`, j.error, true);
-      else if (act === "test") {
-        notify(
-          j.status === "ok" ? "CONNECTION OK" : "TEST FAILED",
-          j.statusMsg,
-          j.status !== "ok"
-        );
-      } else {
-        notify("ACCOUNT ACTIVATED", j.warn ?? "Live orders route through this account.");
-        if (j.warn) notify("Heads up", j.warn, true);
-      }
+      const j = (await r.json()) as { ok: boolean; status?: string; statusMsg?: string; error?: string };
+      if (!j.ok) notify("Test failed", j.error, true);
+      else notify(j.status === "ok" ? "CONNECTION OK" : "TEST FAILED", j.statusMsg, j.status !== "ok");
       await load();
-      after?.();
+    } catch (e) {
+      notify("Action failed", (e as Error).message, true);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const setActive = async (id: string) => {
+    setBusyId(`${id}:act`);
+    try {
+      const r = await fetch(`/api/brokers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate" }),
+      });
+      const j = (await r.json()) as { ok: boolean; warn?: string; error?: string };
+      if (!j.ok) notify("Activate failed", j.error, true);
+      else notify("ACCOUNT ACTIVATED", j.warn ?? "Live orders route through this account.");
+      await load();
+    } catch (e) {
+      notify("Action failed", (e as Error).message, true);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** one-click GO LIVE: activate + arm the EA's live order routing on this account */
+  const goLive = async (id: string, label: string) => {
+    setBusyId(`${id}:live`);
+    try {
+      const r = await fetch(`/api/brokers/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "activate", andGoLive: true }),
+      });
+      const j = (await r.json()) as { ok: boolean; liveArmed?: boolean; warn?: string; error?: string };
+      if (!j.ok) notify("GO LIVE failed", j.error, true);
+      else if (j.liveArmed) {
+        notify("LIVE ROUTING ARMED", `EA C3 fires now execute on ${label} with real SL/TP.`);
+        if (j.warn) notify("Heads up", j.warn, true);
+      } else notify("Account activated — but not live yet", j.warn ?? "Run TEST until it passes, then GO LIVE.", true);
+      await load();
+    } catch (e) {
+      notify("Action failed", (e as Error).message, true);
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const switchToPaper = async () => {
+    setBusyId("paper");
+    try {
+      const r = await fetch("/api/bot/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ exec: { executionMode: "paper" } }),
+      });
+      const j = (await r.json()) as { ok: boolean; error?: string };
+      if (j.ok) notify("PAPER EXECUTION ON", "All fills simulated — safe to experiment.");
+      else notify("Mode change rejected", j.error, true);
+      await load();
     } catch (e) {
       notify("Action failed", (e as Error).message, true);
     } finally {
@@ -101,162 +167,571 @@ export function BrokersPanel({ notify }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* ── header strip ── */}
       <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div className="text-sm font-bold tracking-wider text-[#E8ECF4]">CFD BROKER CONNECTIONS</div>
+            <div className="text-sm font-bold tracking-wider text-[#E8ECF4]">BROKER CONNECTIONS · ALL PLATFORMS LIVE</div>
             <div className="text-[11px] text-[#8C98AE] mt-0.5">
               Real market orders with SL/TP. Credentials stay on this server — only masked hints reach the browser.
             </div>
           </div>
-          <Dialog open={addOpen} onOpenChange={setAddOpen}>
-            <DialogTrigger asChild>
-              <Button className="h-9 px-4 rounded-lg bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold text-xs tracking-wider">
-                + CONNECT BROKER
-              </Button>
-            </DialogTrigger>
-            <AddBrokerDialog
-              onDone={() => {
-                setAddOpen(false);
-                void load();
-              }}
-              notify={notify}
-            />
-          </Dialog>
+          <div
+            className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-bold tracking-wider"
+            style={{
+              borderColor: execMode === "live" ? "rgba(242,54,69,0.5)" : "rgba(8,153,129,0.5)",
+              color: execMode === "live" ? C.red : C.green,
+              background: execMode === "live" ? "rgba(242,54,69,0.07)" : "rgba(8,153,129,0.07)",
+            }}
+          >
+            <span className="h-1.5 w-1.5 rounded-full" style={{ background: execMode === "live" ? C.red : C.green }} />
+            {execMode === "live" ? `LIVE · ${execBroker ?? "broker"}` : "PAPER EXECUTION"}
+          </div>
         </div>
       </div>
 
-      {rows.length === 0 && !loading && (
-        <div className="rounded-xl border border-dashed border-[#2A3A5C] bg-[#0F1A30] p-8 text-center text-[#8C98AE] text-sm">
-          No broker accounts yet — connect OANDA, IG, your MT4/MT5 broker via MetaApi, Binance, or a custom bridge.
-          Until then the EA runs on <span className="text-[#D4AF37]">paper execution</span>.
-        </div>
-      )}
+      {/* ── featured: MT4/MT5 direct login ── */}
+      <MtLoginCard notify={notify} onDone={() => void load()} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {rows.map((b) => {
-          const meta = brokerMeta(b.kind);
-          const statusColor = b.status === "ok" ? C.green : b.status === "error" ? C.red : C.gold;
-          return (
-            <div key={b.id} className={`rounded-xl border bg-[#0F1A30] p-4 ${b.active ? "border-[#D4AF37]" : "border-[#1C2A47]"}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm text-[#E8ECF4] truncate">{b.label}</span>
-                    <Badge variant="outline" className="text-[9px] border-[#2A3A5C] text-[#8C98AE] uppercase">
-                      {meta?.name ?? b.kind}
-                    </Badge>
-                    {b.env && b.env !== "—" && (
-                      <Badge
-                        variant="outline"
-                        className="text-[9px] uppercase"
-                        style={{
-                          borderColor: /live|real/i.test(b.env) ? "rgba(242,54,69,0.6)" : "rgba(8,153,129,0.6)",
-                          color: /live|real/i.test(b.env) ? C.red : C.green,
-                        }}
-                      >
-                        {String(b.env)}
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="text-[11px] text-[#8C98AE] mt-1 truncate">{meta?.tagline}</div>
-                </div>
-                <div className="flex flex-col items-end gap-1 shrink-0">
-                  <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider" style={{ color: statusColor }}>
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: statusColor }} />
-                    {b.active ? "ACTIVE" : b.status.toUpperCase()}
-                  </span>
-                  {b.active && (
-                    <Switch checked={b.active} disabled aria-label="active account" className="scale-75 pointer-events-none" />
-                  )}
-                </div>
-              </div>
-
-              {b.statusMsg && (
+      {/* ── connected accounts ── */}
+      {rows.length > 0 && (
+        <div className="space-y-2">
+          <div className="text-[11px] font-bold tracking-wider text-[#8C98AE]">
+            CONNECTED ACCOUNTS ({rows.length})
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {rows.map((b) => {
+              const meta = brokerMeta(b.kind);
+              const statusColor = b.status === "ok" ? C.green : b.status === "error" ? C.red : C.gold;
+              const isExecTarget = execMode === "live" && b.active;
+              return (
                 <div
-                  className="mt-2 text-[11px] font-mono rounded-md px-2 py-1.5 leading-relaxed"
-                  style={{
-                    background: b.status === "ok" ? "rgba(8,153,129,0.08)" : "rgba(242,54,69,0.08)",
-                    color: b.status === "ok" ? C.green : C.red,
-                  }}
+                  key={b.id}
+                  className="rounded-xl border bg-[#0F1A30] p-4"
+                  style={{ borderColor: isExecTarget ? C.red : b.active ? C.gold : "#1C2A47" }}
                 >
-                  {b.statusMsg}
-                </div>
-              )}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm text-[#E8ECF4] truncate">{b.label}</span>
+                        <Badge variant="outline" className="text-[9px] border-[#2A3A5C] text-[#8C98AE] uppercase">
+                          {meta?.name ?? b.kind}
+                        </Badge>
+                        {b.env && b.env !== "—" && (
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] uppercase"
+                            style={{
+                              borderColor: /live|real/i.test(b.env) ? "rgba(242,54,69,0.6)" : "rgba(8,153,129,0.6)",
+                              color: /live|real/i.test(b.env) ? C.red : C.green,
+                            }}
+                          >
+                            {String(b.env)}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-[#8C98AE] mt-1 truncate">{meta?.tagline}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider" style={{ color: statusColor }}>
+                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: statusColor }} />
+                        {isExecTarget ? "EXECUTING" : b.active ? "ACTIVE" : b.status.toUpperCase()}
+                      </span>
+                      {b.active && (
+                        <Switch checked={b.active} disabled aria-label="active account" className="scale-75 pointer-events-none" />
+                      )}
+                    </div>
+                  </div>
 
-              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#5D606B] font-mono">
-                {Object.entries(b.masked).slice(0, 4).map(([k, v]) => (
-                  <span key={k}>
-                    {k}: <span className="text-[#8C98AE]">{v}</span>
-                  </span>
-                ))}
-              </div>
+                  {b.statusMsg && (
+                    <div
+                      className="mt-2 text-[11px] font-mono rounded-md px-2 py-1.5 leading-relaxed break-words"
+                      style={{
+                        background: b.status === "ok" ? "rgba(8,153,129,0.08)" : "rgba(242,54,69,0.08)",
+                        color: b.status === "ok" ? C.green : C.red,
+                      }}
+                    >
+                      {b.statusMsg}
+                    </div>
+                  )}
 
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={busyId !== null}
-                  onClick={() => void action(b.id, "test")}
-                  className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#D4AF37] hover:text-[#D4AF37] bg-transparent"
-                >
-                  {busyId === `${b.id}:test` ? "TESTING…" : "TEST"}
-                </Button>
-                {!b.active && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busyId !== null}
-                    onClick={() => void action(b.id, "activate")}
-                    className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#089981] hover:text-[#089981] bg-transparent"
-                  >
-                    SET ACTIVE
-                  </Button>
-                )}
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#5D606B] font-mono">
+                    {Object.entries(b.masked).slice(0, 4).map(([k, v]) => (
+                      <span key={k}>
+                        {k}: <span className="text-[#8C98AE]">{v}</span>
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
                       disabled={busyId !== null}
-                      className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#8C98AE] hover:border-[#F23645] hover:text-[#F23645] bg-transparent ml-auto"
+                      onClick={() => void test(b.id)}
+                      className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#D4AF37] hover:text-[#D4AF37] bg-transparent"
                     >
-                      REMOVE
+                      {busyId === `${b.id}:test` ? "TESTING…" : "TEST"}
                     </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle className="text-[#D4AF37]">Remove {b.label}?</AlertDialogTitle>
-                      <AlertDialogDescription className="text-[#8C98AE]">
-                        Credentials are wiped. If it was the active live account, execution falls back to paper.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE]">Cancel</AlertDialogCancel>
-                      <AlertDialogAction className="bg-[#F23645] text-white hover:bg-[#FF4D5B]" onClick={() => void remove(b.id)}>
-                        Remove
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
+                    {!b.active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={busyId !== null}
+                        onClick={() => void setActive(b.id)}
+                        className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#089981] hover:text-[#089981] bg-transparent"
+                      >
+                        SET ACTIVE
+                      </Button>
+                    )}
+                    {b.status === "ok" && !isExecTarget && (
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            size="sm"
+                            disabled={busyId !== null}
+                            className="h-8 px-3 text-[11px] bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold"
+                          >
+                            {busyId === `${b.id}:live` ? "ARMING…" : "⚡ GO LIVE"}
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-[#D4AF37]">Route EA orders to {b.label}?</AlertDialogTitle>
+                            <AlertDialogDescription className="text-[#8C98AE]">
+                              REAL MONEY. Every C3 fire becomes a live market order on this account with SL/TP
+                              attached — using the current sizing settings. Make sure the EA is started and the
+                              symbol exists on this broker. Paper fallback stays one tap away.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE]">Cancel</AlertDialogCancel>
+                            <AlertDialogAction className="bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]" onClick={() => void goLive(b.id, b.label)}>
+                              ARM LIVE ROUTING
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    )}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={busyId !== null}
+                          className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#8C98AE] hover:border-[#F23645] hover:text-[#F23645] bg-transparent ml-auto"
+                        >
+                          REMOVE
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+                        <AlertDialogHeader>
+                          <AlertDialogTitle className="text-[#D4AF37]">Remove {b.label}?</AlertDialogTitle>
+                          <AlertDialogDescription className="text-[#8C98AE]">
+                            Credentials are wiped. If it was the active live account, execution falls back to paper.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE]">Cancel</AlertDialogCancel>
+                          <AlertDialogAction className="bg-[#F23645] text-white hover:bg-[#FF4D5B]" onClick={() => void remove(b.id)}>
+                            Remove
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── all platforms · auto catalog ── */}
+      <div className="space-y-2">
+        <div className="text-[11px] font-bold tracking-wider text-[#8C98AE]">
+          ALL PLATFORMS · READY TO CONNECT
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {/* paper built-in tile */}
+          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4 flex flex-col justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-sm text-[#E8ECF4]">Paper (simulated)</span>
+                <Badge variant="outline" className="text-[9px] border-[rgba(8,153,129,0.6)] text-[#089981] uppercase">
+                  built-in · always on
+                </Badge>
+              </div>
+              <div className="text-[11px] text-[#8C98AE] mt-1 leading-snug">
+                Instant simulated fills, no credentials. The default execution for every new session.
               </div>
             </div>
-          );
-        })}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busyId !== null || execMode === "paper"}
+              onClick={() => void switchToPaper()}
+              className="h-8 px-3 text-[11px] border-[rgba(8,153,129,0.5)] text-[#089981] hover:bg-[rgba(8,153,129,0.08)] bg-transparent w-fit"
+            >
+              {execMode === "paper" ? "CURRENT MODE" : "USE PAPER"}
+            </Button>
+          </div>
+
+          {/* every other platform */}
+          {CATALOG_KINDS.map((kind) => {
+            const meta = brokerMeta(kind);
+            if (!meta) return null;
+            const count = rows.filter((r) => r.kind === kind).length;
+            return (
+              <div key={kind} className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4 flex flex-col justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm text-[#E8ECF4]">{meta.name}</span>
+                    {count > 0 && (
+                      <Badge variant="outline" className="text-[9px] border-[rgba(212,175,55,0.5)] text-[#D4AF37] uppercase">
+                        {count} connected
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-[#8C98AE] mt-1 leading-snug">{meta.tagline}</div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setPresetKind(kind);
+                    setAddOpen(true);
+                  }}
+                  className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#D4AF37] hover:text-[#D4AF37] bg-transparent w-fit"
+                >
+                  {count > 0 ? "ADD ANOTHER" : "CONNECT"}
+                </Button>
+              </div>
+            );
+          })}
+
+          {/* metaapi pointer tile — the featured card handles it */}
+          <div className="rounded-xl border border-[rgba(212,175,55,0.4)] bg-[rgba(212,175,55,0.05)] p-4 flex flex-col justify-between gap-3">
+            <div>
+              <div className="font-bold text-sm text-[#E8ECF4]">MT4 / MT5 · MetaApi</div>
+              <div className="text-[11px] text-[#8C98AE] mt-1 leading-snug">
+                Your broker&apos;s MT login works here — use the gold MT4/MT5 LOGIN card at the top of this page.
+              </div>
+            </div>
+            <Badge variant="outline" className="text-[9px] border-[rgba(212,175,55,0.5)] text-[#D4AF37] uppercase w-fit">
+              direct login above
+            </Badge>
+          </div>
+        </div>
+      </div>
+
+      {rows.length === 0 && loading && (
+        <div className="rounded-xl border border-dashed border-[#2A3A5C] bg-[#0F1A30] p-8 text-center text-[#8C98AE] text-sm">
+          Loading broker connections…
+        </div>
+      )}
+
+      {/* connect dialog for the other platforms */}
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <AddBrokerDialog presetKind={presetKind} onDone={() => { setAddOpen(false); void load(); }} notify={notify} />
+      </Dialog>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  MT4 / MT5 LOGIN CARD · paste broker MT credentials → auto-provision
+// ════════════════════════════════════════════════════════════════════════
+
+function MtLoginCard({ notify, onDone }: { notify: Props["notify"]; onDone: () => void }) {
+  const [platform, setPlatform] = useState<"mt5" | "mt4">("mt5");
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [server, setServer] = useState("");
+  const [token, setToken] = useState("");
+  const [label, setLabel] = useState("");
+  const [goLive, setGoLive] = useState(false);
+  const [advanced, setAdvanced] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    setError("");
+    if (!token.trim()) {
+      setError("MetaApi token is required — step 1 below gets you one free.");
+      return;
+    }
+    if (!advanced && (!login.trim() || !password || !server.trim())) {
+      setError("Enter your MT login, password and server — exactly as shown in your MT4/MT5 terminal.");
+      return;
+    }
+    if (advanced && !accountId.trim()) {
+      setError("Paste the MetaApi account ID (or switch the Advanced toggle off to use your MT login).");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/brokers/mt-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token: token.trim(),
+          platform,
+          login: login.trim(),
+          password,
+          server: server.trim(),
+          label: label.trim() || undefined,
+          accountId: advanced ? accountId.trim() : undefined,
+        }),
+      });
+      const j = (await r.json()) as {
+        ok: boolean; id?: string; status?: string; statusMsg?: string; error?: string;
+      };
+      if (!j.ok) {
+        setError(j.error ?? "MT connection failed");
+        notify("MT CONNECTION FAILED", j.error, true);
+        return;
+      }
+      if (j.status === "ok") {
+        notify("MT ACCOUNT CONNECTED", j.statusMsg ?? "Balance fetched from your broker.");
+      } else {
+        notify("ADDED — BUT TEST FAILED", j.statusMsg ?? "Deployment may still be running — press TEST on the account card in a minute.", true);
+      }
+      // one-click arm live routing when requested and the test passed
+      if (goLive && j.id && j.status === "ok") {
+        const ar = await fetch(`/api/brokers/${j.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "activate", andGoLive: true }),
+        });
+        const aj = (await ar.json()) as { ok: boolean; liveArmed?: boolean; warn?: string };
+        if (aj.ok && aj.liveArmed) {
+          notify("LIVE AUTOTRADING ARMED", "Start the EA and every C3 fire executes on your MT account with SL/TP.");
+        } else {
+          notify("Not live yet", aj.warn ?? "Run TEST, then press GO LIVE on the account card.", true);
+        }
+      }
+      // wipe secrets from the form
+      setPassword("");
+      setToken("");
+      setAccountId("");
+      onDone();
+    } catch (e) {
+      setError((e as Error).message);
+      notify("MT connection failed", (e as Error).message, true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-[#D4AF37] bg-[rgba(212,175,55,0.04)] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-bold tracking-wider text-[#D4AF37]">MT4 / MT5 LOGIN · TRADE THE EA ON YOUR OWN BROKER</div>
+          <div className="text-[11px] text-[#8C98AE] mt-0.5 max-w-2xl leading-relaxed">
+            Works with virtually any MT4/MT5 broker — IC Markets, Pepperstone, XM, Exness, FTMO, Vantage, Deriv, Axi, FxPro…
+            HALO provisions the cloud connection from your MT credentials automatically, then the built-in EA autotrades it live.
+          </div>
+        </div>
+        <Badge variant="outline" className="text-[9px] border-[#D4AF37] text-[#D4AF37] uppercase shrink-0">
+          recommended
+        </Badge>
+      </div>
+
+      {/* ── how-to steps ── */}
+      <ol className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px] leading-relaxed">
+        {[
+          <>
+            Get a free MetaApi token at{" "}
+            <a
+              href="https://app.metaapi.cloud/sign-up/token"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#D4AF37] underline underline-offset-2"
+            >
+              app.metaapi.cloud
+            </a>{" "}
+            (Copy account token). One token handles all your MT accounts.
+          </>,
+          <>
+            Enter your MT <span className="text-[#E8ECF4]">login</span> (account number),{" "}
+            <span className="text-[#E8ECF4]">master password</span> and <span className="text-[#E8ECF4]">server</span> —
+            exactly as they appear in your MT4/MT5 terminal&apos;s login window.
+          </>,
+          <>
+            Press <span className="text-[#D4AF37]">CONNECT MT ACCOUNT</span> — HALO creates + deploys the connection,
+            then auto-tests it and shows your balance.
+          </>,
+          <>
+            Press <span className="text-[#D4AF37]">GO LIVE</span> on the account card (or flip the switch below),{" "}
+            <span className="text-[#E8ECF4]">START</span> the EA — every C3 fire is sent to your MT account as a real
+            market order with SL/TP.
+          </>,
+        ].map((step, i) => (
+          <li key={i} className="flex gap-2 rounded-lg border border-[#1C2A47] bg-[#0F1A30] px-3 py-2">
+            <span className="shrink-0 h-5 w-5 rounded-full bg-[#D4AF37] text-[#0B1426] text-[10px] font-bold flex items-center justify-center">
+              {i + 1}
+            </span>
+            <span className="text-[#8C98AE]">{step}</span>
+          </li>
+        ))}
+      </ol>
+
+      {/* ── form ── */}
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <Field label="PLATFORM">
+          <div className="grid grid-cols-2 gap-2">
+            {(["mt5", "mt4"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPlatform(p)}
+                className={`h-9 rounded-lg text-[11px] font-bold uppercase tracking-wider border ${
+                  platform === p ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#1C2A47] text-[#8C98AE]"
+                }`}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="MT ACCOUNT (LOGIN)">
+          <Input
+            value={login}
+            onChange={(e) => setLogin(e.target.value)}
+            placeholder="e.g. 51234567"
+            autoComplete="off"
+            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+          />
+        </Field>
+        <Field label="MT PASSWORD (MASTER)">
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="your trading password — not the investor/read-only one"
+            autoComplete="new-password"
+            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+          />
+        </Field>
+        <Field label="SERVER" hint="Copy it from the MT4/MT5 login window — suggestions appear as you type.">
+          <Input
+            value={server}
+            onChange={(e) => setServer(e.target.value)}
+            placeholder={platform === "mt5" ? "ICMarketsSC-MT5" : "ICMarketsSC-MT4"}
+            list="mt-server-suggestions"
+            autoComplete="off"
+            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+          />
+          <datalist id="mt-server-suggestions">
+            {MT_SERVERS.map((s) => (
+              <option key={s} value={s} />
+            ))}
+          </datalist>
+        </Field>
+        <Field label="METAAPI TOKEN" hint="Secret — stored server-side only.">
+          <Input
+            type="password"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder="eyJhbGciOi… (app.metaapi.cloud)"
+            autoComplete="off"
+            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+          />
+        </Field>
+        <Field label="LABEL (OPTIONAL)">
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="IC Markets gold · live"
+            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+          />
+        </Field>
+      </div>
+
+      {/* advanced: existing MetaApi account */}
+      <button
+        type="button"
+        onClick={() => setAdvanced((v) => !v)}
+        className="mt-3 text-[11px] text-[#8C98AE] hover:text-[#D4AF37] tracking-wider"
+      >
+        {advanced ? "▾" : "▸"} ADVANCED — I ALREADY HAVE A METAAPI ACCOUNT ID
+      </button>
+      {advanced && (
+        <div className="mt-2 max-w-md">
+          <Field
+            label="METAAPI ACCOUNT ID"
+            hint="Skips auto-provisioning — HALO connects straight to this account."
+          >
+            <Input
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              placeholder="uuid of the account in app.metaapi.cloud"
+              className="h-9 bg-[#0B1426] border-[#1C2A47] text-xs font-mono text-[#E8ECF4]"
+            />
+          </Field>
+        </div>
+      )}
+
+      {/* go-live switch + submit */}
+      <div className="mt-4 flex flex-col md:flex-row md:items-center gap-3">
+        <div className="flex items-center gap-2 flex-1">
+          <Switch checked={goLive} onCheckedChange={setGoLive} aria-label="go live after connect" />
+          <span className="text-[11px] text-[#E8ECF4]">
+            Route EA live orders here immediately after connect
+            <span className="text-[#8C98AE]"> — real money, every C3 fire executes on this account.</span>
+          </span>
+        </div>
+        <Button
+          onClick={() => void submit()}
+          disabled={busy}
+          className="h-10 px-5 rounded-lg bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold text-xs tracking-wider shrink-0"
+        >
+          {busy ? "PROVISIONING… DEPLOYING ON METAAPI CLOUD (up to 1 min)" : "CONNECT MT ACCOUNT"}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="mt-3 text-[11px] font-mono rounded-md px-2 py-1.5 leading-relaxed bg-[rgba(242,54,69,0.08)] text-[#F23645] break-words">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-3 text-[10px] text-[#5D606B] leading-relaxed">
+        Autotrading checklist: account TEST passes · GO LIVE armed · EA started on the dashboard · a scanned symbol fires C3 →
+        market order with SL/TP hits your MT terminal instantly. Telegram/email/push alerts fire on every fill.
       </div>
     </div>
   );
 }
 
-// ───────────────────────── add-broker dialog ─────────────────────────
+// ───────────────────────── add-broker dialog (other platforms) ─────────────────────────
 
-function AddBrokerDialog({ onDone, notify }: { onDone: () => void; notify: Props["notify"] }) {
-  const [kind, setKind] = useState<string>("oanda");
+function AddBrokerDialog({
+  presetKind,
+  onDone,
+  notify,
+}: {
+  presetKind: string;
+  onDone: () => void;
+  notify: Props["notify"];
+}) {
+  const [kind, setKind] = useState<string>(presetKind);
   const [label, setLabel] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [symbolMap, setSymbolMap] = useState("");
   const [busy, setBusy] = useState(false);
   const meta = brokerMeta(kind);
+
+  // follow preset changes when the dialog reopens
+  useEffect(() => {
+    setKind(presetKind);
+    setValues({});
+    setLabel("");
+    setSymbolMap("");
+  }, [presetKind]);
 
   const pickKind = (k: string) => {
     setKind(k);
@@ -318,7 +793,7 @@ function AddBrokerDialog({ onDone, notify }: { onDone: () => void; notify: Props
       <DialogHeader>
         <DialogTitle className="text-[#D4AF37] text-base">Connect a CFD broker</DialogTitle>
         <DialogDescription className="text-[#8C98AE] text-xs">
-          Pick a platform, paste its API credentials, then TEST. The active account receives the EA&apos;s real orders.
+          Pick a platform, paste its API credentials, then TEST. GO LIVE afterwards routes the EA&apos;s real orders there.
         </DialogDescription>
       </DialogHeader>
 

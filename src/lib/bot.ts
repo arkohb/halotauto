@@ -399,7 +399,10 @@ export async function updateBotConfig(patch: ConfigPatch): Promise<void> {
   bot.engine.cfg = nextCfg;
 
   if (patch.exec) {
-    const nextExec = clampExec(patch.exec);
+    // merge onto CURRENT settings so partial patches (mode toggle, GO LIVE…)
+    // never reset sizing fields back to defaults
+    const cur = await loadExecSettings();
+    const nextExec = clampExec({ ...cur, ...patch.exec });
     if (nextExec.executionMode === "live") {
       const broker = await resolveBroker(nextExec.brokerAccountId);
       if (!broker) throw new Error("Pick an active broker account before switching to LIVE execution.");

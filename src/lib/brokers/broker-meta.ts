@@ -71,8 +71,9 @@ export const BROKERS: BrokerMeta[] = [
       { key: "accountId", label: "Account ID", type: "text", placeholder: "account id from metaapi cloud" },
     ],
     notes: [
+      "EASIEST PATH — use the gold MT4/MT5 LOGIN card above: paste your MT login + password + server and HALO provisions everything automatically.",
       "One connection covers virtually every MT4/MT5 CFD broker on earth.",
-      "Account is auto-deployed; free tier works — create a copy of your MT account at app.metaapi.cloud.",
+      "Free tier works. All forex majors/crosses and metals (XAUUSD, XAGUSD…) map to your broker's MT symbols by default.",
     ],
   },
   {
@@ -166,3 +167,42 @@ export const BROKERS: BrokerMeta[] = [
 export function brokerMeta(kind: string): BrokerMeta | undefined {
   return BROKERS.find((b) => b.kind === kind);
 }
+
+// ── common MT4/MT5 server names (autocomplete suggestions) ──────────
+export const MT_SERVERS: string[] = [
+  "ICMarketsSC-MT5",
+  "ICMarketsSC-MT5-Live",
+  "ICMarketsSC-MT4",
+  "ICMarkets-Live07",
+  "ICMarkets-Demo",
+  "Pepperstone-Live08",
+  "Pepperstone-Demo",
+  "XMGlobal-MT5 2",
+  "XMGlobal-MT4 2",
+  "XMGlobal-MT5Real 12",
+  "Exness-MT5Real8",
+  "Exness-MT5Trial7",
+  "Exness-MT4Real8",
+  "FTMO-Server",
+  "FTMO-Server2",
+  "FTMO-Demo",
+  "VantageInternational-Live",
+  "VantageInternationalLive 5",
+  "Deriv-Demo",
+  "Deriv-Real",
+  "Axi-US03-Live",
+  "FxPro-Server",
+  "FxPro-Server2",
+  "ThinkMarkets-Live",
+  "Global-Prime-Live",
+  "FPUS-Live",
+  "Eightcap-Live",
+  "Eightcap-Demo",
+  "TMGMT4-Live",
+  "Alpari-MT5-Demo",
+  "RoboForex-Real",
+  "RoboForex-Pro",
+  "HantecPrime-Live",
+  "GoTraderFTMO-Live",
+  "FlexTrade-Server",
+];

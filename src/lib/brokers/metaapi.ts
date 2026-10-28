@@ -20,11 +20,48 @@ import {
 
 const BASE = "https://api.metaapi.cloud";
 const DEFAULT_MAP: Record<string, string> = {
+  // metals → MT names
   PAXGUSDT: "XAUUSD",
+  XAUUSD: "XAUUSD",
+  XAGUSD: "XAGUSD",
+  XPTUSD: "XPTUSD",
+  XPDUSD: "XPDUSD",
+  XCUUSD: "XCUUSD",
+  // forex majors (MT servers name them identically)
+  EURUSD: "EURUSD",
+  GBPUSD: "GBPUSD",
+  USDJPY: "USDJPY",
+  USDCHF: "USDCHF",
+  USDCAD: "USDCAD",
+  AUDUSD: "AUDUSD",
+  NZDUSD: "NZDUSD",
+  // forex crosses
+  EURGBP: "EURGBP",
+  EURJPY: "EURJPY",
+  EURCHF: "EURCHF",
+  EURAUD: "EURAUD",
+  EURCAD: "EURCAD",
+  EURNZD: "EURNZD",
+  GBPJPY: "GBPJPY",
+  GBPCHF: "GBPCHF",
+  GBPAUD: "GBPAUD",
+  GBPCAD: "GBPCAD",
+  GBPNZD: "GBPNZD",
+  AUDJPY: "AUDJPY",
+  AUDCAD: "AUDCAD",
+  AUDNZD: "AUDNZD",
+  NZDJPY: "NZDJPY",
+  NZDCAD: "NZDCAD",
+  CADJPY: "CADJPY",
+  CADCHF: "CADCHF",
+  CHFJPY: "CHFJPY",
+  // crypto
   BTCUSDT: "BTCUSD",
   ETHUSDT: "ETHUSD",
   XRPUSDT: "XRPUSD",
   SOLUSDT: "SOLUSD",
+  BNBUSDT: "BNBUSD",
+  DOGEUSDT: "DOGEUSD",
 };
 
 function headers(creds: BrokerCreds): Record<string, string> {

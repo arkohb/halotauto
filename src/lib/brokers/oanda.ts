@@ -19,7 +19,42 @@ import {
 } from "./types";
 
 const DEFAULT_MAP: Record<string, string> = {
+  // metals → OANDA underscore instruments
   PAXGUSDT: "XAU_USD",
+  XAUUSD: "XAU_USD",
+  XAGUSD: "XAG_USD",
+  XPTUSD: "XPT_USD",
+  XPDUSD: "XPD_USD",
+  XCUUSD: "XCU_USD",
+  // forex majors
+  EURUSD: "EUR_USD",
+  GBPUSD: "GBP_USD",
+  USDJPY: "USD_JPY",
+  USDCHF: "USD_CHF",
+  USDCAD: "USD_CAD",
+  AUDUSD: "AUD_USD",
+  NZDUSD: "NZD_USD",
+  // forex crosses
+  EURGBP: "EUR_GBP",
+  EURJPY: "EUR_JPY",
+  EURCHF: "EUR_CHF",
+  EURAUD: "EUR_AUD",
+  EURCAD: "EUR_CAD",
+  EURNZD: "EUR_NZD",
+  GBPJPY: "GBP_JPY",
+  GBPCHF: "GBP_CHF",
+  GBPAUD: "GBP_AUD",
+  GBPCAD: "GBP_CAD",
+  GBPNZD: "GBP_NZD",
+  AUDJPY: "AUD_JPY",
+  AUDCAD: "AUD_CAD",
+  AUDNZD: "AUD_NZD",
+  NZDJPY: "NZD_JPY",
+  NZDCAD: "NZD_CAD",
+  CADJPY: "CAD_JPY",
+  CADCHF: "CAD_CHF",
+  CHFJPY: "CHF_JPY",
+  // crypto
   BTCUSDT: "BTC_USD",
   ETHUSDT: "ETH_USD",
   XRPUSDT: "XRP_USD",

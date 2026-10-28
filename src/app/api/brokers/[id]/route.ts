@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { mergeCreds, parseCreds, maskCreds } from "@/lib/brokers";
 import { testBrokerAccount } from "@/lib/brokers/service";
+import { sendAlert } from "@/lib/alerts";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
       action: "activate" | "test" | "update";
       label?: string;
       creds?: Record<string, unknown>;
+      andGoLive?: boolean;
     };
 
     const row = await db.brokerAccount.findUnique({ where: { id } });
@@ -25,11 +27,40 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     if (body.action === "activate") {
       await db.brokerAccount.updateMany({ data: { active: false } });
       const updated = await db.brokerAccount.update({ where: { id }, data: { active: true } });
+
+      // one-click GO LIVE: activate + arm the EA's live order routing here
+      let liveArmed = false;
+      if (body.andGoLive) {
+        if (updated.status !== "ok") {
+          return NextResponse.json({
+            ok: true,
+            status: updated.status,
+            statusMsg: updated.statusMsg,
+            liveArmed: false,
+            warn: "Account activated, but the last TEST failed — run TEST first, then GO LIVE.",
+          });
+        }
+        await db.botConfig.updateMany({
+          where: { id: "main" },
+          data: { executionMode: "live", brokerAccountId: id },
+        });
+        liveArmed = true;
+        void sendAlert({
+          kind: "broker",
+          title: "HALO 3EL · LIVE ROUTING ARMED",
+          body: `EA orders now route to ${updated.label}. Every C3 fire is sent as a real market order with SL/TP.`,
+        });
+      }
+
       return NextResponse.json({
         ok: true,
         status: updated.status,
         statusMsg: updated.statusMsg,
-        warn: updated.status !== "ok" ? "Account is active but the last test failed — live orders may be rejected." : undefined,
+        liveArmed,
+        warn:
+          updated.status !== "ok"
+            ? "Account is active but the last test failed — live orders may be rejected."
+            : undefined,
       });
     }
 
