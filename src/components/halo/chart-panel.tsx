@@ -1,11 +1,21 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  HALO 3EL CHART · lightweight-charts v5
-//  Candles + C1/C2 equal-level lines + C3 fire arrows + ENTRY/SL/TP tags
+//  HALO 3EL CHART · dual engine, indicator attached to BOTH views
+//
+//  • TRADINGVIEW  — Advanced Chart widget + floating 3EL indicator rail
+//    (fresh C1/C2 levels, C3 forming tracker, ENTRY/SL/TP position card).
+//  • 3EL INDICATOR — lightweight-charts (TradingView's own chart engine)
+//    with the full 3EL indicator drawn ON the chart: shaded C1/C2
+//    equal-level zones, trigger lines, C3 FORMING marker on the live bar,
+//    level price tags on the axis, and the TradingView-style position tool
+//    (green profit zone entry→TP, red risk zone entry→SL, ENTRY/SL/TP
+//    axis labels).
+//
+//  ⚠ Presentation layer only — the live strategy / EA is never touched.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CandlestickSeries,
@@ -18,15 +28,21 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type ISeriesPrimitive,
+  type IPrimitivePaneView,
+  type ITimeScaleApi,
+  type SeriesAttachedParameter,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { Candle, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
+import type { Candle, HaloConfig, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
 import { C, fmtPx } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
 import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
 import { TvChart } from "./tv-chart";
+import { IndicatorRail } from "./indicator-rail";
+import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
 
 interface ChartProps {
   candles: Candle[];
@@ -52,6 +68,12 @@ interface ChartProps {
   onSymbol: (s: string) => void;
   /** switch the chart timeframe — the EA follows automatically */
   onTf: (t: string) => void;
+  /** strategy config (C3 forming thresholds) — read-only */
+  cfg: HaloConfig;
+  /** engine ATR — read-only */
+  atr: number | null;
+  /** last feed price — read-only */
+  price: number;
 }
 
 interface LevelLines {
@@ -64,28 +86,135 @@ function sideColor(side: number, alpha: string): string {
   return `rgba(${rgb},${alpha})`;
 }
 
-type ChartMode = "tv" | "halo";
-const MODE_KEY = "halo3el.chartmode";
+// ─────────────────────────────────────────────────────────────────────────
+//  Zone overlay primitive — canvas rectangles (level zones + position
+//  tool) that follow pan/zoom by converting time/price at draw time.
+// ─────────────────────────────────────────────────────────────────────────
+interface ZoneRectSpec {
+  t1: number | null; // ms epoch, null = pane left edge
+  t2: number | null; // null = pane right edge
+  p1: number;
+  p2: number;
+  fill: string;
+  border?: string;
+  dashed?: boolean;
+}
+
+interface MediaSpaceState {
+  context: CanvasRenderingContext2D;
+  mediaSize: { width: number; height: number };
+}
+interface DrawTargetLike {
+  useMediaCoordinateSpace<T>(h: (s: MediaSpaceState) => T): T;
+}
+
+class ZoneOverlay {
+  private param: SeriesAttachedParameter<Time> | null = null;
+  rects: ZoneRectSpec[] = [];
+
+  private readonly view: IPrimitivePaneView = {
+    zOrder: () => "bottom",
+    renderer: () => ({
+      draw: (target: unknown) => this.draw(target as DrawTargetLike),
+    }),
+  };
+
+  attached(param: SeriesAttachedParameter<Time>): void {
+    this.param = param;
+  }
+  detached(): void {
+    this.param = null;
+  }
+  updateAllViews(): void {
+    // rects are read live at draw time — nothing to cache
+  }
+  paneViews(): IPrimitivePaneView[] {
+    return [this.view];
+  }
+  requestUpdate(): void {
+    this.param?.requestUpdate();
+  }
+
+  private xOf(ts: ITimeScaleApi<Time>, tSec: number, visL: number | null, visR: number | null, W: number): number | null {
+    const c = ts.timeToCoordinate(tSec as UTCTimestamp);
+    if (c !== null) return c;
+    if (visL !== null && tSec <= visL) return 0;
+    if (visR !== null && tSec >= visR) return W;
+    return null;
+  }
+
+  private draw(target: DrawTargetLike): void {
+    const p = this.param;
+    if (!p || this.rects.length === 0) return;
+    const ts = p.chart.timeScale();
+    target.useMediaCoordinateSpace(({ context, mediaSize }) => {
+      const W = mediaSize.width;
+      const H = mediaSize.height;
+      if (W <= 0 || H <= 0) return;
+      const vis = ts.getVisibleRange();
+      const visL = vis ? (vis.from as number) : null;
+      const visR = vis ? (vis.to as number) : null;
+      context.save();
+      context.beginPath();
+      context.rect(0, 0, W, H);
+      context.clip();
+      for (const r of this.rects) {
+        const x1 = r.t1 === null ? 0 : this.xOf(ts, r.t1 / 1000, visL, visR, W);
+        const x2 = r.t2 === null ? W : this.xOf(ts, r.t2 / 1000, visL, visR, W);
+        const yA = p.series.priceToCoordinate(r.p1);
+        const yB = p.series.priceToCoordinate(r.p2);
+        if (x1 === null || x2 === null || yA === null || yB === null) continue;
+        const top = Math.min(yA, yB);
+        const bot = Math.max(yA, yB);
+        if (bot < 0 || top > H || x2 <= 0 || x1 >= W) continue;
+        const L = Math.max(x1, 0);
+        const R = Math.min(x2, W);
+        const h = Math.max(1, bot - top);
+        context.fillStyle = r.fill;
+        context.fillRect(L, top, R - L, h);
+        if (r.border) {
+          context.strokeStyle = r.border;
+          context.lineWidth = 1;
+          if (r.dashed) context.setLineDash([4, 3]);
+          context.strokeRect(L + 0.5, top + 0.5, Math.max(1, R - L - 1), h - 1);
+          context.setLineDash([]);
+        }
+      }
+      context.restore();
+    });
+  }
+}
+
+type ChartMode = "tv" | "3el";
+const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator view
 
 export default function ChartPanel(props: ChartProps) {
   const {
     candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing,
-    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price,
   } = props;
-  const [mode, setMode] = useState<ChartMode>("tv");
+  const [mode, setMode] = useState<ChartMode>("3el");
   const [tvNote, setTvNote] = useState<string | null>(null);
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const overlayRef = useRef<LevelLines>({ series: [], priceLines: [] });
+  const zoneRef = useRef<ZoneOverlay | null>(null);
+  const fitKeyRef = useRef<string>("");
+
+  // derived (visual-only) state
+  const freshLevels = useMemo(() => drawings.filter((d) => d.state === "fresh"), [drawings]);
+  const liveCandle = candles.length > 0 ? candles[candles.length - 1] : undefined;
+  const forming = useMemo(() => c3FormCheck(liveCandle, freshLevels, atr, cfg), [liveCandle, freshLevels, atr, cfg]);
+  const bestForm = bestC3Form(forming);
 
   // restore persisted chart mode (deferred so we never setState synchronously in an effect)
   useEffect(() => {
     const id = window.setTimeout(() => {
       try {
         const m = localStorage.getItem(MODE_KEY);
-        if (m === "halo" || m === "tv") setMode(m);
+        if (m === "3el" || m === "tv" || m === "halo") setMode(m === "halo" ? "3el" : m);
       } catch {
         // ignore
       }
@@ -103,9 +232,9 @@ export default function ChartPanel(props: ChartProps) {
     }
   };
 
-  // init chart once per halo-mode mount
+  // init chart once per 3el-mode mount
   useEffect(() => {
-    if (mode !== "halo") return;
+    if (mode !== "3el") return;
     const el = elRef.current;
     if (!el) return;
     const chart = createChart(el, {
@@ -119,7 +248,7 @@ export default function ChartPanel(props: ChartProps) {
       grid: { vertLines: { color: "#121D35" }, horzLines: { color: "#121D35" } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: C.line },
-      timeScale: { borderColor: C.line, timeVisible: true, secondsVisible: false, rightOffset: 8 },
+      timeScale: { borderColor: C.line, timeVisible: true, secondsVisible: false, rightOffset: 10 },
     });
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: C.green,
@@ -133,11 +262,17 @@ export default function ChartPanel(props: ChartProps) {
     chartRef.current = chart;
     candleRef.current = candleSeries;
     markersRef.current = createSeriesMarkers(candleSeries, []);
+    // 3EL zone primitive (level zones + position tool shading)
+    const zone = new ZoneOverlay();
+    candleSeries.attachPrimitive(zone as unknown as ISeriesPrimitive<Time>);
+    zoneRef.current = zone;
+    fitKeyRef.current = ""; // fresh mount → refit on first data
     return () => {
       chart.remove();
       chartRef.current = null;
       candleRef.current = null;
       markersRef.current = null;
+      zoneRef.current = null;
       overlayRef.current = { series: [], priceLines: [] };
     };
   }, [mode]);
@@ -145,9 +280,10 @@ export default function ChartPanel(props: ChartProps) {
   // candle data — always push the full window whenever the prop changes
   // (cheap for ≤720 bars and impossible to go stale)
   useEffect(() => {
-    if (mode !== "halo") return;
+    if (mode !== "3el") return;
     const s = candleRef.current;
-    if (!s || candles.length === 0) return;
+    const chart = chartRef.current;
+    if (!s || !chart || candles.length === 0) return;
     s.setData(
       candles.map((c) => ({
         time: (c.time / 1000) as UTCTimestamp,
@@ -157,15 +293,22 @@ export default function ChartPanel(props: ChartProps) {
         close: c.close,
       }))
     );
-  }, [candles, mode]);
+    // fit the full window once per symbol/timeframe switch (never fights user zoom)
+    const key = `${symbol}|${tf}`;
+    if (fitKeyRef.current !== key) {
+      fitKeyRef.current = key;
+      chart.timeScale().fitContent();
+    }
+  }, [candles, mode, symbol, tf]);
 
-  // overlays: level lines + trade price lines + markers
+  // overlays: level zones + trigger lines + position tool + markers
   useEffect(() => {
-    if (mode !== "halo") return;
+    if (mode !== "3el") return;
     const chart = chartRef.current;
     const cs = candleRef.current;
     const mk = markersRef.current;
-    if (!chart || !cs || !mk) return;
+    const zone = zoneRef.current;
+    if (!chart || !cs || !mk || !zone) return;
 
     // clear previous overlays
     for (const s of overlayRef.current.series) chart.removeSeries(s);
@@ -176,7 +319,7 @@ export default function ChartPanel(props: ChartProps) {
     const lastT = candles.length > 0 ? candles[candles.length - 1].time : Date.now();
     const visible = drawings.filter((d) => (d.endTime ?? lastT) >= firstT).slice(-26);
 
-    const addLevelLine = (t1: number, t2: number, price: number, color: string, width: 1 | 2, dashed: boolean) => {
+    const addLevelLine = (t1: number, t2: number, px: number, color: string, width: 1 | 2, dashed: boolean) => {
       const a = Math.max(t1, firstT) / 1000;
       const b = Math.max(t2, firstT + 1000) / 1000;
       if (!(b > a)) return;
@@ -190,34 +333,72 @@ export default function ChartPanel(props: ChartProps) {
         pointMarkersVisible: false,
       });
       ser.setData([
-        { time: a as UTCTimestamp, value: price },
-        { time: b as UTCTimestamp, value: price },
+        { time: a as UTCTimestamp, value: px },
+        { time: b as UTCTimestamp, value: px },
       ]);
       overlayRef.current.series.push(ser);
     };
 
-    const markers: SeriesMarker<Time>[] = [];
-
+    // ── 1. equal-level zones + trigger lines ──
+    const zoneRects: ZoneRectSpec[] = [];
     for (const d of visible) {
       const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.32";
       const col = sideColor(d.side, alpha);
       const end = d.endTime ?? lastT;
       addLevelLine(d.b1Time, end, d.c1Close, col, 2, false);
       addLevelLine(d.b2Time, end, d.c2Open, col, 1, true);
+      // shaded equal-level zone (C1 close ↔ C2 open band)
+      zoneRects.push({
+        t1: d.b1Time,
+        t2: d.state === "fresh" ? null : end,
+        p1: d.bot,
+        p2: d.top,
+        fill: sideColor(d.side, d.state === "fresh" ? "0.10" : "0.05"),
+        border: sideColor(d.side, d.state === "fresh" ? "0.42" : "0.2"),
+        dashed: d.state !== "fresh",
+      });
+      // fresh level price tag on the axis (TV-style plot tag, no extra line)
       if (d.state === "fresh") {
-        const pos = d.side === -1 ? "aboveBar" : "belowBar";
-        markers.push({ time: (d.b1Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C1", color: col, size: 1 });
-        markers.push({ time: (d.b2Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C2", color: col, size: 1 });
+        const trig = d.side === -1 ? d.top : d.bot;
+        overlayRef.current.priceLines.push(
+          cs.createPriceLine({
+            price: trig,
+            color: sideColor(d.side, "0.95"),
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+            lineVisible: false,
+            title: `3EL ${d.side === -1 ? "▼" : "▲"}`,
+          })
+        );
       }
     }
 
-    // trade lines
+    // ── 2. position tool — TradingView-style ENTRY / SL / TP zones ──
     const t = trade;
     if (t) {
+      const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129"; // SELL profits below entry
+      const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69"; // risk sits the other way
+      zoneRects.push({
+        t1: t.entryTime,
+        t2: null,
+        p1: Math.min(t.entry, t.tp),
+        p2: Math.max(t.entry, t.tp),
+        fill: `rgba(${profitCol},0.13)`,
+        border: `rgba(${profitCol},0.35)`,
+      });
+      zoneRects.push({
+        t1: t.entryTime,
+        t2: null,
+        p1: Math.min(t.entry, t.sl),
+        p2: Math.max(t.entry, t.sl),
+        fill: `rgba(${riskCol},0.13)`,
+        border: `rgba(${riskCol},0.35)`,
+      });
       overlayRef.current.priceLines.push(
         cs.createPriceLine({
           price: t.entry,
-          color: C.gray,
+          color: C.gold,
           lineWidth: 2,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: true,
@@ -246,7 +427,34 @@ export default function ChartPanel(props: ChartProps) {
       );
     }
 
-    // event markers (fires + results)
+    zone.rects = zoneRects;
+    zone.requestUpdate();
+
+    const markers: SeriesMarker<Time>[] = [];
+
+    // ── 3. C1 / C2 markers ──
+    for (const d of visible) {
+      if (d.state === "burned") continue;
+      const alpha = d.state === "fresh" ? "0.95" : "0.6";
+      const col = sideColor(d.side, alpha);
+      const pos = d.side === -1 ? "aboveBar" : "belowBar";
+      markers.push({ time: (d.b1Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C1", color: col, size: 1 });
+      markers.push({ time: (d.b2Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C2", color: col, size: 1 });
+    }
+
+    // ── 4. C3 FORMING marker on the live bar (visual tracker) ──
+    if (liveCandle && bestForm) {
+      markers.push({
+        time: (liveCandle.time / 1000) as UTCTimestamp,
+        position: bestForm.side === -1 ? "aboveBar" : "belowBar",
+        shape: "circle",
+        text: bestForm.stage === "through" ? "C3 FORMING · IN RANGE" : "C3 FORMING",
+        color: C.gold,
+        size: 1.5,
+      });
+    }
+
+    // ── 5. event markers (fires + results) ──
     for (const e of log.slice(-30)) {
       if (e.kind === "fire") {
         markers.push({
@@ -280,7 +488,7 @@ export default function ChartPanel(props: ChartProps) {
 
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     mk.setMarkers(markers);
-  }, [drawings, log, trade, mintick, candles, mode]);
+  }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle]);
 
   const heightCls = "h-[380px] sm:h-[440px] xl:h-[540px]";
 
@@ -361,27 +569,27 @@ export default function ChartPanel(props: ChartProps) {
           </span>
         )}
         <div className="flex overflow-hidden rounded-lg border border-[#1C2A47] bg-[#0F1A30]/95 backdrop-blur">
-        {(
-          [
-            ["tv", "TRADINGVIEW"],
-            ["halo", "HALO EA"],
-          ] as Array<[ChartMode, string]>
-        ).map(([m, label]) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => switchMode(m)}
-            aria-pressed={mode === m}
-            aria-label={`Show ${label} chart`}
-            className="px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
-            style={{
-              color: mode === m ? C.navy : C.muted,
-              background: mode === m ? C.gold : "transparent",
-            }}
-          >
-            {label}
-          </button>
-        ))}
+          {(
+            [
+              ["tv", "TRADINGVIEW"],
+              ["3el", "3EL INDICATOR"],
+            ] as Array<[ChartMode, string]>
+          ).map(([m, label]) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => switchMode(m)}
+              aria-pressed={mode === m}
+              aria-label={`Show ${label} chart`}
+              className="px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+              style={{
+                color: mode === m ? C.navy : C.muted,
+                background: mode === m ? C.gold : "transparent",
+              }}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -394,14 +602,34 @@ export default function ChartPanel(props: ChartProps) {
             height="100%"
             onUnavailable={(reason) => {
               setTvNote(reason);
-              setMode("halo");
+              setMode("3el");
               try {
-                localStorage.setItem(MODE_KEY, "halo");
+                localStorage.setItem(MODE_KEY, "3el");
               } catch {
                 // ignore
               }
             }}
           />
+          {/* 3EL INDICATOR attached to the TradingView chart (legend rail) */}
+          <IndicatorRail
+            levels={freshLevels}
+            trade={trade}
+            live={liveCandle}
+            price={price}
+            atr={atr}
+            cfg={cfg}
+            mintick={mintick}
+          />
+          {/* C3 forming alert pill */}
+          {bestForm && (
+            <div
+              aria-label="C3 forming on live candle"
+              className="absolute left-1/2 top-2 z-30 -translate-x-1/2 animate-pulse whitespace-nowrap rounded-full border px-3 py-1 text-[9px] font-extrabold tracking-[0.18em] backdrop-blur"
+              style={{ borderColor: "rgba(212,175,55,0.65)", background: "rgba(212,175,55,0.2)", color: C.gold }}
+            >
+              ◎ C3 FORMING {bestForm.side === -1 ? "▼" : "▲"}
+            </div>
+          )}
           {/* EA attach HUD — EA state drawn over the TradingView chart */}
           <div
             aria-label="EA attach status"

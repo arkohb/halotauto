@@ -38,7 +38,7 @@ async function jget(url: string, ms = 7000): Promise<unknown> {
   }
 }
 
-type Row = [number, string | number, string | number, string | number, string | number, string | number?];
+type Row = [number, string | number, string | number, string | number, string | number, (string | number)?];
 
 function toCandles(rows: Row[], order: "asc" | "desc"): Candle[] {
   const out = rows.map((k) => ({
@@ -192,8 +192,17 @@ async function fYahoo(sym: string, tf: string, limit: number): Promise<{ candles
       rows.push([ts[i] * 1000, o, h, l, c, q.volume?.[i] ?? 0]);
     }
     const base = toCandles(rows, "asc");
-    if (base.length < 10) throw new Error("yahoo too few bars");
-    return { candles: aggregate(base, mult).slice(-limit), source: "yahoo" };
+    // Yahoo appends a "last trade snapshot" bar stamped at the CURRENT MINUTE
+    // (not aligned to the interval grid) to intraday series. Merging it by
+    // exact timestamp would append a new degenerate flat bar on every 30s
+    // poll, poisoning the cache (1h windows filling with 1m flat bars).
+    // Keep only bars that sit on the interval grid (skip daily — exchange
+    // sessions stamp those off-grid legitimately).
+    const IV_MS: Record<string, number> = { "1m": 60e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "1h": 3600e3 };
+    const stepMs = IV_MS[iv];
+    const clean = stepMs ? base.filter((c) => c.time % stepMs === 0) : base;
+    if (clean.length < 10) throw new Error("yahoo too few bars");
+    return { candles: aggregate(clean, mult).slice(-limit), source: "yahoo" };
   } finally {
     clearTimeout(t);
   }

@@ -320,6 +320,9 @@ export default function Page() {
                   onToggleBot={() => void control(state.enabled ? "stop" : "start")}
                   onSymbol={(s) => void changeSymbol(s)}
                   onTf={(t) => void changeTf(t)}
+                  cfg={state.config}
+                  atr={state.engine.atr}
+                  price={state.feed.price}
                 />
                 <EaAttachCard
                   state={state}
