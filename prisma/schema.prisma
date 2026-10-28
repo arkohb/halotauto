@@ -1,0 +1,43 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// EA bot paper-trade record
+model Trade {
+  id         String    @id @default(cuid())
+  mode       String    // BOT | BACKTEST | MANUAL
+  symbol     String
+  timeframe  String
+  direction  Int // -1 = SELL (short) · +1 = BUY (long)
+  entry      Float
+  sl         Float
+  tp         Float
+  riskPips   Float
+  rewardPips Float
+  status     String    // OPEN | WIN | LOSS
+  resultPips Float?
+  levelTop   Float // C1/C2 zone top
+  levelBot   Float // C1/C2 zone bottom
+  slMode     String // Fixed points | C3 wick + buffer | ATR
+  openedAt   DateTime
+  closedAt   DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+// Singleton bot config row (id = "main")
+model BotConfig {
+  id             String   @id @default("main")
+  enabled        Boolean  @default(false)
+  symbol         String   @default("BTCUSDT")
+  timeframe      String   @default("5m")
+  configJson     String // full HALO 3EL settings JSON
+  startingPips   Float    @default(0)
+  realizedPips   Float    @default(0)
+  lastFeedSource String   @default("binance")
+  updatedAt      DateTime @updatedAt
+}

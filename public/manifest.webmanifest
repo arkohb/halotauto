@@ -1,0 +1,18 @@
+{
+  "name": "HALO 3EL Autotrader · EA Trading Bot",
+  "short_name": "HALO 3EL",
+  "description": "HALO 3-Candle Equal Level autotrader — full strategy engine with EA paper-trading bot, live chart, backtester.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0B1426",
+  "theme_color": "#0B1426",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
