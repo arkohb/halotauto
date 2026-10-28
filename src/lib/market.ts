@@ -89,6 +89,12 @@ async function fCoinbase(sym: string, tf: string, limit: number): Promise<Candle
 }
 
 async function fetchFromSources(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
+  // forex / metals have no crypto-exchange feed — jump straight to the
+  // simulator instead of burning 4 × 7 s of dead timeouts. A real FX feed
+  // (OANDA candles via the broker adapter) can be plugged in here later.
+  if (getSymbolMeta(sym).group !== "CRYPTO") {
+    throw new Error("no public feed for this asset class — simulator");
+  }
   const sources: Array<[string, () => Promise<Candle[]>]> = [
     ["binance", () => fBinance(sym, tf, limit)],
     ["bybit", () => fBybit(sym, tf, limit)],

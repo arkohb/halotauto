@@ -5,7 +5,7 @@
 //  Candles + C1/C2 equal-level lines + C3 fire arrows + ENTRY/SL/TP tags
 // ════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   CandlestickSeries,
   ColorType,
@@ -24,6 +24,7 @@ import {
 import type { Candle, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
 import { C, fmtPx } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
+import { TvChart } from "./tv-chart";
 
 interface ChartProps {
   candles: Candle[];
@@ -46,16 +47,45 @@ function sideColor(side: number, alpha: string): string {
   return `rgba(${rgb},${alpha})`;
 }
 
+type ChartMode = "tv" | "halo";
+const MODE_KEY = "halo3el.chartmode";
+
 export default function ChartPanel(props: ChartProps) {
   const { candles, drawings, log, trade, mintick, symbol, tf, source } = props;
+  const [mode, setMode] = useState<ChartMode>("tv");
+  const [tvNote, setTvNote] = useState<string | null>(null);
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const overlayRef = useRef<LevelLines>({ series: [], priceLines: [] });
 
-  // init chart once
+  // restore persisted chart mode (deferred so we never setState synchronously in an effect)
   useEffect(() => {
+    const id = window.setTimeout(() => {
+      try {
+        const m = localStorage.getItem(MODE_KEY);
+        if (m === "halo" || m === "tv") setMode(m);
+      } catch {
+        // ignore
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const switchMode = (m: ChartMode) => {
+    setMode(m);
+    if (m === "tv") setTvNote(null);
+    try {
+      localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // ignore
+    }
+  };
+
+  // init chart once per halo-mode mount
+  useEffect(() => {
+    if (mode !== "halo") return;
     const el = elRef.current;
     if (!el) return;
     const chart = createChart(el, {
@@ -90,11 +120,12 @@ export default function ChartPanel(props: ChartProps) {
       markersRef.current = null;
       overlayRef.current = { series: [], priceLines: [] };
     };
-  }, []);
+  }, [mode]);
 
   // candle data — always push the full window whenever the prop changes
   // (cheap for ≤720 bars and impossible to go stale)
   useEffect(() => {
+    if (mode !== "halo") return;
     const s = candleRef.current;
     if (!s || candles.length === 0) return;
     s.setData(
@@ -106,10 +137,11 @@ export default function ChartPanel(props: ChartProps) {
         close: c.close,
       }))
     );
-  }, [candles]);
+  }, [candles, mode]);
 
   // overlays: level lines + trade price lines + markers
   useEffect(() => {
+    if (mode !== "halo") return;
     const chart = chartRef.current;
     const cs = candleRef.current;
     const mk = markersRef.current;
@@ -228,7 +260,9 @@ export default function ChartPanel(props: ChartProps) {
 
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     mk.setMarkers(markers);
-  }, [drawings, log, trade, mintick, candles]);
+  }, [drawings, log, trade, mintick, candles, mode]);
+
+  const heightCls = "h-[380px] sm:h-[440px] xl:h-[540px]";
 
   return (
     <div className="relative rounded-xl border border-[#1C2A47] bg-[#0B1426] overflow-hidden">
@@ -236,8 +270,59 @@ export default function ChartPanel(props: ChartProps) {
         <span className="font-semibold text-[#E8ECF4]">{symbol}</span>
         <span className="text-[#8C98AE]">· {tf} ·</span>
         <span className="uppercase tracking-wide text-[#D4AF37]">{source}</span>
+        {tvNote && mode === "tv" && (
+          <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(212,175,55,0.5)", color: C.gold }}>
+            TV FALLBACK
+          </span>
+        )}
       </div>
-      <div ref={elRef} className="h-[380px] sm:h-[440px] xl:h-[540px] w-full" />
+
+      {/* chart engine toggle */}
+      <div className="absolute right-2.5 top-2 z-20 flex overflow-hidden rounded-lg border border-[#1C2A47] bg-[#0F1A30]/95 backdrop-blur">
+        {(
+          [
+            ["tv", "TRADINGVIEW"],
+            ["halo", "HALO EA"],
+          ] as Array<[ChartMode, string]>
+        ).map(([m, label]) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => switchMode(m)}
+            aria-pressed={mode === m}
+            aria-label={`Show ${label} chart`}
+            className="px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+            style={{
+              color: mode === m ? C.navy : C.muted,
+              background: mode === m ? C.gold : "transparent",
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "tv" ? (
+        <div className={heightCls}>
+          <TvChart
+            key={`${symbol}-${tf}`}
+            symbol={symbol}
+            tf={tf}
+            height="100%"
+            onUnavailable={(reason) => {
+              setTvNote(reason);
+              setMode("halo");
+              try {
+                localStorage.setItem(MODE_KEY, "halo");
+              } catch {
+                // ignore
+              }
+            }}
+          />
+        </div>
+      ) : (
+        <div ref={elRef} className={`${heightCls} w-full`} />
+      )}
     </div>
   );
 }

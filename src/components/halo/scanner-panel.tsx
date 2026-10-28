@@ -8,13 +8,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { C } from "@/lib/halo/ui-helpers";
-import { SYMBOLS, TIMEFRAMES } from "@/lib/market-symbols";
+import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
 import type { Side } from "@/lib/halo/types";
 
 interface RowState {
@@ -141,9 +141,14 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
               <SelectTrigger className="w-[190px] h-9 bg-[#0B1426] border-[#1C2A47] text-xs text-[#E8ECF4]">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
-                {SYMBOLS.map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs">{s.label}</SelectItem>
+              <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4] max-h-[380px]">
+                {SYMBOL_GROUPS.map((g) => (
+                  <SelectGroup key={g.key}>
+                    <SelectLabel className="text-[9px] tracking-[0.18em] text-[#D4AF37]/80 pl-2">{g.label}</SelectLabel>
+                    {symbolsByGroup(g.key).map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">{s.label}</SelectItem>
+                    ))}
+                  </SelectGroup>
                 ))}
               </SelectContent>
             </Select>
