@@ -463,6 +463,7 @@ export interface MtAccountInformation {
   equity?: number;
   margin?: number;
   freeMargin?: number;
+  marginLevel?: number;
   leverage?: number;
   server?: string;
   platform?: string;

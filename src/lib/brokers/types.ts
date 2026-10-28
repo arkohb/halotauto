@@ -55,6 +55,15 @@ export interface AccountInfo {
   currency?: string;
   balance?: number;
   equity?: number;
+  /** MT-style margin fields for the live account panel */
+  margin?: number;
+  freeMargin?: number;
+  marginLevel?: number;
+  leverage?: number;
+  login?: string;
+  server?: string;
+  brokerName?: string;
+  platform?: string;
   error?: string;
   raw?: unknown;
 }
@@ -68,6 +77,14 @@ export interface PositionInfo {
   sl?: number;
   tp?: number;
   unrealizedPnl?: number;
+  /** live price + MT extras for the account panel */
+  currentPrice?: number;
+  swap?: number;
+  commission?: number;
+  openTime?: number; // epoch ms
+  comment?: string;
+  /** opened by the HALO EA (comment / magic match) */
+  ea?: boolean;
 }
 
 export interface BrokerAdapter {

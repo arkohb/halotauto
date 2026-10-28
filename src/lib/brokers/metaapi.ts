@@ -22,6 +22,7 @@ import {
 } from "./types";
 import {
   friendlyMetaApiError,
+  METAAPI_MAGIC,
   mtAccountInformation,
   mtClosePosition,
   mtMarketOrder,
@@ -102,7 +103,7 @@ async function getAccount(creds: BrokerCreds): Promise<AccountInfo> {
   try {
     const a = acct(creds);
     if (!a.id) return { ok: false, error: "MetaApi accountId missing — reconnect the MT account" };
-    // real trading info from the client API (balance, equity, broker)
+    // real trading info from the client API (balance, equity, margin, broker)
     const info = await mtAccountInformation(a.id, a.region, a.token);
     return {
       ok: true,
@@ -110,6 +111,14 @@ async function getAccount(creds: BrokerCreds): Promise<AccountInfo> {
       currency: info.currency,
       balance: num(info.balance),
       equity: num(info.equity) || num(info.balance),
+      margin: num(info.margin),
+      freeMargin: num(info.freeMargin, num(info.equity) || num(info.balance)),
+      marginLevel: num(info.marginLevel),
+      leverage: num(info.leverage),
+      login: info.accountNumber !== undefined ? String(info.accountNumber) : undefined,
+      server: info.server,
+      brokerName: info.broker,
+      platform: info.platform,
       raw: { broker: info.broker, server: info.server, platform: info.platform, state: info.state },
     };
   } catch (e) {
@@ -166,15 +175,25 @@ async function getPositions(creds: BrokerCreds, symbol?: string): Promise<Positi
     const out: PositionInfo[] = j.map((p) => {
       const rec = p as Record<string, unknown>;
       const t = String(rec.type ?? "");
+      const comment = String(rec.comment ?? "");
+      const magic = num(rec.magic);
+      const openTimeRaw = rec.openTime ?? rec.time;
+      const openTime = openTimeRaw ? new Date(String(openTimeRaw)).getTime() : undefined;
       return {
         id: String(rec.id ?? ""),
         symbol: String(rec.symbol ?? ""),
         side: t.includes("SELL") ? -1 : 1,
         volume: num(rec.volume),
         entryPrice: num(rec.openPrice),
-        sl: rec.stopLoss !== undefined ? num(rec.stopLoss) : undefined,
-        tp: rec.takeProfit !== undefined ? num(rec.takeProfit) : undefined,
+        sl: rec.stopLoss !== undefined && num(rec.stopLoss) > 0 ? num(rec.stopLoss) : undefined,
+        tp: rec.takeProfit !== undefined && num(rec.takeProfit) > 0 ? num(rec.takeProfit) : undefined,
         unrealizedPnl: num(rec.profit ?? rec.unrealizedProfit),
+        currentPrice: num(rec.currentPrice) || undefined,
+        swap: num(rec.swap),
+        commission: rec.commission !== undefined ? num(rec.commission) : undefined,
+        openTime: openTime && isFinite(openTime) ? openTime : undefined,
+        comment: comment || undefined,
+        ea: magic === METAAPI_MAGIC || /halo/i.test(comment) || undefined,
       };
     });
     return symbol ? out.filter((x) => x.symbol === mapWith(creds, symbol, DEFAULT_MAP)) : out;

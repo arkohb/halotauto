@@ -22,6 +22,7 @@ import { EaAttachCard } from "@/components/halo/ea-attach";
 import { TradeCard } from "@/components/halo/trade-card";
 import { LevelsCard } from "@/components/halo/levels-card";
 import { DashboardPanel } from "@/components/halo/dashboard-panel";
+import { Mt5MobileApp } from "@/components/halo/mt5-mobile";
 import { SettingsPanel } from "@/components/halo/settings-panel";
 import { BotPanel } from "@/components/halo/bot-panel";
 import { ExecutionPanel } from "@/components/halo/execution-panel";
@@ -345,6 +346,7 @@ export default function Page() {
                 />
                 <ExecutionPanel state={state} onSaved={(m) => notify(m)} onError={(t, d) => notify(t, d, true)} />
                 <DashboardPanel state={state} />
+                <Mt5MobileApp notify={notify} />
                 <Tabs defaultValue="history">
                   <TabsList className="grid w-full grid-cols-2 bg-[#101C33] border border-[#1C2A47] rounded-lg h-9">
                     <TabsTrigger value="history" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">

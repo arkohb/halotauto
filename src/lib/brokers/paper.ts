@@ -15,14 +15,32 @@ import {
 
 const FAKE_BALANCE = 100000;
 
+function paperAccount(equity = FAKE_BALANCE): AccountInfo {
+  return {
+    ok: true,
+    id: "paper",
+    currency: "USD",
+    balance: FAKE_BALANCE,
+    equity,
+    margin: 0,
+    freeMargin: equity,
+    marginLevel: 0,
+    leverage: 500,
+    login: "HALO-EA",
+    server: "HALO PAPER SERVER",
+    brokerName: "HALO 3EL Simulator",
+    platform: "MT5",
+  };
+}
+
 export const paperAdapter: BrokerAdapter = {
   kind: "paper",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, {}),
   async testConnection(): Promise<AccountInfo> {
-    return { ok: true, id: "paper", currency: "USD", balance: FAKE_BALANCE, equity: FAKE_BALANCE };
+    return paperAccount();
   },
   async getAccount(): Promise<AccountInfo> {
-    return { ok: true, id: "paper", currency: "USD", balance: FAKE_BALANCE, equity: FAKE_BALANCE };
+    return paperAccount();
   },
   async marketOrder(_creds, req: OrderRequest): Promise<OrderResult> {
     const vol = req.sizing.mode === "fixed" ? req.sizing.size : 1;
