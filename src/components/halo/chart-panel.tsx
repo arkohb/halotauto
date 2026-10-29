@@ -45,6 +45,7 @@ import { C, fmtPx } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
 import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-symbols";
 import { TvChart } from "./tv-chart";
+import { TvSignalOverlay } from "./tv-signal-overlay";
 import { IndicatorRail } from "./indicator-rail";
 import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
 
@@ -614,7 +615,7 @@ export default function ChartPanel(props: ChartProps) {
       </div>
 
       {mode === "tv" ? (
-        <div className={heightCls}>
+        <div className={`relative ${heightCls}`}>
           <TvChart
             key={`${symbol}-${tf}`}
             symbol={symbol}
@@ -640,6 +641,16 @@ export default function ChartPanel(props: ChartProps) {
             atr={atr}
             cfg={cfg}
             mintick={mintick}
+          />
+          {/* approximate price ladder — current-signal lines drawn OVER the
+              free embed (C1/C2/wick + ENTRY/SL/TP), drag-to-align */}
+          <TvSignalOverlay
+            candles={candles}
+            levels={freshLevels}
+            trade={trade}
+            mintick={mintick}
+            symbol={symbol}
+            tf={tf}
           />
           {/* C3 forming alert pill — top-center works on both views */}
           {bestForm && (
@@ -682,10 +693,11 @@ export default function ChartPanel(props: ChartProps) {
                   : "Press EA ON — the EA re-attaches to this chart instantly"}
               </div>
             )}
-            {/* free-embed notice — the TV web widget is a cross-origin iframe and
-                cannot run custom scripts, so the full drawings live on the 3EL view */}
+            {/* free-embed notice — the TV web widget is a cross-origin iframe;
+                the 3EL ladder overlays it approximately, full precision lives
+                on the 3EL view */}
             <div className="mt-1 border-t border-[#1C2A47]/70 pt-1 text-[8px] font-bold tracking-[0.1em] text-[#8C98AE]/80">
-              FREE EMBED — CAN’T RUN CUSTOM SCRIPTS · FULL INDICATOR LINES ON “TRADINGVIEW · 3EL”
+              FREE EMBED · 3EL LINES OVERLAID APPROXIMATELY (DRAG TO ALIGN) · FULL PRECISION ON “TRADINGVIEW · 3EL”
             </div>
           </div>
         </div>

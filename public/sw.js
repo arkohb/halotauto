@@ -1,7 +1,11 @@
 /* HALO 3EL Autotrader service worker */
-// v3: navigation fetches carry a timeout so a slow server never silently
-// serves a stale app shell; cache version bumped to purge v2 shells.
-const CACHE = "halo3el-v3";
+// v4: /_next/static/ switched from cache-first to STALE-WHILE-REVALIDATE.
+// Production chunk names are content-hashed so cache-first was safe there,
+// but dev (Turbopack) rewrites chunk files IN PLACE under stable names —
+// cache-first pinned stale code forever. SWR serves the cached copy
+// instantly, refreshes it in the background, and never goes stale past
+// one load. v4 purge also flushes every v3-poisoned entry.
+const CACHE = "halo3el-v4";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -66,18 +70,29 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return; // always live data
   if (url.pathname === "/_next/webpack-hmr") return; // dev HMR
 
-  // cache-first for hashed static assets and icons
+  // stale-while-revalidate for hashed/dev static assets and icons:
+  // instant cache hit, background refetch keeps it honest. Turbopack dev
+  // chunks share stable URLs across recompiles — SWR is what keeps dev
+  // and installed PWAs from serving stale code after a deploy.
   if (url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/") || url.pathname === "/manifest.webmanifest") {
     event.respondWith(
-      caches.match(req).then(
-        (hit) =>
-          hit ||
-          fetch(req).then((res) => {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+      (async () => {
+        const c = await caches.open(CACHE);
+        const hit = await c.match(req);
+        const net = fetch(req)
+          .then((res) => {
+            if (res && res.ok) {
+              const copy = res.clone();
+              c.put(req, copy).catch(() => {});
+            }
             return res;
           })
-      )
+          .catch(() => null);
+        event.waitUntil(net.then(() => undefined));
+        if (hit) return hit;
+        const fresh = await net;
+        return fresh || new Response("", { status: 504 });
+      })()
     );
     return;
   }
