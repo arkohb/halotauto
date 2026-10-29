@@ -1,5 +1,7 @@
 /* HALO 3EL Autotrader service worker */
-const CACHE = "halo3el-v2";
+// v3: navigation fetches carry a timeout so a slow server never silently
+// serves a stale app shell; cache version bumped to purge v2 shells.
+const CACHE = "halo3el-v3";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -81,15 +83,26 @@ self.addEventListener("fetch", (event) => {
   }
 
   // network-first for navigations & everything else, fall back to cache
+  // (bounded wait: prefer fresh, but never hang the shell on a stalled server)
   event.respondWith(
-    fetch(req)
-      .then((res) => {
-        if (req.mode === "navigate") {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put("/", copy)).catch(() => {});
-        }
-        return res;
-      })
-      .catch(() => caches.match(req).then((hit) => hit || (req.mode === "navigate" ? caches.match("/") : undefined)))
+    new Promise((resolve) => {
+      const t = setTimeout(() => resolve(null), req.mode === "navigate" ? 3500 : 8000);
+      fetch(req)
+        .then((res) => {
+          clearTimeout(t);
+          if (req.mode === "navigate") {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put("/", copy)).catch(() => {});
+          }
+          resolve(res);
+        })
+        .catch(() => {
+          clearTimeout(t);
+          caches
+            .match(req)
+            .then((hit) => hit || (req.mode === "navigate" ? caches.match("/") : undefined))
+            .then(resolve);
+        });
+    })
   );
 });

@@ -27,7 +27,7 @@ export function usePwa() {
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
 
-    if ("serviceWorker" in navigator) {
+    if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
 
@@ -51,7 +51,9 @@ export function usePwa() {
 
 export function PwaRegister() {
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
+    // dev stays SW-free so code changes reach the browser instantly;
+    // production installs the offline shell + web push handler.
+    if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     }
   }, []);

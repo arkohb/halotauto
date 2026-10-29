@@ -43,7 +43,7 @@ import {
 import type { Candle, HaloConfig, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
 import { C, fmtPx } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
-import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
+import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-symbols";
 import { TvChart } from "./tv-chart";
 import { IndicatorRail } from "./indicator-rail";
 import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
@@ -360,11 +360,14 @@ export default function ChartPanel(props: ChartProps) {
     };
 
     // ── 1. equal-level zones + trigger lines ──
+    // Fresh levels extend ~12 bars past the last candle (Pine-style ray) so
+    // the active level reads as a line waiting on the right edge.
+    const rayEnd = lastT + tfSec(tf) * 1000 * 12;
     const zoneRects: ZoneRectSpec[] = [];
     for (const d of visible) {
       const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.32";
       const col = sideColor(d.side, alpha);
-      const end = d.endTime ?? lastT;
+      const end = d.endTime ?? rayEnd;
       addLevelLine(d.b1Time, end, d.c1Close, col, 2, false);
       addLevelLine(d.b2Time, end, d.c2Open, col, 1, true);
       // shaded equal-level zone (C1 close ↔ C2 open band)
@@ -373,8 +376,8 @@ export default function ChartPanel(props: ChartProps) {
         t2: d.state === "fresh" ? null : end,
         p1: d.bot,
         p2: d.top,
-        fill: sideColor(d.side, d.state === "fresh" ? "0.10" : "0.05"),
-        border: sideColor(d.side, d.state === "fresh" ? "0.42" : "0.2"),
+        fill: sideColor(d.side, d.state === "fresh" ? "0.14" : "0.05"),
+        border: sideColor(d.side, d.state === "fresh" ? "0.5" : "0.2"),
         dashed: d.state !== "fresh",
       });
       // fresh level price tag on the axis (TV-style plot tag, no extra line)
@@ -574,8 +577,8 @@ export default function ChartPanel(props: ChartProps) {
         <div className="flex overflow-hidden rounded-lg border border-[#1C2A47] bg-[#0F1A30]/95 backdrop-blur">
           {(
             [
-              ["tv", "TRADINGVIEW"],
-              ["3el", "3EL INDICATOR"],
+              ["3el", "TRADINGVIEW · 3EL"],
+              ["tv", "TV WEB"],
             ] as Array<[ChartMode, string]>
           ).map(([m, label]) => (
             <button
@@ -613,8 +616,9 @@ export default function ChartPanel(props: ChartProps) {
               }
             }}
           />
-          {/* 3EL INDICATOR attached to the TradingView chart (legend rail) */}
+          {/* 3EL INDICATOR attached to the TradingView web chart (legend rail) */}
           <IndicatorRail
+            side="right"
             levels={freshLevels}
             trade={trade}
             live={liveCandle}
@@ -623,7 +627,7 @@ export default function ChartPanel(props: ChartProps) {
             cfg={cfg}
             mintick={mintick}
           />
-          {/* C3 forming alert pill */}
+          {/* C3 forming alert pill — top-center works on both views */}
           {bestForm && (
             <div
               aria-label="C3 forming on live candle"
@@ -664,10 +668,29 @@ export default function ChartPanel(props: ChartProps) {
                   : "Press EA ON — the EA re-attaches to this chart instantly"}
               </div>
             )}
+            {/* free-embed notice — the TV web widget is a cross-origin iframe and
+                cannot run custom scripts, so the full drawings live on the 3EL view */}
+            <div className="mt-1 border-t border-[#1C2A47]/70 pt-1 text-[8px] font-bold tracking-[0.1em] text-[#8C98AE]/80">
+              FREE EMBED — CAN’T RUN CUSTOM SCRIPTS · FULL INDICATOR LINES ON “TRADINGVIEW · 3EL”
+            </div>
           </div>
         </div>
       ) : (
-        <div ref={elRef} className={`${heightCls} w-full`} />
+        <div className="relative">
+          <div ref={elRef} className={`${heightCls} w-full`} />
+          {/* 3EL INDICATOR legend — TradingView-style top-left legend, always
+              visible so the indicator is unmistakably attached to the chart */}
+          <IndicatorRail
+            side="left"
+            levels={freshLevels}
+            trade={trade}
+            live={liveCandle}
+            price={price}
+            atr={atr}
+            cfg={cfg}
+            mintick={mintick}
+          />
+        </div>
       )}
     </div>
   );

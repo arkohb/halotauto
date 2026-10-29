@@ -27,6 +27,8 @@ interface RailProps {
   atr: number | null;
   cfg: HaloConfig;
   mintick: number;
+  /** which side of the chart the rail docks to (left = TradingView legend spot) */
+  side?: "left" | "right";
 }
 
 function sideColor(side: Side, alpha: string): string {
@@ -34,7 +36,7 @@ function sideColor(side: Side, alpha: string): string {
   return `rgba(${rgb},${alpha})`;
 }
 
-export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick }: RailProps) {
+export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, side = "right" }: RailProps) {
   const forming = c3FormCheck(live, levels, atr, cfg);
   const formMap = new Map(forming.map((f) => [f.levelId, f.stage]));
   const best = bestC3Form(forming);
@@ -48,7 +50,9 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick }:
   return (
     <div
       aria-label="3EL indicator overlay attached to TradingView chart"
-      className="pointer-events-none absolute right-2 top-10 z-10 hidden w-[192px] flex-col gap-1.5 sm:flex xl:w-[214px]"
+      className={`pointer-events-none absolute top-10 z-10 flex w-[192px] flex-col gap-1.5 xl:w-[214px] ${
+        side === "left" ? "left-2" : "right-2"
+      }`}
     >
       {/* header chip */}
       <div className="flex items-center justify-between rounded-lg border border-[#2A3A5C] bg-[#0F1A30]/92 px-2 py-1.5 backdrop-blur">
