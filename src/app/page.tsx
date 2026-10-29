@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
-import { C, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { C, statusOf, type BotStateRes, type VoiceState } from "@/lib/halo/ui-helpers";
 import { Header } from "@/components/halo/header";
 import { ControlDeck, type DeckView } from "@/components/halo/control-deck";
 import { StatusBanner } from "@/components/halo/status-banner";
@@ -36,6 +36,8 @@ import { PwaRegister } from "@/components/halo/pwa";
 import { FxLayer } from "@/components/halo/fx-layer";
 import { BootSequence } from "@/components/halo/boot-sequence";
 import { RobotAssistant } from "@/components/halo/robot-assistant";
+import { HaloCore } from "@/components/halo/halo-core";
+import { JarvisConsole } from "@/components/halo/jarvis-console";
 
 type View = DeckView;
 
@@ -46,9 +48,13 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<View>("terminal");
+  const [voice, setVoice] = useState<VoiceState>("idle");
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
+
+  // JARVIS console mirrors its voice activity onto the HALO AI Core orb
+  const onVoice = useCallback((v: VoiceState) => setVoice(v), []);
 
   const notify = useCallback(
     (title: string, desc?: string, bad?: boolean) => {
@@ -307,8 +313,9 @@ export default function Page() {
                 <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
               </div>
 
-              {/* center: banner + chart + trade */}
+              {/* center: AI core + banner + chart + trade */}
               <div className="order-1 min-w-0 space-y-4 xl:order-2">
+                <HaloCore state={state} voice={voice} />
                 <StatusBanner state={state} />
                 <ChartPanel
                   candles={candles}
@@ -389,6 +396,9 @@ export default function Page() {
 
       {/* HALO-B — the robotic face of the EA, present on every tab */}
       <RobotAssistant state={state} candles={candles} />
+
+      {/* JARVIS console — read-only voice + chat assistant (every tab) */}
+      <JarvisConsole onVoice={onVoice} />
 
       <footer className="mt-auto border-t border-[#1C2A47] py-3">
         <div className="mx-auto flex w-full max-w-[1720px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">

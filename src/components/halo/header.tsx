@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { C, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { usePwa } from "./pwa";
@@ -14,6 +15,29 @@ interface Props {
 
 export function Header({ state, busy, onSymbol, onTf }: Props) {
   const { canInstall, install } = usePwa();
+
+  // ── ambience kill-switch (reduced-animation setting, persisted) ──
+  const [ambience, setAmbience] = useState(true);
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      const on = window.localStorage.getItem("halo-ambience") !== "off";
+      setAmbience(on);
+      document.documentElement.dataset.ambience = on ? "on" : "off";
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+  const toggleAmbience = () => {
+    setAmbience((v) => {
+      const next = !v;
+      document.documentElement.dataset.ambience = next ? "on" : "off";
+      try {
+        window.localStorage.setItem("halo-ambience", next ? "on" : "off");
+      } catch {
+        // storage blocked — toggle still applies for this session
+      }
+      return next;
+    });
+  };
 
   return (
     <header className="sticky top-0 z-40 border-b border-[#1C2A47] bg-[#0B1426]/92 backdrop-blur supports-[backdrop-filter]:bg-[#0B1426]/80">
@@ -86,6 +110,23 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
           </div>
 
           <div className="flex-1" />
+
+          {/* ambience / animation toggle */}
+          <button
+            type="button"
+            onClick={toggleAmbience}
+            aria-pressed={!ambience}
+            aria-label={ambience ? "Disable ambience and decorative animations" : "Enable ambience and decorative animations"}
+            title={ambience ? "Ambience ON — click to strip FX & freeze animations" : "Ambience OFF — click to restore FX & animations"}
+            className="hidden md:inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[9px] font-extrabold tracking-[0.18em] transition-colors"
+            style={{
+              borderColor: ambience ? "rgba(79,216,255,0.45)" : "#2A3A5C",
+              color: ambience ? C.cyan : C.muted,
+              background: ambience ? "rgba(79,216,255,0.06)" : "transparent",
+            }}
+          >
+            ✦ FX
+          </button>
 
           {/* feed badge */}
           {state && (

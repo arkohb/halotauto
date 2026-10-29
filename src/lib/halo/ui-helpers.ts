@@ -1,6 +1,9 @@
 // Client-safe helpers for the HALO 3EL Autotrader UI
 import type { EngineSnapshot, HaloConfig } from "./types";
 
+/** Voice activity of the HALO AI core — driven by the JARVIS console, mirrored onto the orb. */
+export type VoiceState = "idle" | "listening" | "processing" | "speaking";
+
 export const C = {
   navy: "#0B1426",
   navy2: "#101C33",
@@ -14,6 +17,8 @@ export const C = {
   red: "#F23645",
   green: "#089981",
   gray: "#787B86",
+  cyan: "#4FD8FF", // electric cyan — AI core / telemetry illumination
+  ice: "#9BE8FF", // restrained ice-blue — secondary AI glow
 };
 
 export interface ExecRes {
