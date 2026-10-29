@@ -4,8 +4,9 @@
 //  HALO 3EL CHART · dual engine, indicator attached to BOTH views
 //
 //  CURRENT-SIGNAL MODE — the chart stays clean:
-//  only the signal the EA is acting on RIGHT NOW is drawn — the live C1/C2
-//  equal level, the C3 forming tracker, and the open trade's ENTRY/SL/TP.
+//  exactly what the EA acts on is drawn — BOTH armed levels (the support
+//  BUY line + the resistance SELL line, pinned at the script's exact
+//  prices), the C3 forming tracker, and the open trade's ENTRY/SL/TP.
 //  Old levels, old fires, old TP/SL hits are never rendered.
 //
 //  • TRADINGVIEW  — Advanced Chart widget + floating 3EL indicator rail
@@ -331,14 +332,18 @@ export default function ChartPanel(props: ChartProps) {
     const firstT = candles.length > 0 ? candles[0].time : 0;
     const lastT = candles.length > 0 ? candles[candles.length - 1].time : Date.now();
 
-    // ── CURRENT SIGNAL ONLY ─────────────────────────────────────────
-    // Old signals are removed: what renders is exactly what the EA acts on.
-    //   • the newest FRESH equal level  → the signal the EA is watching
-    //   • while a trade is open         → the fired level that produced it
-    // Everything else (burned / fired-and-closed levels) stays off the chart.
+    // ── ARMED LEVELS ONLY ─────────────────────────────────
+    // What renders is exactly what the EA acts on: BOTH armed levels —
+    // the armed SUPPORT (BUY) and the armed RESISTANCE (SELL) — plus,
+    // while a trade is open, the fired level that produced it. Burned /
+    // stale history stays off the chart.
+    //
+    // LINES NEVER SHIFT: each armed line is anchored at its own C1 bar
+    // (b1Time) at the exact script price — the equal-level mid the Pine
+    // script draws with line.new(bar_index-1, nMid, extend.right) — and
+    // only ever extends RIGHT as new bars arrive. The price is pinned at
+    // creation and can never move.
     const freshAll = drawings.filter((d) => d.state === "fresh");
-    const newestFresh =
-      freshAll.length > 0 ? freshAll.reduce((a, b) => (b.b2Time >= a.b2Time ? b : a)) : null;
     let firedForTrade: LevelSnapshot | null = null;
     if (trade) {
       firedForTrade =
@@ -346,7 +351,8 @@ export default function ChartPanel(props: ChartProps) {
         [...drawings].reverse().find((d) => d.state === "fired") ??
         null;
     }
-    const visible = [newestFresh, firedForTrade].filter((d): d is LevelSnapshot => d !== null);
+    const visible = [...freshAll];
+    if (firedForTrade) visible.push(firedForTrade);
 
     const addLevelLine = (t1: number, t2: number, px: number, color: string, width: 1 | 2, dashed: boolean) => {
       const a = Math.max(t1, firstT) / 1000;
@@ -368,21 +374,21 @@ export default function ChartPanel(props: ChartProps) {
       overlayRef.current.series.push(ser);
     };
 
-    // ── 1. equal-level zones + trigger lines ──
-    // Fresh levels extend ~12 bars past the last candle (Pine-style ray) so
-    // the active level reads as a line waiting on the right edge. The CURRENT
-    // signal's horizontal lines span the whole chart (Pine extend-right) —
-    // they must be unmistakable at any zoom; the fired level starts at its
-    // own formation so the trade's origin stays readable.
+    // ── 1. armed horizontal lines + equal-level zones ──
+    // One line per armed level, exactly how the script draws it: anchored
+    // at the C1 bar, at the equal-level MID price, extended right (Pine
+    // line.new extend-right). Fresh levels span the whole chart so they
+    // read unmistakably at any zoom; the fired level starts at its own
+    // formation and stops at the fire bar.
     const rayEnd = lastT + tfSec(tf) * 1000 * 12;
     const zoneRects: ZoneRectSpec[] = [];
     for (const d of visible) {
       const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.32";
       const col = sideColor(d.side, alpha);
       const end = d.endTime ?? rayEnd;
-      const startT = d.state === "fresh" ? firstT : d.b1Time;
-      addLevelLine(startT, end, d.c1Close, col, 2, false);
-      addLevelLine(startT, end, d.c2Open, col, 1, true);
+      const startT = d.b1Time; // pinned anchor — the line cannot shift
+      const mid = (d.top + d.bot) / 2; // the script's armed line price
+      addLevelLine(startT, end, mid, col, 2, false);
       // wick-extension guide on the live signal (dotted, quieter)
       if (d.state === "fresh") addLevelLine(startT, end, d.ext, sideColor(d.side, "0.45"), 1, true);
       // shaded equal-level zone (C1 close ↔ C2 open band)
@@ -395,18 +401,17 @@ export default function ChartPanel(props: ChartProps) {
         border: sideColor(d.side, d.state === "fresh" ? "0.5" : "0.2"),
         dashed: d.state !== "fresh",
       });
-      // fresh level price tag on the axis (TV-style plot tag, no extra line)
+      // armed level price tag on the axis (TV-style plot tag, no extra line)
       if (d.state === "fresh") {
-        const trig = d.side === -1 ? d.top : d.bot;
         overlayRef.current.priceLines.push(
           cs.createPriceLine({
-            price: trig,
+            price: mid,
             color: sideColor(d.side, "0.95"),
             lineWidth: 1,
             lineStyle: LineStyle.Dotted,
             axisLabelVisible: true,
             lineVisible: false,
-            title: `3EL ${d.side === -1 ? "▼" : "▲"}`,
+            title: `3EL ${d.side === -1 ? "RES ▼" : "SUP ▲"}`,
           })
         );
       }

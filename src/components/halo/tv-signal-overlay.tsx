@@ -135,42 +135,37 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
     return { pLo: lo - pad, pHi: hi + pad };
   }, [candles, levels, trade, size.w, size.h]);
 
-  // ── lines to draw: current signal + open trade only ───────────────────
+  // ── lines to draw: BOTH armed levels + open trade only ─────────────────
   const lines = useMemo<LineSpec[]>(() => {
     if (!scale) return [];
     const out: LineSpec[] = [];
-    // the newest fresh level = the signal the EA is watching
-    const newest =
-      levels.length > 0 ? levels.reduce((a, b) => (b.b2Time >= a.b2Time ? b : a)) : null;
-    if (newest) {
-      const rgb = sideRgb(newest.side);
-      const arrow = newest.side === -1 ? "▼" : "▲";
+    // EVERY armed level — the armed SUPPORT (BUY) and the armed RESISTANCE
+    // (SELL) — one line each, exactly how the script draws it: the
+    // equal-level MID price (Pine line.new(bar_index-1, nMid, extend.right)),
+    // plus the quieter wick-extreme guide. Prices are pinned at creation —
+    // the ladder lines never move, they only extend right on the chart.
+    const armed = [...levels].sort((a, b) => a.b2Time - b.b2Time); // oldest first, newest draws on top
+    for (const d of armed) {
+      const rgb = sideRgb(d.side);
+      const arrow = d.side === -1 ? "▼" : "▲";
+      const mid = (d.top + d.bot) / 2;
       out.push({
-        key: "c1",
-        price: newest.c1Close,
+        key: `lvl${d.id}`,
+        price: mid,
         color: `rgba(${rgb},0.95)`,
         width: 2,
         dash: false,
         dotted: false,
-        label: `3EL ${arrow} ${fmtPx(newest.c1Close, mintick)}`,
+        label: `3EL ${d.side === -1 ? "RES" : "SUP"} ${arrow} ${fmtPx(mid, mintick)}`,
       });
       out.push({
-        key: "c2",
-        price: newest.c2Open,
-        color: `rgba(${rgb},0.7)`,
-        width: 1,
-        dash: true,
-        dotted: false,
-        label: `C2 ${fmtPx(newest.c2Open, mintick)}`,
-      });
-      out.push({
-        key: "ext",
-        price: newest.ext,
+        key: `wk${d.id}`,
+        price: d.ext,
         color: `rgba(${rgb},0.45)`,
         width: 1,
         dash: true,
         dotted: true,
-        label: `WICK ${fmtPx(newest.ext, mintick)}`,
+        label: `WICK ${fmtPx(d.ext, mintick)}`,
       });
     }
     if (trade) {
@@ -227,13 +222,17 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
   const yOfRaw = (p: number) => padT + ((scale.pHi - p) / (scale.pHi - scale.pLo)) * innerH;
   const yOf = (p: number) => yOfRaw(p) + off;
 
-  // chips never stack: when lines sit within ~11px (C1/C2/wick on a tight
-  // equal level), the higher-priority line keeps its price chip and the
-  // others are skipped (ENTRY > SL > TP > 3EL C1 > C2 > WICK)
-  // (plain pass — ≤6 lines, and hooks must stay above the early return)
-  const PRIORITY: Record<string, number> = { entry: 0, sl: 1, tp: 2, c1: 3, c2: 4, ext: 5 };
+  // chips never stack: when lines sit within ~11px (equal-level bands are
+  // razor-thin), the higher-priority line keeps its price chip and the
+  // others are skipped (ENTRY > SL > TP > armed RES/SUP > wicks)
+  // (plain pass — ≤8 lines, and hooks must stay above the early return)
+  const prio = new Map<string, number>();
+  for (const l of lines) {
+    // ENTRY > SL > TP keep fixed priority; armed levels + wicks rank after
+    prio.set(l.key, l.key === "entry" ? 0 : l.key === "sl" ? 1 : l.key === "tp" ? 2 : 3 + prio.size);
+  }
   const planned = lines
-    .map((l) => ({ key: l.key, y: yOfRaw(l.price), prio: PRIORITY[l.key] ?? 9 }))
+    .map((l) => ({ key: l.key, y: yOfRaw(l.price), prio: prio.get(l.key) ?? 9 }))
     .sort((a, b) => a.prio - b.prio);
   const showChip = new Map<string, boolean>(planned.map((p) => [p.key, true]));
   for (const a of planned) {

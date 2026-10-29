@@ -9,8 +9,10 @@
 //    (equal level) while leaving a wick → SELL at resistance / BUY at support.
 //  • Same-bar SL+TP counts as SL (conservative, as 2CRB).
 //  • Pairs forming too close: only the farther one is kept.
-//  • focusCurrent (default ON): a new C1/C2 pair REPLACES every older fresh
-//    level — the EA follows only the CURRENT signal, never stale ones.
+//  • focusCurrent (default ON): a new C1/C2 pair REPLACES older fresh levels
+//    on its OWN side — one armed SUPPORT + one armed RESISTANCE stay live
+//    together, and whichever C3 fires first takes the trade (no repaint:
+//    an armed line's price is pinned at creation and never moves).
 // ════════════════════════════════════════════════════════════════════════
 
 import {
@@ -388,13 +390,16 @@ export class HaloEngine {
             });
             if (s.drawings.length > 30) s.drawings.splice(0, s.drawings.length - 30);
 
-            // ── FOCUS CURRENT SIGNAL ── the new pair is now THE signal:
-            // every older fresh level is discarded (burned) so the EA
-            // never acts on stale levels and the chart stays clean.
+            // ── FOCUS CURRENT SIGNAL (per side) ── the new pair is now THE
+            // signal for its own side: older fresh levels OF THE SAME SIDE
+            // are discarded so the EA never acts on stale levels. The
+            // OPPOSITE side keeps its armed level, so one armed support +
+            // one armed resistance are live together and whichever C3
+            // triggers first fires the trade instantly.
             if (cfg.focusCurrent) {
               for (let j = s.levels.length - 1; j >= 0; j--) {
                 const O = s.levels[j];
-                if (O.id === lvl.id) continue;
+                if (O.id === lvl.id || O.side !== lvl.side) continue;
                 this.markLevel(O.id, "burned", bar.time);
                 s.levels.splice(j, 1);
                 ev.push({ type: "expired", id: O.id });

@@ -24,7 +24,7 @@ export interface HaloConfig {
   minSepATR: number; // Too-close distance (× ATR) (1.0)
   maxLevels: number; // Max fresh levels per side (3)
   expiryBars: number; // Level expiry (bars) (150)
-  focusCurrent: boolean; // EA follows ONLY the current signal — a new C1/C2 pair discards older fresh levels (true)
+  focusCurrent: boolean; // EA follows the CURRENT signal PER SIDE — a new C1/C2 pair replaces older fresh levels on ITS OWN side; one armed support + one armed resistance stay live together (true)
   // ② CANDLE 3 TRIGGER
   sigMode: SignalMode; // Instant (intrabar) | Bar close
   breakATR: number; // Min break beyond the line (× ATR) (0.02)

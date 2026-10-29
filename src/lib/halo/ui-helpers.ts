@@ -72,8 +72,14 @@ export function statusOf(state: BotStateRes): { text: string; tone: StatusTone }
     }
     return { text: `${t.dir === -1 ? "▼ SELL" : "▲ BUY"} RUNNING`, tone: t.dir === -1 ? "runSell" : "runBuy" };
   }
-  const n = state.engine.levels.length;
-  if (n > 0) return { text: `WAITING FOR C3 · ${n} FRESH LEVEL${n > 1 ? "S" : ""}`, tone: "wait" };
+  const levels = state.engine.levels;
+  const n = levels.length;
+  if (n > 0) {
+    const sup = levels.some((l) => l.side === 1);
+    const res = levels.some((l) => l.side === -1);
+    if (sup && res) return { text: "WAITING FOR C3 · SUPPORT + RESISTANCE ARMED", tone: "wait" };
+    return { text: `WAITING FOR C3 · ${n} FRESH LEVEL${n > 1 ? "S" : ""}`, tone: "wait" };
+  }
   return { text: "SCANNING FOR C1 / C2", tone: "scan" };
 }
 
