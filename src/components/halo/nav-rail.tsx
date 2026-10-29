@@ -14,6 +14,7 @@ import {
   Activity,
   Bell,
   FlaskConical,
+  Globe,
   Landmark,
   LayoutDashboard,
   Radar,
@@ -33,6 +34,7 @@ export type HaloView =
   | "performance"
   | "brokers"
   | "alerts"
+  | "intel"
   | "settings";
 
 interface NavItem {
@@ -55,6 +57,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
     title: "INTELLIGENCE",
     items: [
       { id: "backtest", label: "Strategy Lab", icon: FlaskConical },
+      { id: "intel", label: "Market Intel", icon: Globe },
       { id: "performance", label: "Performance", icon: TrendingUp },
     ],
   },

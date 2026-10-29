@@ -35,6 +35,7 @@ import { HistoryPanel } from "@/components/halo/history-panel";
 import { BacktestPanel } from "@/components/halo/backtest-panel";
 import { BacktestLive } from "@/components/halo/backtest-live";
 import { ScannerPanel } from "@/components/halo/scanner-panel";
+import { IntelPanel } from "@/components/halo/intel-panel";
 import { BrokersPanel } from "@/components/halo/brokers-panel";
 import { AlertsPanel } from "@/components/halo/alerts-panel";
 import { PwaRegister } from "@/components/halo/pwa";
@@ -436,6 +437,9 @@ export default function Page() {
 
             {/* ════════ MARKET · multi-symbol scanner ════════ */}
             {view === "scanner" && <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />}
+
+            {/* ════════ MARKET INTEL · live external feeds ════════ */}
+            {view === "intel" && <IntelPanel />}
 
             {/* ════════ TRADING ACTIVITY ════════ */}
             {view === "activity" && (

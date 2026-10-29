@@ -4,9 +4,11 @@
 //  DAILY BRIEFING · engine-grounded situational card
 //  Outlook = the genuine statusOf() engine line; key levels = armed levels;
 //  sessions = factual UTC clock math; account = real broker/sim posture.
-//  No invented news items — when there is no news feed, nothing is shown.
+//  Next high-impact event = REAL ForexFactory feed via /api/intel/calendar
+//  (hidden entirely when the feed is unavailable — nothing invented).
 // ════════════════════════════════════════════════════════════════════════
 
+import { useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { C, fmtPx, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { PanelCard } from "./panel";
@@ -21,12 +23,52 @@ function activeSessions(now: Date): string[] {
   return out;
 }
 
+interface NextEvent {
+  title: string;
+  currency: string;
+  date: string;
+  forecast: string;
+}
+
+/** next upcoming high-impact calendar release — real feed, hidden on failure */
+function useNextHighImpact(): NextEvent | null | "unavailable" {
+  const [ev, setEv] = useState<NextEvent | null | "unavailable" | undefined>(undefined);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch("/api/intel/calendar?day=this_week&impact=high", { cache: "no-store" });
+        if (!r.ok) throw new Error(String(r.status));
+        const j = (await r.json()) as { ok?: boolean; events?: { title: string; currency: string; date: string; forecast: string; actual: string }[] };
+        if (!alive) return;
+        if (!j.ok || !Array.isArray(j.events)) {
+          setEv("unavailable");
+          return;
+        }
+        const now = Date.now();
+        const next = j.events.map((e) => ({ ...e, t: new Date(e.date).getTime() })).filter((e) => isFinite(e.t)).sort((a, b) => a.t - b.t).find((e) => e.t >= now);
+        setEv(next ? { title: next.title, currency: next.currency, date: next.date, forecast: next.forecast } : null);
+      } catch {
+        if (alive) setEv("unavailable");
+      }
+    };
+    void load();
+    const id = setInterval(load, 600_000); // calendar moves slowly — 10 min cadence
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+  return ev ?? null;
+}
+
 export function DailyBriefing({ state }: { state: BotStateRes }) {
   const { text } = statusOf(state);
   const sessions = activeSessions(new Date());
   const levels = state.engine.levels;
   const t = state.engine.trade;
   const bullish = t ? t.dir === 1 : null;
+  const nextEvent = useNextHighImpact();
 
   return (
     <PanelCard title="DAILY BRIEFING" icon={CalendarClock} accent="cyan" className="h-full" bodyClassName="flex flex-col gap-2 p-3">
@@ -75,6 +117,20 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
         <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Sessions open</div>
         <p className="font-mono text-[10.5px] font-bold text-[#B8C2D6]">{sessions.length > 0 ? sessions.join(" · ") : "Interbank closed · crypto continues"}</p>
       </div>
+
+      {/* next high-impact event — REAL ForexFactory feed, hidden when down */}
+      {nextEvent !== "unavailable" && nextEvent && (
+        <div>
+          <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Next high-impact release · ForexFactory</div>
+          <p className="text-[10.5px] font-semibold leading-snug text-[#F5D778]">
+            {nextEvent.currency} · {nextEvent.title}
+          </p>
+          <p className="text-[9.5px] font-mono text-[#8C98AE]">
+            {new Date(nextEvent.date).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
+            {nextEvent.forecast ? ` · forecast ${nextEvent.forecast}` : ""}
+          </p>
+        </div>
+      )}
 
       {/* account posture — real */}
       <div className="mt-auto flex items-center justify-between border-t border-[#16263F]/70 pt-2">

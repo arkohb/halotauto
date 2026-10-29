@@ -107,7 +107,7 @@ const YAHOO_MAP: Record<string, string> = {
   XCUUSD: "HG=F", // copper
 };
 
-function yahooTicker(sym: string): string {
+export function yahooTicker(sym: string): string {
   if (YAHOO_MAP[sym]) return YAHOO_MAP[sym];
   const g = getSymbolMeta(sym).group;
   return g === "CRYPTO" ? sym : `${sym}=X`;

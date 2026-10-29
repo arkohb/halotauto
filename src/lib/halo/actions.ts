@@ -29,6 +29,7 @@ export type ViewId =
   | "performance"
   | "brokers"
   | "alerts"
+  | "intel"
   | "settings";
 
 export interface ViewMeta {
@@ -46,6 +47,7 @@ export const VIEWS: ViewMeta[] = [
   { id: "performance", label: "Performance", aliases: ["performance", "stats", "statistics"] },
   { id: "brokers", label: "Brokers", aliases: ["brokers", "broker", "mt5", "connections", "accounts"] },
   { id: "alerts", label: "Alerts", aliases: ["alerts", "notifications", "telegram"] },
+  { id: "intel", label: "Market Intel", aliases: ["market intel", "intel", "economic calendar", "calendar", "news", "headlines", "forex factory", "forexfactory"] },
   { id: "settings", label: "Settings", aliases: ["settings", "preferences", "config", "voice settings"] },
 ];
 
@@ -53,6 +55,70 @@ export const VIEW_IDS = VIEWS.map((v) => v.id);
 
 export type HistoryPeriod = "today" | "week" | "month" | "all";
 export const HISTORY_PERIODS: HistoryPeriod[] = ["today", "week", "month", "all"];
+
+export type CalendarDayParam = "today" | "tomorrow" | "this_week" | "next_week";
+export const CALENDAR_DAYS: CalendarDayParam[] = ["today", "tomorrow", "this_week", "next_week"];
+export const CALENDAR_IMPACTS = ["all", "high", "med_high"] as const;
+export const NEWS_SOURCES = ["bloomberg", "yahoo"] as const;
+
+// canonical quote targets beyond the trading catalog (indices, commodities,
+// dollar gauge) — ids map to Yahoo tickers in lib/halo/intel.ts
+export interface QuoteTarget {
+  id: string;
+  label: string;
+  aliases: string[];
+}
+
+export const QUOTE_TARGETS: QuoteTarget[] = [
+  { id: "SPX", label: "S&P 500", aliases: ["s&p", "s&p 500", "spx", "sp500", "sp 500", "us500", "s and p", "spy", "es", "s&p es"] },
+  { id: "NDX", label: "Nasdaq 100", aliases: ["nasdaq 100", "ndx", "ustec", "nas100", "qqq", "nq"] },
+  { id: "IXIC", label: "Nasdaq Composite", aliases: ["nasdaq", "nasdaq composite", "ixic", "comp"] },
+  { id: "DJI", label: "Dow Jones", aliases: ["dow", "dow jones", "dji", "wall street", "us30", "dia", "ym"] },
+  { id: "DAX", label: "DAX", aliases: ["dax", "german index", "ger40", "de40"] },
+  { id: "FTSE", label: "FTSE 100", aliases: ["ftse", "ftse 100", "uk100"] },
+  { id: "NIKKEI", label: "Nikkei 225", aliases: ["nikkei", "nikkei 225", "japan index", "jp225"] },
+  { id: "HSI", label: "Hang Seng", aliases: ["hang seng", "hsi", "hong kong index"] },
+  { id: "VIX", label: "VIX", aliases: ["vix", "volatility index", "fear index", "vxx"] },
+  { id: "US10Y", label: "US 10-Year Yield", aliases: ["10 year", "us10y", "ten year", "bond yield", "treasury yield", "tnx"] },
+  { id: "OIL", label: "WTI Crude Oil", aliases: ["oil", "crude", "crude oil", "wti", "usoil", "uscrude", "uso", "cl"] },
+  { id: "BRENT", label: "Brent Crude Oil", aliases: ["brent", "brent oil", "ukoil", "bno"] },
+  { id: "NATGAS", label: "Natural Gas", aliases: ["natural gas", "natgas", "nat gas", "gas", "ung"] },
+  { id: "DXY", label: "US Dollar Index", aliases: ["dxy", "dollar index", "us dollar index", "usd index", "uup"] },
+];
+
+/** raw Yahoo-style tickers the model sometimes emits → canonical target id */
+const RAW_TICKER_ALIASES: Record<string, string> = {
+  "^gspc": "SPX", gspc: "SPX", "^ndx": "NDX", "^ixic": "IXIC", "^dji": "DJI",
+  "^gdaxi": "DAX", "^ftse": "FTSE", "^n225": "NIKKEI", "^hsi": "HSI",
+  "^vix": "VIX", "^tnx": "US10Y", "cl=f": "OIL", "bz=f": "BRENT", "ng=f": "NATGAS",
+  "dx-y.nyb": "DXY", "gc=f": "XAUUSD", "si=f": "XAGUSD", "pl=f": "XPTUSD", "pa=f": "XPDUSD", "hg=f": "XCUUSD",
+};
+
+/**
+ * Resolve a spoken/typed quote request to a canonical target id:
+ * raw tickers, intel indices/commodities, then the trading-symbol catalog.
+ */
+export function resolveQuoteTarget(input: string): { id: string; label: string } | null {
+  if (!input) return null;
+  const rawCanon = RAW_TICKER_ALIASES[input.trim().toLowerCase()];
+  if (rawCanon) {
+    const direct = QUOTE_TARGETS.find((x) => x.id === rawCanon);
+    if (direct) return { id: direct.id, label: direct.label };
+    return resolveQuoteTarget(rawCanon); // e.g. GC=F → XAUUSD catalog label
+  }
+  const raw = input.trim().toLowerCase().replace(/[^a-z0-9& ]/g, " ").replace(/\s+/g, " ");
+  const compact = raw.replace(/[^a-z0-9&]/g, "");
+  for (const t of QUOTE_TARGETS) {
+    if (t.id.toLowerCase() === compact) return { id: t.id, label: t.label };
+    if (t.aliases.some((a) => a.replace(/\s+/g, "") === compact || a === raw)) return { id: t.id, label: t.label };
+  }
+  const sym = resolveSymbol(input);
+  if (sym) {
+    const meta = SYMBOLS.find((s) => s.id === sym);
+    return { id: sym, label: meta ? meta.label.split("·")[0].trim() : sym };
+  }
+  return null;
+}
 
 /** Runtime guard: is an arbitrary string one of the nine real sections? */
 export function isViewId(v: string): v is ViewId {
@@ -192,6 +258,40 @@ export const ACTIONS: ActionDef[] = [
     params: {},
   },
 
+  // ── tier 2b · external intel (live fetched from the curated feeds at
+  //    question time: ForexFactory calendar, Bloomberg/Yahoo news, Yahoo
+  //    quotes). Read-only, cached server-side, failures reported honestly. ──
+  {
+    id: "get_economic_calendar",
+    description: "Live economic calendar from ForexFactory: scheduled releases with impact rating, forecast, previous and actual readings. Use for 'what's on the calendar', 'any high impact news today'.",
+    scope: "server",
+    risk: "read",
+    params: {
+      day: { type: "string", oneOf: CALENDAR_DAYS, optional: true, desc: "today | tomorrow | this_week | next_week (default today)" },
+      impact: { type: "string", oneOf: CALENDAR_IMPACTS, optional: true, desc: "all | high | med_high (default all)" },
+      currency: { type: "string", optional: true, desc: "optional currency filter like USD, EUR, GBP, JPY" },
+    },
+  },
+  {
+    id: "get_market_news",
+    description: "Latest market headlines from the Bloomberg and Yahoo Finance news feeds. Use for 'what's the latest market news', 'any headlines on gold'.",
+    scope: "server",
+    risk: "read",
+    params: {
+      source: { type: "string", oneOf: NEWS_SOURCES, optional: true, desc: "bloomberg | yahoo (default bloomberg)" },
+      topic: { type: "string", optional: true, desc: "optional keyword filter, e.g. gold, fed, oil" },
+    },
+  },
+  {
+    id: "get_market_quote",
+    description: "Live quote via Yahoo Finance for indices, commodities and the trading catalog: S&P 500, Nasdaq, Dow, DAX, FTSE, Nikkei, VIX, US 10Y, WTI/Brent oil, natural gas, DXY, gold, silver, FX pairs, crypto. NOT a trade signal — price info only.",
+    scope: "server",
+    risk: "read",
+    params: {
+      symbol: { type: "string", desc: "what to quote, e.g. spx, nasdaq, dow, dax, oil, dxy, gold, EUR/USD, bitcoin (resolve natural names)" },
+    },
+  },
+
   // ── tier 3 · consequential controls (server executes ONLY after the
   //    trader explicitly confirms; every execution is audit-logged) ──
   {
@@ -304,7 +404,7 @@ export function resolveTimeframe(input: string): string | null {
 }
 
 // ── parameter validation ─────────────────────────────────────────────────
-export type ValidateOk = { ok: true; params: Record<string, string | boolean>; note?: string };
+export type ValidateOk = { ok: true; params: Record<string, string | boolean>; note?: string; label?: string };
 export type ValidateFail = { ok: false; error: string };
 
 export function validateActionParams(id: string, rawParams: unknown): ValidateOk | ValidateFail {
@@ -350,5 +450,20 @@ export function validateActionParams(id: string, rawParams: unknown): ValidateOk
     if (!resolved) return { ok: false, error: `"${String(out.tf).slice(0, 24)}" is not a supported timeframe. Supported: ${TIMEFRAMES.join(", ")}.` };
     out.tf = resolved;
   }
-  return { ok: true, params: out };
+  if (id === "get_market_quote") {
+    const resolved = resolveQuoteTarget(String(out.symbol ?? ""));
+    if (!resolved) return { ok: false, error: `"${String(out.symbol).slice(0, 24)}" is not a quotable symbol. I can quote the trading catalog (gold, EUR/USD, BTC...) plus S&P 500, Nasdaq, Dow, DAX, FTSE, Nikkei, VIX, US 10Y, oil, natural gas and DXY.` };
+    out.symbol = resolved.id;
+    out._label = resolved.label;
+  }
+  if (id === "get_economic_calendar" && typeof out.currency === "string") {
+    out.currency = out.currency.toUpperCase().slice(0, 4);
+    // the model may send ALL/ANY to mean "no currency filter" — strip it
+    if (out.currency === "ALL" || out.currency === "ANY") delete out.currency;
+    else if (!/^[A-Z]{3,4}$/.test(out.currency)) return { ok: false, error: `"${out.currency}" is not a currency code — say USD, EUR, GBP, JPY and similar.` };
+  }
+  // the quote's human label rides along outside the executable params
+  const label = typeof out._label === "string" ? out._label : undefined;
+  delete out._label;
+  return { ok: true, params: out, ...(label ? { label } : {}) };
 }

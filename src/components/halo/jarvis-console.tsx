@@ -41,6 +41,8 @@ const CHIPS: { label: string; prompt: string }[] = [
   { label: "WHY NO ENTRY?", prompt: "Why haven't I entered a trade yet?" },
   { label: "MY RISK", prompt: "Show me my current risk." },
   { label: "OPEN STRATEGY LAB", prompt: "Open Strategy Lab and show me today's signals." },
+  { label: "CALENDAR TODAY", prompt: "What high impact events are on the economic calendar today?" },
+  { label: "MARKET NEWS", prompt: "What's the latest market news from Bloomberg?" },
   { label: "MT5 STATUS", prompt: "Is MT5 connected?" },
   { label: "HEALTH", prompt: "Run a system health check." },
 ];

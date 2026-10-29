@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { botState, startBot, stopBot, closeOpenTrade, updateBotConfig } from "@/lib/bot";
 import { buildSnapshot } from "@/lib/halo/assistant-snapshot";
 import { getAction, validateActionParams, ACTIONS, VIEWS } from "@/lib/halo/actions";
+import { getCalendar, getNews, getQuote, type CalendarDay } from "@/lib/halo/intel";
 import { decimalsOf } from "@/lib/market-symbols";
 
 export const dynamic = "force-dynamic";
@@ -154,6 +155,74 @@ function detailFor(id: string, s: Snap): string {
   }
 }
 
+// ── external intel reads (live fetch at question time, never invented) ───
+const INTEL_ACTION_IDS = new Set(["get_economic_calendar", "get_market_news", "get_market_quote"]);
+
+/** friendly, honest spoken summaries of the external feeds */
+async function intelDetail(id: string, params: Record<string, string | boolean>, labelHint: string, brief: boolean): Promise<string> {
+  try {
+    if (id === "get_economic_calendar") {
+      const day = (typeof params.day === "string" && params.day ? params.day : "today") as CalendarDay;
+      const impact = params.impact === "high" || params.impact === "med_high" ? params.impact : "all";
+      const currency = typeof params.currency === "string" ? params.currency : undefined;
+      const cal = await getCalendar(day, impact, currency);
+      if (!cal.ok) return `I could not reach the ForexFactory calendar just now — ${cal.error ?? "feed unreachable"}. Try again in a minute.`;
+      const dayLabel = day.replace(/_/g, " ");
+      if (cal.events.length === 0) {
+        return `The ForexFactory calendar shows no${impact === "all" ? "" : ` ${impact === "high" ? "high-impact" : "medium-or-higher"} ${currency ? currency + " " : ""}`}releases for ${dayLabel}${cal.stale ? " — note, the feed copy I have is stale" : ""}.`;
+      }
+      const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+      // traders care about impact first: high → medium → holiday → low,
+      // chronological inside each tier (the calendar rows stay chronological on the panel)
+      const order: Record<string, number> = { high: 0, medium: 1, holiday: 2, low: 3 };
+      const ranked = [...cal.events].sort((a, b) => (order[a.impact] ?? 4) - (order[b.impact] ?? 4) || a.date.localeCompare(b.date));
+      const top = ranked.slice(0, brief ? 4 : 6);
+      const lines = top.map((e) => {
+        const flag = e.impact === "high" ? "high impact" : e.impact === "medium" ? "medium" : e.impact === "holiday" ? "holiday" : "low";
+        const actual = e.actual ? `, actual ${e.actual}` : e.forecast ? `, forecast ${e.forecast}` : "";
+        return `${e.currency} ${e.title} at ${fmtTime(e.date)} UTC (${flag}${actual})`;
+      });
+      const more = cal.events.length > top.length ? `. Plus ${cal.events.length - top.length} more on the calendar` : "";
+      const staleNote = cal.stale ? " The feed was degraded so this is the last good copy." : "";
+      return `From ForexFactory, ${dayLabel}: ${cal.events.length} ${impact === "all" ? "" : impact === "high" ? "high-impact " : "medium-or-higher "}release${cal.events.length === 1 ? "" : "s"}. ${lines.join("; ")}${more}.${staleNote}`;
+    }
+
+    if (id === "get_market_news") {
+      const source = params.source === "yahoo" ? "yahoo" : "bloomberg";
+      const topic = typeof params.topic === "string" && params.topic ? params.topic : undefined;
+      const news = await getNews(source, topic);
+      if (!news.ok) return `I could not pull ${source} headlines just now — ${news.error ?? "feed unreachable"}. Try again shortly.`;
+      if (news.items.length === 0) return `No ${source} headlines match${topic ? ` "${topic}"` : ""} right now.`;
+      const top = news.items.slice(0, brief ? 3 : 4);
+      const ago = (iso: string) => {
+        const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+        if (mins < 1) return "just now";
+        if (mins < 60) return `${mins} minute${mins === 1 ? "" : "s"} ago`;
+        const hrs = Math.round(mins / 60);
+        if (hrs < 24) return `${hrs} hour${hrs === 1 ? "" : "s"} ago`;
+        return `${Math.round(hrs / 24)} day${hrs >= 48 ? "s" : ""} ago`;
+      };
+      return `Latest from ${news.items[0].outlet}${topic ? ` on ${topic}` : ""}: ${top.map((n, i) => `${i + 1}. ${n.title} (${ago(n.publishedAt)})`).join(". ")}. That's the verbatim headlines, not my analysis.`;
+    }
+
+    if (id === "get_market_quote") {
+      const sym = String(params.symbol ?? "");
+      const q = await getQuote(sym, labelHint || sym);
+      if (!q.ok || q.price == null) return `I could not get a quote for ${q.label || sym} — ${q.error ?? "feed unreachable"}.`;
+      const d = Math.abs(q.price) >= 1000 ? 2 : Math.abs(q.price) >= 1 ? 2 : 4;
+      const px = q.price.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+      const dir = q.changePct == null ? "" : q.changePct >= 0 ? "up" : "down";
+      const chg = q.changePct == null ? "" : `, ${dir} ${Math.abs(q.changePct).toFixed(2)} percent from the previous close`;
+      const range = q.dayHigh != null && q.dayLow != null && isFinite(q.dayHigh) && isFinite(q.dayLow) ? `. Today's range so far: ${q.dayLow.toLocaleString("en-US", { maximumFractionDigits: d })} to ${q.dayHigh.toLocaleString("en-US", { maximumFractionDigits: d })}` : "";
+      const staleNote = q.stale ? " (that read is a few minutes old — the feed was degraded)" : "";
+      return `${q.label} is trading at ${px}${chg}${range}.${staleNote} That's live market data, not a trade signal.`;
+    }
+    return "";
+  } catch (e) {
+    return `The external intel lookup failed: ${(e as Error).message.slice(0, 120)}. I won't guess at the data.`;
+  }
+}
+
 // ── consequential execution via the EXISTING trusted functions ───────────
 async function executeConsequential(p: PendingAction): Promise<{ ok: boolean; detail: string }> {
   const id = p.id;
@@ -238,7 +307,10 @@ OPERATING RULES (non-negotiable):
 9. Never give financial advice beyond explaining what the strategy engine already did. Never offer to disable SL/TP, alter risk limits, or bypass the strategy — decline such requests.
 10. Manual discretionary orders ("buy gold now", "close half my position") are NOT supported — the deterministic strategy is the only entry source. Say so and decline.
 11. Navigation: current app sections are ${VIEWS_BRIEF}. "Go back" = go_back.
-12. Distinguish observed facts (snapshot), strategy mechanics (brief), and your interpretation (label it as your read).`;
+12. Distinguish observed facts (snapshot), strategy mechanics (brief), and your interpretation (label it as your read).
+13. EXTERNAL INTEL: get_economic_calendar, get_market_news and get_market_quote pull LIVE data from ForexFactory, Bloomberg, Yahoo Finance at question time — their verified result replaces your "say". Cite the source when it matters. If a feed fails, the result says so; never invent events, headlines or prices, never fill missing actuals. Market data and calendar events are information, NOT trade advice — never tell the trader to buy or sell because of one.
+14. Calendar/news/quote requests in a combined command: order them AFTER navigation so the app is on the right section while the data is spoken.
+15. The trader may hand you a link or ask about a source you cannot reach (CNN, Reuters, a specific article URL...). You can ONLY pull the three curated feeds. Say so plainly — do NOT silently substitute a Bloomberg/Yahoo answer for a request you could not actually fulfill, and do not pretend to have read a page you cannot open.`;
 
 const VOICE_RULES = `SPOKEN-MODE ADDENDUM: "say" will be read aloud by text-to-speech. Keep it under ~60 words. Plain conversational sentences only — no markdown, no bullet lists, no symbols like ⚠ or arrows. Numbers read naturally.`;
 
@@ -369,12 +441,12 @@ export async function POST(req: Request) {
     }
 
     // ── validate every selected action against the allowlist ──
-    const valid: { id: string; params: Record<string, string | boolean>; def: NonNullable<ReturnType<typeof getAction>> }[] = [];
+    const valid: { id: string; params: Record<string, string | boolean>; def: NonNullable<ReturnType<typeof getAction>>; label?: string }[] = [];
     const invalid: string[] = [];
     for (const a of decision.actions) {
       const v = validateActionParams(a.id, a.params);
       const def = getAction(a.id);
-      if (v.ok && def) valid.push({ id: a.id, params: v.params, def });
+      if (v.ok && def) valid.push({ id: a.id, params: v.params, def, ...(v.label ? { label: v.label } : {}) });
       else invalid.push(v.ok ? a.id : v.error);
     }
 
@@ -398,9 +470,15 @@ export async function POST(req: Request) {
     }
 
     // ═══ server read actions → deterministic verified details ═══
-    const readResults = valid
-      .filter((a) => a.def.scope === "server" && a.def.risk === "read")
-      .map((a) => ({ id: a.id, ok: true, detail: detailFor(a.id, snapshot) }));
+    const readResults = await Promise.all(
+      valid
+        .filter((a) => a.def.scope === "server" && a.def.risk === "read")
+        .map(async (a) => ({
+          id: a.id,
+          ok: true,
+          detail: INTEL_ACTION_IDS.has(a.id) ? await intelDetail(a.id, a.params, String(a.label ?? ""), voiceMode) : detailFor(a.id, snapshot),
+        }))
+    );
 
     // ═══ client UI actions → returned for verified client execution ═══
     const clientActions = valid
