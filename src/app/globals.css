@@ -123,6 +123,11 @@
 
 /* ───────────── HALO 3EL AUTOTRADER ───────────── */
 
+/* deep-navy page base — lets the FX layer (-z-10) glow through the gaps */
+body {
+  background: #0b1426;
+}
+
 .halo-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -144,4 +149,87 @@
 }
 .halo-glow {
   animation: halo-glow 2.4s ease-in-out infinite;
+}
+
+/* ───────────── HALO-B · futuristic ambience ───────────── */
+
+@keyframes halo-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes halo-blink {
+  0%, 91%, 100% { transform: scaleY(1); }
+  94%, 97% { transform: scaleY(0.08); }
+}
+
+@keyframes halo-eye-scan {
+  0%, 100% { transform: translateX(-2.6px); }
+  50% { transform: translateX(2.6px); }
+}
+
+@keyframes halo-core-pulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+@keyframes halo-thrust {
+  0%, 100% { opacity: 0.22; transform: scaleX(1); }
+  50% { opacity: 0.6; transform: scaleX(1.3); }
+}
+
+@keyframes halo-drift {
+  0% { transform: translate3d(0, 0, 0); opacity: 0; }
+  8% { opacity: var(--po, 0.5); }
+  85% { opacity: var(--po, 0.5); }
+  100% { transform: translate3d(var(--dx, 24px), -108vh, 0); opacity: 0; }
+}
+
+@keyframes halo-grid-pan {
+  0% { background-position: 0 0, 0 0; }
+  100% { background-position: 0 46px, 0 46px; }
+}
+
+@keyframes halo-scan-sweep {
+  0% { transform: translateY(-12vh); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(112vh); opacity: 0; }
+}
+
+@keyframes halo-pop {
+  0% { transform: scale(0.7) translateY(6px); }
+  55% { transform: scale(1.08) translateY(-3px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+@keyframes halo-confetti {
+  0% { transform: translate3d(0, 0, 0) scale(1) rotate(0deg); opacity: 1; }
+  100% { transform: translate3d(var(--cx, 0px), var(--cy, -70px), 0) scale(0.3) rotate(var(--cr, 180deg)); opacity: 0; }
+}
+
+@keyframes halo-ring {
+  0% { transform: scale(0.75); opacity: 0.75; }
+  100% { transform: scale(1.85); opacity: 0; }
+}
+
+/* typewriter caret */
+.halo-caret::after {
+  content: "▊";
+  margin-left: 2px;
+  color: #d4af37;
+  animation: halo-core-pulse 0.9s steps(2) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halo-float,
+  .halo-blink,
+  .halo-eye-scan,
+  .halo-thrust,
+  .halo-drift,
+  .halo-grid-pan,
+  .halo-scan-sweep,
+  .halo-ring {
+    animation: none !important;
+  }
 }

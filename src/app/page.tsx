@@ -33,6 +33,9 @@ import { ScannerPanel } from "@/components/halo/scanner-panel";
 import { BrokersPanel } from "@/components/halo/brokers-panel";
 import { AlertsPanel } from "@/components/halo/alerts-panel";
 import { PwaRegister } from "@/components/halo/pwa";
+import { FxLayer } from "@/components/halo/fx-layer";
+import { BootSequence } from "@/components/halo/boot-sequence";
+import { RobotAssistant } from "@/components/halo/robot-assistant";
 
 type View = DeckView;
 
@@ -246,7 +249,8 @@ export default function Page() {
 
   if (!state) {
     return (
-      <div className="flex min-h-screen flex-col bg-[#0B1426] text-[#E8ECF4]">
+      <div className="flex min-h-screen flex-col text-[#E8ECF4]">
+        <FxLayer />
         <div className="mx-auto flex w-full max-w-[1720px] flex-1 flex-col gap-4 px-4 py-8">
           <Skeleton className="h-14 w-full rounded-xl bg-[#101C33]" />
           <Skeleton className="h-10 w-72 rounded-lg bg-[#101C33]" />
@@ -261,7 +265,9 @@ export default function Page() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0B1426] text-[#E8ECF4]">
+    <div className="flex min-h-screen flex-col text-[#E8ECF4]">
+      <FxLayer />
+      <BootSequence />
       <PwaRegister />
       <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
 
@@ -380,6 +386,9 @@ export default function Page() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* HALO-B — the robotic face of the EA, present on every tab */}
+      <RobotAssistant state={state} candles={candles} />
 
       <footer className="mt-auto border-t border-[#1C2A47] py-3">
         <div className="mx-auto flex w-full max-w-[1720px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">
