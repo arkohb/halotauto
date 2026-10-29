@@ -137,14 +137,14 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setMode("paper")}
-          className={`h-10 rounded-lg text-[11px] font-bold tracking-wider border transition-colors ${mode !== "paper" ? "border-[#1C2A47] text-[#8C98AE] hover:border-[#2A3A5C]" : ""}`}
+          className={`h-10 rounded-lg text-[11px] font-bold tracking-wider border transition-colors ${mode !== "paper" ? "border-[#0F2E58] text-[#8AA2C2] hover:border-[#1C4478]" : ""}`}
           style={mode === "paper" ? { borderColor: C.green, color: C.green, background: A.green(0.1) } : undefined}
         >
           PAPER (SIM)
         </button>
         <button
           onClick={() => setMode("live")}
-          className={`h-10 rounded-lg text-[11px] font-bold tracking-wider border transition-colors ${mode !== "live" ? "border-[#1C2A47] text-[#8C98AE] hover:border-[#2A3A5C]" : ""}`}
+          className={`h-10 rounded-lg text-[11px] font-bold tracking-wider border transition-colors ${mode !== "live" ? "border-[#0F2E58] text-[#8AA2C2] hover:border-[#1C4478]" : ""}`}
           style={mode === "live" ? { borderColor: C.red, color: C.red, background: A.red(0.1) } : undefined}
         >
           LIVE · REAL ORDERS
@@ -188,14 +188,14 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
       <div className="grid grid-cols-2 gap-2">
         <button
           onClick={() => setSizingMode("fixed")}
-          className={`h-9 rounded-lg text-[10px] font-bold tracking-wider border ${sizingMode !== "fixed" ? "border-[#1C2A47] text-[#8C98AE]" : ""}`}
+          className={`h-9 rounded-lg text-[10px] font-bold tracking-wider border ${sizingMode !== "fixed" ? "border-[#0F2E58] text-[#8AA2C2]" : ""}`}
           style={sizingMode === "fixed" ? { borderColor: C.gold, color: C.gold } : undefined}
         >
           FIXED SIZE
         </button>
         <button
           onClick={() => setSizingMode("percent")}
-          className={`h-9 rounded-lg text-[10px] font-bold tracking-wider border ${sizingMode !== "percent" ? "border-[#1C2A47] text-[#8C98AE]" : ""}`}
+          className={`h-9 rounded-lg text-[10px] font-bold tracking-wider border ${sizingMode !== "percent" ? "border-[#0F2E58] text-[#8AA2C2]" : ""}`}
           style={sizingMode === "percent" ? { borderColor: C.gold, color: C.gold } : undefined}
         >
           RISK % EQUITY
@@ -219,7 +219,7 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
       <Button
         onClick={() => void save({})}
         disabled={busy || liveWithoutBroker}
-        className="w-full h-10 rounded-lg font-bold text-xs tracking-wider text-[#0B1426] bg-[#D4AF37] hover:bg-[#E3C25A] disabled:opacity-50"
+        className="w-full h-10 rounded-lg font-bold text-xs tracking-wider text-[#021229] bg-[#2ECCFF] hover:bg-[#7DDDFF] disabled:opacity-50"
       >
         {busy ? "…" : "APPLY ROUTING"}
       </Button>
@@ -229,7 +229,7 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
           onClick={closeNow}
           disabled={busy}
           variant="outline"
-          className="w-full h-9 rounded-lg text-[11px] font-bold tracking-wider border-[#2A3A5C] text-[#E8ECF4] hover:border-[#F23645] hover:text-[#F23645] bg-transparent"
+          className="w-full h-9 rounded-lg text-[11px] font-bold tracking-wider border-[#1C4478] text-[#EAF3FF] hover:border-[#FF4D5E] hover:text-[#FF4D5E] bg-transparent"
         >
           ✕ CLOSE OPEN POSITION AT MARKET
         </Button>

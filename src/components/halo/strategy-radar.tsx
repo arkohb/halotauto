@@ -254,7 +254,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                 aria-label={b.label}
                 aria-pressed={active}
                 title={b.label}
-                className="group absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full p-2 outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[#4FD8FF] hover:scale-125"
+                className="group absolute z-10 -translate-x-1/2 -translate-y-1/2 rounded-full p-2 outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[#2ECCFF] hover:scale-125"
                 style={{ left: `${(b.x / 400) * 100}%`, top: `${(b.y / 400) * 100}%` }}
               >
                 {b.ping && animate && (
@@ -309,7 +309,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                 <button
                   type="button"
                   onClick={() => setSelected(null)}
-                  className="ml-auto rounded px-1.5 py-0.5 text-[9px] font-bold text-[#8C98AE] transition-colors hover:text-[#E8ECF4]"
+                  className="ml-auto rounded px-1.5 py-0.5 text-[9px] font-bold text-[#8AA2C2] transition-colors hover:text-[#EAF3FF]"
                   aria-label="Close setup details"
                 >
                   ✕
@@ -353,7 +353,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                   OPEN {sel.row.symbol} IN TERMINAL
                 </button>
               )}
-              <p className="text-[8.5px] leading-snug text-[#5D6B85]">
+              <p className="text-[8.5px] leading-snug text-[#51678A]">
                 Radar is informational — setups are approved and executed only by the existing 3EL engine and its execution rules.
               </p>
             </div>
@@ -365,7 +365,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                 ATR, fresh condition counts, the last confirmed signal and the honest reason the setup qualifies,
                 is still being evaluated, or was rejected.
               </p>
-              <p className="text-[9.5px] leading-relaxed text-[#5D6B85]">
+              <p className="text-[9.5px] leading-relaxed text-[#51678A]">
                 Blips closest to the core are nearest to their C3 trigger. The sweep moves only while the engine
                 is actually analysing — never for decoration.
               </p>

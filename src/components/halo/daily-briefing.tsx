@@ -122,7 +122,7 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
       {nextEvent !== "unavailable" && nextEvent && (
         <div>
           <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em]" style={{ color: C.label }}>Next high-impact release · ForexFactory</div>
-          <p className="text-[10.5px] font-semibold leading-snug text-[#F5D778]">
+          <p className="text-[10.5px] font-semibold leading-snug text-[#F5CD6B]">
             {nextEvent.currency} · {nextEvent.title}
           </p>
           <p className="text-[9.5px] font-mono" style={{ color: C.muted }}>
@@ -141,7 +141,7 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
       </div>
 
       <p
-        className="rounded-lg border px-2.5 py-1.5 text-[9.5px] italic leading-snug text-[#F5D778]"
+        className="rounded-lg border px-2.5 py-1.5 text-[9.5px] italic leading-snug text-[#F5CD6B]"
         style={{ borderColor: A.gold(0.3), background: A.gold(0.06) }}
       >
         &ldquo;Patience is a position. Let the setup come to you.&rdquo; — HALO

@@ -40,7 +40,7 @@ export function TradeCard({ state }: { state: BotStateRes }) {
         </>
       }
     >
-      <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-y sm:divide-y-0 divide-[#1C2A47]">
+      <div className="grid grid-cols-2 sm:grid-cols-5 divide-x divide-y sm:divide-y-0 divide-[#0F2E58]">
         <Cell label="ENTRY" value={fmtPx(t.entry, state.mintick)} />
         <Cell
           label="STOP LOSS"

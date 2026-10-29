@@ -149,3 +149,24 @@ Stage Summary:
 - Deliverable: consistent premium command-centre UI across all 10 views with a single-token design system, honest states everywhere, 8-state AI core, zero behavior change
 - Key files: src/app/globals.css, src/lib/halo/ui-helpers.ts, src/components/halo/panel.tsx (system core); 35 view files migrated; src/app/api/alerts/test/route.ts (bug fix)
 - Trading engine, strategy v1.2, MT5/MetaApi, risk controls: verified unchanged (bot state, engine tests, brain regression)
+
+---
+Task ID: ui-redesign-mockup
+Agent: main (Z.ai)
+Task: HALO 3EL AUTOTRADER — complete futuristic UI redesign to match the 9 uploaded mockup screens exactly ("Exactly like this same design")
+
+Work Log:
+- Extracted the mockup palette programmatically (pixel + hue clustering): page #000A19→#001D3C azure glows, cards #010D1F/#03122C, primary accent azure #26C8FF + blue #2692FF, positive green / negative red for money, gold confined to the logo; sidebar active = azure gradient fill
+- DESIGN TOKENS rebranded app-wide: ui-helpers.ts C/A (27 tokens + blue added, cyan #2ECCFF, green #00D68F, red #FF4D5E, gold #E9B94E brand-only) + globals.css --hx-*/shadcn vars/body azure radial glows/scrollbar/caret + fx-layer grid/sweep/particles gold→azure + full hex sweep across all halo components (0B1426→020B1A, 4FD8FF→2ECCFF, 79,216,255→46,204,255, 212,175,55→233,185,78, 089981→00D68F, F23645→FF4D5E …)
+- FRAME: header.tsx rebuilt as single 57px mockup bar (gold owl emblem + HALO 3EL / AUTOMATED ENIGMA, symbol/tf selectors, FX switch, LIVE pill, UTC clock, EA pill, profile avatar with real initial); nav-rail.tsx rebuilt to mockup order (Dashboard · Market Intelligence · Trading Activity · Risk Guardian · Strategy Lab · Trade History · Performance · Daily Briefing · Learning Missions · Settings + SYSTEM group: Market Scanner · Voice Command · Brokers & MT5 · Alerts) with azure-gradient active pill; panel.tsx PanelCard/PageHeader chrome (azure title glow, luminous divider, blue-tinted glass)
+- NEW VIEWS (4): trade-history (HistoryPanel + TODAY/WEEK/MONTH/ALL chips), briefing (DailyBriefing full), learning (StrategyExplainer = real 3EL rules), voice (mockup 08: docked JarvisConsole + HaloCore + VoiceSettingsCard); ViewId registry + VIEWS aliases extended — voice operator can navigate all 14 sections (brain prompt auto-includes them); DeckView widened for activity
+- NEW COMPONENTS: market-overview.tsx (real /api/intel/quote Yahoo rows, active symbol pinned first, honest "—" per-row failures), account-summary.tsx (real /api/brokers/live-account balance/equity/floating P&L + equity-drift meter), dashboard-strip.tsx (LatestSignal from trade/levels, MonitorStatus from statusOf(), RecentTrades from /api/trades)
+- HERO RESTYLES: halo-core.tsx centered orb card (mockup 01/08) with real 8-state mirror intact (executing/error only on verified events); welcome-greeting icon chip + azure accents; risk-guardian.tsx mockup 05 (92px shield hero + Healthy status + 3×3 real metrics grid + safety checks); market-pulse azure; dashboard grid per mockup 01 (greeting → chart 8 + orb/overview/account rail 4 → signal/monitoring/recent trades → activity + risk → control deck); intel view per mockup 02 (chart + price card + levels + calendar/quotes); activity view + trade card + quick actions; footer now carries the creator credit
+- CTA RECOLOR: filled gold buttons (START/STOP EA, APPLY ROUTING, LOAD REAL HISTORY, ADD TO WATCHLIST, APPLY SETTINGS, backtest controls) → azure #2ECCFF; gold stays on brand badges/logo only
+- Verification: bunx tsc 0 errors in src/, eslint clean on all touched files, bun run build OK, dev server 200, /api/bot/state intact (XAUUSD 1h yahoo feed live), voice-e2e 8/8 PASS under Xvfb (wake armed, always-on silence, welcome-back, exit phrase, wake re-arm, prefs sanitize, zero page errors), Playwright screenshots of all 14 views + mobile 390px — zero console/page errors
+- Not touched: strategy engine v1.2, lib/pine-ea.ts (Pine source colors are engine territory), brokers/alerts/scanner internals (auto-rebranded via tokens)
+
+Stage Summary:
+- Deliverable: full visual redesign matching the 9 mockup screens — deep-navy azure command centre, mockup nav + header + card language, 14 working views (4 new), real-data dashboard right rail, zero functional regressions
+- Key files: src/lib/halo/ui-helpers.ts, src/app/globals.css, src/components/halo/{header,nav-rail,panel,halo-core,welcome-greeting,risk-guardian,market-pulse,fx-layer,market-overview,account-summary,dashboard-strip}.tsx, src/lib/halo/actions.ts, src/app/page.tsx
+- Verified: engine/broker/order/risk/voice logic unchanged; all views visually + programmatically verified; no deployment performed

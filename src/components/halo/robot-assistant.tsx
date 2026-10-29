@@ -115,51 +115,51 @@ function RobotSvg({ mood, eyeColor, reduced }: { mood: Mood; eyeColor: string; r
         cy="107"
         rx="15"
         ry="4"
-        fill="#D4AF37"
+        fill="#E9B94E"
         className={awake && !reduced ? "halo-thrust" : undefined}
         style={{ opacity: awake ? undefined : 0.12, transformBox: "fill-box", transformOrigin: "center" }}
       />
       {/* pulsing ground ring */}
-      <ellipse cx="48" cy="107" rx="20" ry="5" fill="none" stroke="rgba(212,175,55,0.25)" strokeWidth="1" />
+      <ellipse cx="48" cy="107" rx="20" ry="5" fill="none" stroke="rgba(233,185,78,0.25)" strokeWidth="1" />
 
       <g style={{ transform: mood === "sad" ? "rotate(-4deg)" : undefined, transformOrigin: "48px 60px", transition: "transform 400ms ease" }}>
         {/* antenna */}
-        <line x1="48" y1="17" x2="48" y2="8" stroke="#2A3A5C" strokeWidth="2" />
+        <line x1="48" y1="17" x2="48" y2="8" stroke="#1C4478" strokeWidth="2" />
         <circle
           cx="48"
           cy="6.5"
           r="3"
-          fill={awake ? "#D4AF37" : "#3A4A6E"}
+          fill={awake ? "#E9B94E" : "#3A4A6E"}
           style={awake && !reduced ? { animation: "halo-core-pulse 1.4s ease-in-out infinite" } : undefined}
         />
 
         {/* head */}
-        <rect x="24" y="17" width="48" height="31" rx="10" fill="#16233D" stroke="#2A3A5C" strokeWidth="1.5" />
+        <rect x="24" y="17" width="48" height="31" rx="10" fill="#07203F" stroke="#1C4478" strokeWidth="1.5" />
         {/* ear pods */}
-        <rect x="18" y="27" width="6" height="11" rx="2.5" fill="#16233D" stroke="#2A3A5C" />
-        <rect x="72" y="27" width="6" height="11" rx="2.5" fill="#16233D" stroke="#2A3A5C" />
+        <rect x="18" y="27" width="6" height="11" rx="2.5" fill="#07203F" stroke="#1C4478" />
+        <rect x="72" y="27" width="6" height="11" rx="2.5" fill="#07203F" stroke="#1C4478" />
         {/* visor */}
-        <rect x="29" y="25" width="38" height="15" rx="7.5" fill="#0B1426" stroke="rgba(212,175,55,0.4)" strokeWidth="1" />
+        <rect x="29" y="25" width="38" height="15" rx="7.5" fill="#020B1A" stroke="rgba(233,185,78,0.4)" strokeWidth="1" />
         {/* visor scan glint */}
         {scanning && (
-          <rect x="31" y="27" width="5" height="11" rx="2.5" fill="rgba(212,175,55,0.22)" style={{ animation: "halo-eye-scan 2.6s ease-in-out infinite", transformBox: "fill-box", transformOrigin: "center" }} />
+          <rect x="31" y="27" width="5" height="11" rx="2.5" fill="rgba(233,185,78,0.22)" style={{ animation: "halo-eye-scan 2.6s ease-in-out infinite", transformBox: "fill-box", transformOrigin: "center" }} />
         )}
         {eyes}
 
         {/* neck */}
-        <rect x="43" y="48" width="10" height="4" rx="2" fill="#2A3A5C" />
+        <rect x="43" y="48" width="10" height="4" rx="2" fill="#1C4478" />
 
         {/* body */}
-        <rect x="30" y="52" width="36" height="27" rx="9" fill="#16233D" stroke="#2A3A5C" strokeWidth="1.5" />
+        <rect x="30" y="52" width="36" height="27" rx="9" fill="#07203F" stroke="#1C4478" strokeWidth="1.5" />
         {/* chest core */}
         <circle
           cx="48"
           cy="65"
           r="4.6"
-          fill={awake ? "#D4AF37" : "#3A4A6E"}
+          fill={awake ? "#E9B94E" : "#3A4A6E"}
           style={awake && !reduced ? { animation: "halo-core-pulse 1.8s ease-in-out infinite" } : undefined}
         />
-        <circle cx="48" cy="65" r="7.5" fill="none" stroke={awake ? "rgba(212,175,55,0.45)" : "#2A3A5C"} strokeWidth="1" />
+        <circle cx="48" cy="65" r="7.5" fill="none" stroke={awake ? "rgba(233,185,78,0.45)" : "#1C4478"} strokeWidth="1" />
 
         {/* arms — raise on celebration */}
         <g
@@ -170,7 +170,7 @@ function RobotSvg({ mood, eyeColor, reduced }: { mood: Mood; eyeColor: string; r
             transition: "transform 350ms ease",
           }}
         >
-          <rect x="19" y="54" width="8" height="17" rx="4" fill="#16233D" stroke="#2A3A5C" />
+          <rect x="19" y="54" width="8" height="17" rx="4" fill="#07203F" stroke="#1C4478" />
         </g>
         <g
           style={{
@@ -180,7 +180,7 @@ function RobotSvg({ mood, eyeColor, reduced }: { mood: Mood; eyeColor: string; r
             transition: "transform 350ms ease",
           }}
         >
-          <rect x="69" y="54" width="8" height="17" rx="4" fill="#16233D" stroke="#2A3A5C" />
+          <rect x="69" y="54" width="8" height="17" rx="4" fill="#07203F" stroke="#1C4478" />
         </g>
       </g>
     </svg>
@@ -297,7 +297,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
           setMood("celebrate");
           setJumpKey((k) => k + 1);
           if (!reduced) {
-            const colors = ["#D4AF37", "#F5D879", "#089981", "#E8ECF4"];
+            const colors = ["#E9B94E", "#F5D879", "#00D68F", "#EAF3FF"];
             setConfetti(
               Array.from({ length: 18 }, (_, i) => ({
                 cx: `${Math.round((Math.random() - 0.5) * 130)}px`,
@@ -477,7 +477,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
   }, [asked, speak, state]);
 
   const eyeColor = (() => {
-    if (mood === "sleep") return "#5D606B";
+    if (mood === "sleep") return "#51678A";
     if (flashDir !== null) return flashDir === -1 ? C.red : C.green;
     if (mood === "sad") return C.red;
     if (priceDir === 1) return "#3FD9A4";
@@ -487,10 +487,10 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
 
   const toneBorder =
     bubble?.tone === "green"
-      ? "rgba(8,153,129,0.65)"
+      ? "rgba(0,214,143,0.65)"
       : bubble?.tone === "red"
-        ? "rgba(242,54,69,0.65)"
-        : "rgba(212,175,55,0.55)";
+        ? "rgba(255,77,94,0.65)"
+        : "rgba(233,185,78,0.55)";
 
   const showBubble = visible && bubble !== null;
   const ringOn = mood === "armed" || mood === "alert";
@@ -502,11 +502,11 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
         <div
           role="status"
           aria-label="HALO-B assistant message"
-          className="pointer-events-auto w-[248px] origin-bottom-right rounded-xl border bg-[#0F1A30]/95 p-3 shadow-2xl backdrop-blur sm:w-[300px]"
+          className="pointer-events-auto w-[248px] origin-bottom-right rounded-xl border bg-[#021229]/95 p-3 shadow-2xl backdrop-blur sm:w-[300px]"
           style={{ borderColor: toneBorder, animation: reduced ? undefined : "halo-pop 0.35s ease-out" }}
         >
           <div className="mb-1 flex items-center justify-between">
-            <span className="flex items-center gap-1.5 text-[8.5px] font-extrabold tracking-[0.22em] text-[#D4AF37]">
+            <span className="flex items-center gap-1.5 text-[8.5px] font-extrabold tracking-[0.22em] text-[#E9B94E]">
               <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: eyeColor }} />
               HALO-B · {moodLabel(mood)}
             </span>
@@ -514,12 +514,12 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
               type="button"
               aria-label="Dismiss message"
               onClick={() => setVisible(false)}
-              className="text-[10px] leading-none text-[#8C98AE] transition-colors hover:text-[#E8ECF4]"
+              className="text-[10px] leading-none text-[#8AA2C2] transition-colors hover:text-[#EAF3FF]"
             >
               ✕
             </button>
           </div>
-          <p className="min-h-[32px] text-[11px] leading-snug text-[#E8ECF4]">
+          <p className="min-h-[32px] text-[11px] leading-snug text-[#EAF3FF]">
             <span className={typed < bubble.text.length ? "halo-caret" : undefined}>
               {bubble.text.slice(0, typed)}
             </span>
@@ -533,7 +533,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
           <span
             aria-hidden
             className="halo-ring absolute inset-0 rounded-full border-2"
-            style={{ borderColor: "rgba(212,175,55,0.6)", animationDuration: "1.8s" }}
+            style={{ borderColor: "rgba(233,185,78,0.6)", animationDuration: "1.8s" }}
           />
         )}
         <button
@@ -541,7 +541,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
           onClick={onTap}
           aria-label="HALO-B robotic assistant — tap for live status and tips"
           title="HALO-B · tap me"
-          className="relative block h-16 w-16 cursor-pointer outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-[#D4AF37] sm:h-[76px] sm:w-[76px]"
+          className="relative block h-16 w-16 cursor-pointer outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-[#E9B94E] sm:h-[76px] sm:w-[76px]"
         >
           <span
             key={jumpKey}
@@ -553,7 +553,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
         </button>
         {confetti.length > 0 && <Confetti pieces={confetti} />}
         {/* nameplate */}
-        <span className="pointer-events-none absolute -bottom-0.5 left-1/2 -translate-x-1/2 rounded-full border border-[#1C2A47] bg-[#0F1A30]/95 px-1.5 py-px text-[6.5px] font-extrabold tracking-[0.22em] text-[#D4AF37]">
+        <span className="pointer-events-none absolute -bottom-0.5 left-1/2 -translate-x-1/2 rounded-full border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-px text-[6.5px] font-extrabold tracking-[0.22em] text-[#E9B94E]">
           HALO-B
         </span>
       </div>

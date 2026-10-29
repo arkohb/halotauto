@@ -43,25 +43,32 @@ export function PanelCard({ title, icon: Icon, accent = "cyan", right, children,
   return (
     <section
       aria-label={title}
-      className={`group relative flex min-w-0 flex-col overflow-hidden rounded-xl border backdrop-blur transition-colors duration-300 hover:border-[#24395F] ${className}`}
+      className={`group relative flex min-w-0 flex-col overflow-hidden rounded-xl border backdrop-blur transition-colors duration-300 ${className}`}
       style={{
         borderColor: C.panelLine,
-        background: `linear-gradient(180deg, ${A.cyan(0.025)}, transparent 22%), linear-gradient(180deg, ${C.panel}, ${C.deep})`,
+        background: `linear-gradient(180deg, ${A.blue(0.05)}, transparent 26%), linear-gradient(180deg, ${C.panel}, ${C.deep})`,
         // layered glass: top light edge + deep drop shadow for 3D depth
         boxShadow:
-          "inset 0 1px 0 rgba(79,216,255,0.07), inset 0 0 0 1px rgba(79,216,255,0.02), 0 12px 32px rgba(3,8,18,0.45), 0 2px 8px rgba(3,8,18,0.35)",
+          "inset 0 1px 0 rgba(120,200,255,0.08), inset 0 0 0 1px rgba(46,204,255,0.02), 0 14px 34px rgba(0,4,12,0.5), 0 2px 8px rgba(0,4,12,0.4)",
       }}
     >
-      {/* accent edge — a 2px luminous line on the card's left edge */}
-      <span aria-hidden className="absolute inset-y-0 left-0 w-[2px]" style={{ background: `linear-gradient(180deg, ${a}66, transparent 70%)` }} />
       <header
-        className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5 pl-3.5"
-        style={{ borderColor: C.lineInner, background: `linear-gradient(90deg, ${a}12, transparent 65%)` }}
+        className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5"
+        style={{ borderColor: C.lineInner, background: `linear-gradient(90deg, ${a}14, transparent 62%)` }}
       >
         <Icon size={13} strokeWidth={2.2} style={{ color: a }} aria-hidden />
-        <h2 className="truncate text-[10.5px] font-extrabold tracking-[0.2em]" style={{ color: C.txt3 }}>
+        <h2
+          className="truncate text-[11px] font-extrabold tracking-[0.16em]"
+          style={{ color: C.txt3, textShadow: `0 0 14px ${a}55` }}
+        >
           {title}
         </h2>
+        {/* luminous divider tail — the mockup's glowing rule under card titles */}
+        <span
+          aria-hidden
+          className="ml-1 hidden h-px min-w-6 flex-1 sm:block"
+          style={{ background: `linear-gradient(90deg, ${a}55, transparent 85%)` }}
+        />
         <div className="ml-auto flex shrink-0 items-center gap-2">{right}</div>
       </header>
       <div className={`min-h-0 flex-1 ${bodyClassName}`}>{children}</div>
@@ -69,23 +76,27 @@ export function PanelCard({ title, icon: Icon, accent = "cyan", right, children,
   );
 }
 
-/** Per-view page header: icon + title + purpose line + trailing actions. */
+/** Per-view page header: bold title + purpose line + trailing actions (mockup style). */
 export function PageHeader({ icon: Icon, title, sub, right, className = "" }: { icon: LucideIcon; title: string; sub?: string; right?: ReactNode; className?: string }) {
   return (
     <div className={`mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-2 ${className}`}>
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <span
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border"
-            style={{ borderColor: A.cyan(0.3), background: A.cyan(0.07), boxShadow: `0 0 14px 0 ${A.cyan(0.12)}` }}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
+            style={{
+              borderColor: A.cyan(0.35),
+              background: `linear-gradient(135deg, ${A.blue(0.28)}, ${A.cyan(0.1)})`,
+              boxShadow: `0 0 16px 0 ${A.cyan(0.16)}`,
+            }}
           >
-            <Icon size={14} style={{ color: C.cyan }} aria-hidden />
+            <Icon size={15} style={{ color: C.cyan }} aria-hidden />
           </span>
-          <h1 className="truncate text-[15px] font-extrabold tracking-[0.08em]" style={{ color: C.txt3 }}>
+          <h1 className="truncate text-[17px] font-extrabold tracking-[0.02em]" style={{ color: C.txt, textShadow: "0 0 18px rgba(46,204,255,0.18)" }}>
             {title}
           </h1>
         </div>
-        {sub && <p className="mt-1 pl-9 text-[10.5px] leading-snug" style={{ color: C.label }}>{sub}</p>}
+        {sub && <p className="mt-1 pl-[42px] text-[11px] leading-snug" style={{ color: C.muted }}>{sub}</p>}
       </div>
       {right && <div className="flex shrink-0 flex-wrap items-center gap-2">{right}</div>}
     </div>
@@ -194,7 +205,7 @@ export function StatCell({ label, value, color, sub }: { label: string; value: s
       className="min-w-0 rounded-lg border px-2.5 py-2"
       style={{
         borderColor: C.lineInner,
-        background: `linear-gradient(180deg, ${C.navy}, ${C.deep})`,
+        background: `linear-gradient(180deg, ${A.blue(0.05)}, ${C.deep})`,
       }}
     >
       <div className="truncate text-[8.5px] font-bold uppercase tracking-[0.14em]" style={{ color: C.label }}>{label}</div>

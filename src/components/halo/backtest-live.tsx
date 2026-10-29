@@ -163,7 +163,7 @@ function bannerStyle(tone: BannerTone): { bg: string; border: string; fg: string
     case "done":
       return { bg: A.gold(0.18), border: A.gold(0.7), fg: "#E9CB5B" };
     default:
-      return { bg: "rgba(15,26,48,0.9)", border: C.line2, fg: C.txt };
+      return { bg: "rgba(2,18,41,0.9)", border: C.line2, fg: C.txt };
   }
 }
 const TAPE_STYLE: Record<TapeKind, { col: string; mark: string }> = {
@@ -841,21 +841,21 @@ export function BacktestLive({ symbol, tf, config }: Props) {
   return (
     <div className="space-y-4">
       {/* ── header ── */}
-      <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-[#1C2A47]">
-          <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">LIVE BACKTEST REPLAY</span>
+      <div className="rounded-xl border border-[#0F2E58] bg-[#021229] overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-[#0F2E58]">
+          <span className="text-xs font-bold tracking-wider text-[#EAF3FF]">LIVE BACKTEST REPLAY</span>
           <Pill tone="ok">REAL MARKET DATA ONLY · NO DEMO</Pill>
           <Pill tone="gold">∞ BARS · ANY PAIR · M1→W1</Pill>
-          <span className="ml-auto text-[10px] text-[#8C98AE]">watch the 3EL bot form levels, fire, and close — bar by bar</span>
+          <span className="ml-auto text-[10px] text-[#8AA2C2]">watch the 3EL bot form levels, fire, and close — bar by bar</span>
         </div>
 
         <div className="flex flex-wrap items-end gap-3 p-3">
           <label className="flex flex-col gap-1">
-            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">PAIR / SYMBOL</span>
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">PAIR / SYMBOL</span>
             <select
               value={symPick}
               onChange={(e) => setSymPick(e.target.value)}
-              className="h-8 rounded-md border border-[#2A3A5C] bg-[#0B1426] px-2 text-xs font-mono text-[#E8ECF4] outline-none focus:border-[#D4AF37]"
+              className="h-8 rounded-md border border-[#1C4478] bg-[#020B1A] px-2 text-xs font-mono text-[#EAF3FF] outline-none focus:border-[#E9B94E]"
             >
               {SYMBOL_GROUPS.map((g) => (
                 <optgroup key={g.key} label={g.label}>
@@ -871,22 +871,22 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           </label>
           {symPick === "CUSTOM" && (
             <label className="flex flex-col gap-1">
-              <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">ANY TICKER</span>
+              <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">ANY TICKER</span>
               <Input
                 value={customSym}
                 onChange={(e) => setCustomSym(e.target.value.toUpperCase())}
                 placeholder="BTCUSD, EURJPY, AAPL…"
-                className="w-40 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4] placeholder:text-[#4A5878]"
+                className="w-40 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF] placeholder:text-[#4A5878]"
               />
             </label>
           )}
 
           <label className="flex flex-col gap-1">
-            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">BAR SIZE (TF)</span>
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">BAR SIZE (TF)</span>
             <select
               value={btTf}
               onChange={(e) => setBtTf(e.target.value)}
-              className="h-8 rounded-md border border-[#2A3A5C] bg-[#0B1426] px-2 text-xs font-mono text-[#E8ECF4] outline-none focus:border-[#D4AF37]"
+              className="h-8 rounded-md border border-[#1C4478] bg-[#020B1A] px-2 text-xs font-mono text-[#EAF3FF] outline-none focus:border-[#E9B94E]"
             >
               {BT_TIMEFRAMES.map((t) => (
                 <option key={t.id} value={t.id}>
@@ -897,12 +897,12 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">BARS · NO CAP</span>
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">BARS · NO CAP</span>
             <Input
               value={bars}
               onChange={(e) => setBars(e.target.value)}
               placeholder="any count · or ALL"
-              className="w-28 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4] placeholder:text-[#4A5878]"
+              className="w-28 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF] placeholder:text-[#4A5878]"
             />
           </label>
           <div className="flex gap-1">
@@ -924,38 +924,38 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           </div>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">FROM (OPTIONAL)</span>
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">FROM (OPTIONAL)</span>
             <Input
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="w-36 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
+              className="w-36 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF]"
             />
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">SPREAD (PIPS / TRADE)</span>
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">SPREAD (PIPS / TRADE)</span>
             <Input
               type="number"
               value={spread}
               min={0}
               step={0.1}
               onChange={(e) => setSpread(e.target.value)}
-              className="w-24 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
+              className="w-24 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF]"
             />
           </label>
 
           <Button
             onClick={() => void run()}
             disabled={loading}
-            className="h-8 px-5 rounded-md text-[11px] font-bold tracking-wider bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]"
+            className="h-8 px-5 rounded-md text-[11px] font-bold tracking-wider bg-[#2ECCFF] text-[#021229] hover:bg-[#7DDDFF]"
           >
             {loading ? `WALKING REAL HISTORY… ${loadElapsed}s` : ready ? "RELOAD HISTORY" : "LOAD REAL HISTORY"}
           </Button>
         </div>
 
         {loading && loadElapsed >= 6 && (
-          <div className="px-3 pb-3 text-[10px] text-[#8C98AE]">
+          <div className="px-3 pb-3 text-[10px] text-[#8AA2C2]">
             Deep walk in progress — huge windows (ALL on M1) fetch hundreds of pages and can take up to ~2 minutes.
           </div>
         )}
@@ -971,16 +971,16 @@ export function BacktestLive({ symbol, tf, config }: Props) {
 
       {/* ── results strip ── */}
       {ready && meta && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-[#1C2A47] bg-[#0F1A30] px-4 py-2 text-[10px] text-[#8C98AE]">
-          <span className="font-mono text-[11px] font-bold text-[#E8ECF4]">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-[#0F2E58] bg-[#021229] px-4 py-2 text-[10px] text-[#8AA2C2]">
+          <span className="font-mono text-[11px] font-bold text-[#EAF3FF]">
             {meta.symbol}
             {meta.symbolLabel && meta.symbolLabel !== meta.symbol ? ` · ${meta.symbolLabel}` : ""} · {meta.tf.toUpperCase()}
           </span>
           <span>
-            feed <span className="font-bold uppercase text-[#D4AF37]">{meta.source}</span>
+            feed <span className="font-bold uppercase text-[#E9B94E]">{meta.source}</span>
           </span>
           <span>
-            <span className="font-mono font-bold text-[#E8ECF4]">{meta.bars.toLocaleString()}</span> real bars
+            <span className="font-mono font-bold text-[#EAF3FF]">{meta.bars.toLocaleString()}</span> real bars
             <span className="text-[#4A5878]"> / requested {typeof meta.requestedBars === "string" ? "ALL" : meta.requestedBars.toLocaleString()}</span>
           </span>
           <span className="font-mono">
@@ -997,21 +997,21 @@ export function BacktestLive({ symbol, tf, config }: Props) {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
         {/* ── left: transport + chart ── */}
         <div className="min-w-0 space-y-3">
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-3">
+          <div className="rounded-xl border border-[#0F2E58] bg-[#021229] p-3">
             {/* row 1 — transport */}
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => void onRestart()}
                 disabled={transportOff}
-                className="h-8 rounded-md border border-[#2A3A5C] px-3 text-[10px] font-extrabold tracking-wider text-[#AEB9D6] transition-colors hover:border-[#D4AF37] hover:text-[#D4AF37] disabled:opacity-40"
+                className="h-8 rounded-md border border-[#1C4478] px-3 text-[10px] font-extrabold tracking-wider text-[#AEB9D6] transition-colors hover:border-[#E9B94E] hover:text-[#E9B94E] disabled:opacity-40"
               >
                 ⟲ RESTART
               </button>
               <Button
                 onClick={onPlayPause}
                 disabled={transportOff || done}
-                className="h-8 px-5 rounded-md text-[11px] font-extrabold tracking-wider bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] disabled:opacity-40"
+                className="h-8 px-5 rounded-md text-[11px] font-extrabold tracking-wider bg-[#2ECCFF] text-[#021229] hover:bg-[#7DDDFF] disabled:opacity-40"
               >
                 {playing ? "❚❚ PAUSE" : "▶ PLAY"}
               </Button>
@@ -1019,7 +1019,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                 type="button"
                 onClick={onStep}
                 disabled={transportOff || done}
-                className="h-8 rounded-md border border-[#2A3A5C] px-3 text-[10px] font-extrabold tracking-wider text-[#AEB9D6] transition-colors hover:border-[#D4AF37] hover:text-[#D4AF37] disabled:opacity-40"
+                className="h-8 rounded-md border border-[#1C4478] px-3 text-[10px] font-extrabold tracking-wider text-[#AEB9D6] transition-colors hover:border-[#E9B94E] hover:text-[#E9B94E] disabled:opacity-40"
               >
                 STEP +1
               </button>
@@ -1027,17 +1027,17 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                 type="button"
                 onClick={() => void onEnd()}
                 disabled={transportOff || done}
-                className="h-8 rounded-md border border-[#2A3A5C] px-3 text-[10px] font-extrabold tracking-wider text-[#AEB9D6] transition-colors hover:border-[#D4AF37] hover:text-[#D4AF37] disabled:opacity-40"
+                className="h-8 rounded-md border border-[#1C4478] px-3 text-[10px] font-extrabold tracking-wider text-[#AEB9D6] transition-colors hover:border-[#E9B94E] hover:text-[#E9B94E] disabled:opacity-40"
               >
                 ⤓ SKIP TO END
               </button>
               {done && <Pill tone="gold">BACKTEST COMPLETE</Pill>}
-              <span className="ml-auto font-mono text-[10px] font-bold text-[#D4AF37]">{speedText(speedRef.current)}</span>
+              <span className="ml-auto font-mono text-[10px] font-bold text-[#E9B94E]">{speedText(speedRef.current)}</span>
             </div>
 
             {/* row 2 — speed */}
             <div className="mt-2.5 flex flex-wrap items-center gap-2">
-              <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">SPEED</span>
+              <span className="text-[9px] font-bold tracking-[0.14em] text-[#8AA2C2]">SPEED</span>
               {SPEEDS.map(([label, v]) => {
                 const active = speedRef.current === v;
                 return (
@@ -1064,14 +1064,14 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                 value={Math.round(speedToSlider(speed))}
                 onChange={(e) => setSpeedBoth(sliderToSpeed(Number(e.target.value)))}
                 aria-label="Replay speed — bars per second"
-                className="ml-1 h-1 w-36 cursor-pointer accent-[#D4AF37]"
+                className="ml-1 h-1 w-36 cursor-pointer accent-[#E9B94E]"
               />
             </div>
 
             {/* row 3 — progress */}
             <div className="mt-3">
               <div
-                className="relative h-2.5 cursor-pointer rounded-full border border-[#1C2A47] bg-[#0B1426]"
+                className="relative h-2.5 cursor-pointer rounded-full border border-[#0F2E58] bg-[#020B1A]"
                 onClick={onProgressClick}
                 role="slider"
                 aria-label="Seek the replay"
@@ -1085,11 +1085,11 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                   style={{ width: `${pct}%`, background: done ? C.gold : `linear-gradient(90deg,${C.goldDim},${C.gold})` }}
                 />
                 <div
-                  className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-[#0B1426]"
+                  className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-[#020B1A]"
                   style={{ left: `calc(${pct}% - 7px)`, background: C.gold }}
                 />
               </div>
-              <div className="mt-1 flex justify-between font-mono text-[9px] text-[#8C98AE]">
+              <div className="mt-1 flex justify-between font-mono text-[9px] text-[#8AA2C2]">
                 <span>
                   bar {cursor.toLocaleString()} / {total.toLocaleString()} · {pct.toFixed(1)}%
                 </span>
@@ -1099,7 +1099,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           </div>
 
           {/* chart */}
-          <div className="relative rounded-xl border border-[#1C2A47] bg-[#0B1426] overflow-hidden">
+          <div className="relative rounded-xl border border-[#0F2E58] bg-[#020B1A] overflow-hidden">
             <div ref={elRef} className="h-[420px] sm:h-[500px] xl:h-[580px]" />
 
             {/* latest event banner */}
@@ -1121,18 +1121,18 @@ export function BacktestLive({ symbol, tf, config }: Props) {
             )}
 
             {/* replay clock */}
-            <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-md border border-[#1C2A47] bg-[#0F1A30]/90 px-2 py-1 font-mono text-[9.5px] text-[#8C98AE] backdrop-blur">
+            <div className="pointer-events-none absolute right-2 top-2 z-10 rounded-md border border-[#0F2E58] bg-[#021229]/90 px-2 py-1 font-mono text-[9.5px] text-[#8AA2C2] backdrop-blur">
               {meta ? `${meta.symbol} ${meta.tf.toUpperCase()}` : ""}
               {bar ? ` · ${dt(bar.time)}` : ""}
             </div>
 
             {/* open trade chip */}
             {trade && fp !== null && (
-              <div className="absolute bottom-2 left-2 z-10 rounded-md border border-[#2A3A5C] bg-[#0F1A30]/92 px-2.5 py-1.5 font-mono text-[10px] backdrop-blur">
+              <div className="absolute bottom-2 left-2 z-10 rounded-md border border-[#1C4478] bg-[#021229]/92 px-2.5 py-1.5 font-mono text-[10px] backdrop-blur">
                 <span className="font-extrabold" style={{ color: trade.dir === -1 ? C.red : C.green }}>
                   {trade.dir === -1 ? "▼ SELL OPEN" : "▲ BUY OPEN"}
                 </span>
-                <span className="text-[#8C98AE]"> @ {fmtPx(trade.entry, mt)} · floating </span>
+                <span className="text-[#8AA2C2]"> @ {fmtPx(trade.entry, mt)} · floating </span>
                 <span className="font-extrabold" style={{ color: fp >= 0 ? C.green : C.red }}>
                   {fmtPips(fp)}p
                 </span>
@@ -1142,7 +1142,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
             {/* seeking chip */}
             {seeking && (
               <div className="pointer-events-none absolute inset-x-0 top-1/2 z-20 flex justify-center">
-                <span className="rounded-md border border-[#D4AF37]/50 bg-[#0F1A30]/95 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.16em] text-[#D4AF37] backdrop-blur">
+                <span className="rounded-md border border-[#E9B94E]/50 bg-[#021229]/95 px-3 py-1.5 text-[10px] font-extrabold tracking-[0.16em] text-[#E9B94E] backdrop-blur">
                   SEEKING…
                 </span>
               </div>
@@ -1150,8 +1150,8 @@ export function BacktestLive({ symbol, tf, config }: Props) {
 
             {/* idle cover */}
             {!ready && !loading && (
-              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#0B1426]/95 px-6 text-center">
-                <div className="text-[11px] font-extrabold tracking-[0.2em] text-[#8C98AE]">LIVE REPLAY DECK</div>
+              <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[#020B1A]/95 px-6 text-center">
+                <div className="text-[11px] font-extrabold tracking-[0.2em] text-[#8AA2C2]">LIVE REPLAY DECK</div>
                 <div className="max-w-md text-[10.5px] leading-relaxed text-[#5D6B8C]">
                   Pick any pair, any bar size, any number of bars (or ALL history) and press LOAD REAL HISTORY — the 3EL
                   bot will trade the real market bar-by-bar at whatever speed you set, until the period is done.
@@ -1169,7 +1169,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
               <span className="font-bold" style={{ color: sideColor(-1, "0.9") }}>┄</span> dotted wick trigger (C3 must break it, then return)
             </span>
             <span>
-              <span className="font-bold text-[#D4AF37]">▲▼</span> fire (instant at the line)
+              <span className="font-bold text-[#E9B94E]">▲▼</span> fire (instant at the line)
             </span>
             <span>
               <span className="font-bold" style={{ color: C.green }}>●</span>/<span className="font-bold" style={{ color: C.red }}>●</span> TP / SL hit
@@ -1181,18 +1181,18 @@ export function BacktestLive({ symbol, tf, config }: Props) {
         {/* ── right: live state ── */}
         <div className="min-w-0 space-y-3">
           {/* status */}
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] px-3 py-2.5">
+          <div className="rounded-xl border border-[#0F2E58] bg-[#021229] px-3 py-2.5">
             <div className="text-[11px] font-extrabold tracking-wide" style={{ color: statusObj.fg }}>
               {statusObj.text}
             </div>
-            <div className="mt-0.5 font-mono text-[9.5px] text-[#8C98AE]">
+            <div className="mt-0.5 font-mono text-[9.5px] text-[#8AA2C2]">
               {eng ? `ATR ${eng.state.atr !== null ? eng.state.atr.toFixed(mt < 0.05 ? 4 : 2) : "warming up"} · burned ${statsE?.burned ?? 0} · skipped ${statsE?.skipped ?? 0} · crowded ${statsE?.tooClose ?? 0}` : "engine idle"}
             </div>
           </div>
 
           {/* KPIs */}
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-3">
-            <div className="px-1 pb-2 text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">LIVE PROFITABILITY (NET OF SPREAD)</div>
+          <div className="rounded-xl border border-[#0F2E58] bg-[#021229] p-3">
+            <div className="px-1 pb-2 text-[10px] font-bold tracking-[0.16em] text-[#8AA2C2]">LIVE PROFITABILITY (NET OF SPREAD)</div>
             <div className="grid grid-cols-2 gap-2">
               <Kpi label="NET PIPS" value={fmtPips(net)} color={net >= 0 ? C.green : C.red} big />
               <Kpi label="WIN RATE" value={winRate !== null ? `${winRate.toFixed(1)}%` : "—"} big />
@@ -1212,9 +1212,9 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           </div>
 
           {/* equity */}
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-3">
+          <div className="rounded-xl border border-[#0F2E58] bg-[#021229] p-3">
             <div className="flex items-center justify-between px-1 pb-2">
-              <span className="text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">EQUITY CURVE · GROWING LIVE</span>
+              <span className="text-[10px] font-bold tracking-[0.16em] text-[#8AA2C2]">EQUITY CURVE · GROWING LIVE</span>
               <span className="font-mono text-sm font-extrabold" style={{ color: net >= 0 ? C.green : C.red }}>
                 {fmtPips(net)}
               </span>
@@ -1224,7 +1224,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
 
           {/* open trade */}
           {trade && (
-            <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: trade.dir === -1 ? A.red(0.45) : A.green(0.45), background: "rgba(15,26,48,0.9)" }}>
+            <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: trade.dir === -1 ? A.red(0.45) : A.green(0.45), background: "rgba(2,18,41,0.9)" }}>
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold tracking-wide" style={{ color: trade.dir === -1 ? C.red : C.green }}>
                   {trade.dir === -1 ? "▼ SELL IN PROGRESS" : "▲ BUY IN PROGRESS"}
@@ -1236,22 +1236,22 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                 )}
               </div>
               <div className="mt-1 grid grid-cols-4 gap-1 font-mono text-[9.5px]">
-                <span className="text-[#8C98AE]">ENTRY <span className="text-[#E8ECF4]">{fmtPx(trade.entry, mt)}</span></span>
-                <span className="text-[#8C98AE]">SL <span style={{ color: C.red }}>{fmtPx(trade.sl, mt)}</span></span>
-                <span className="text-[#8C98AE]">TP <span style={{ color: C.green }}>{fmtPx(trade.tp, mt)}</span></span>
-                <span className="text-[#8C98AE]">HELD <span className="text-[#E8ECF4]">{holdSoFar !== null ? (holdSoFar < 60 ? `${holdSoFar.toFixed(0)}m` : `${(holdSoFar / 60).toFixed(1)}h`) : "—"}</span></span>
+                <span className="text-[#8AA2C2]">ENTRY <span className="text-[#EAF3FF]">{fmtPx(trade.entry, mt)}</span></span>
+                <span className="text-[#8AA2C2]">SL <span style={{ color: C.red }}>{fmtPx(trade.sl, mt)}</span></span>
+                <span className="text-[#8AA2C2]">TP <span style={{ color: C.green }}>{fmtPx(trade.tp, mt)}</span></span>
+                <span className="text-[#8AA2C2]">HELD <span className="text-[#EAF3FF]">{holdSoFar !== null ? (holdSoFar < 60 ? `${holdSoFar.toFixed(0)}m` : `${(holdSoFar / 60).toFixed(1)}h`) : "—"}</span></span>
               </div>
             </div>
           )}
 
           {/* event tape */}
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
-            <div className="border-b border-[#1C2A47] px-3 py-2 text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">EVENT TAPE · LIVE</div>
+          <div className="rounded-xl border border-[#0F2E58] bg-[#021229] overflow-hidden">
+            <div className="border-b border-[#0F2E58] px-3 py-2 text-[10px] font-bold tracking-[0.16em] text-[#8AA2C2]">EVENT TAPE · LIVE</div>
             <div className="max-h-56 overflow-y-auto halo-scroll">
               {tapeList.map((it, i) => {
                 const st = TAPE_STYLE[it.kind];
                 return (
-                  <div key={`${it.t}-${i}`} className="flex gap-2 border-t border-[#121D35] px-3 py-1.5 first:border-t-0">
+                  <div key={`${it.t}-${i}`} className="flex gap-2 border-t border-[#061B38] px-3 py-1.5 first:border-t-0">
                     <span className="w-3 shrink-0 text-center font-bold" style={{ color: st.col }}>
                       {st.mark}
                     </span>
@@ -1273,25 +1273,25 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           </div>
 
           {/* trade log */}
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
-            <div className="flex items-center justify-between border-b border-[#1C2A47] px-3 py-2">
-              <span className="text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">TRADE LOG · LATEST {logList.length}</span>
+          <div className="rounded-xl border border-[#0F2E58] bg-[#021229] overflow-hidden">
+            <div className="flex items-center justify-between border-b border-[#0F2E58] px-3 py-2">
+              <span className="text-[10px] font-bold tracking-[0.16em] text-[#8AA2C2]">TRADE LOG · LATEST {logList.length}</span>
               <span className="text-[9px] text-[#5D6B8C]">same-bar SL+TP = SL (conservative)</span>
             </div>
             <div className="max-h-64 overflow-y-auto halo-scroll">
               <table className="w-full text-[9.5px]">
                 <tbody>
                   {logList.map((t, i) => (
-                    <tr key={`${t.openTime}-${i}`} className="border-t border-[#121D35]">
-                      <td className="px-2 py-1 font-mono text-[#8C98AE]">{dt(t.openTime)}</td>
+                    <tr key={`${t.openTime}-${i}`} className="border-t border-[#061B38]">
+                      <td className="px-2 py-1 font-mono text-[#8AA2C2]">{dt(t.openTime)}</td>
                       <td className="px-1 py-1 font-bold" style={{ color: t.dir === -1 ? C.red : C.green }}>
                         {t.dir === -1 ? "SELL" : "BUY"}
                       </td>
-                      <td className="px-1 py-1 text-right font-mono text-[#E8ECF4]">{fmtPx(t.entry, mt)}</td>
+                      <td className="px-1 py-1 text-right font-mono text-[#EAF3FF]">{fmtPx(t.entry, mt)}</td>
                       <td className="px-2 py-1 text-right font-mono font-bold" style={{ color: t.result === "WIN" ? C.green : t.result === "LOSS" ? C.red : C.gold }}>
                         {t.result === "OPEN" ? "OPEN" : `${t.exitReason ?? ""} ${fmtPips(t.pips)}`}
                       </td>
-                      <td className="px-2 py-1 text-right font-mono text-[#8C98AE]">
+                      <td className="px-2 py-1 text-right font-mono text-[#8AA2C2]">
                         {t.holdMin !== null ? (t.holdMin < 60 ? `${t.holdMin.toFixed(0)}m` : `${(t.holdMin / 60).toFixed(1)}h`) : "—"}
                       </td>
                     </tr>
@@ -1326,8 +1326,8 @@ export function BacktestLive({ symbol, tf, config }: Props) {
 
 function Kpi({ label, value, color, big }: { label: string; value: string; color?: string; big?: boolean }) {
   return (
-    <div className="rounded-lg border border-[#1C2A47] bg-[#0B1426] px-2.5 py-2">
-      <div className="text-[8.5px] tracking-[0.14em] text-[#8C98AE]">{label}</div>
+    <div className="rounded-lg border border-[#0F2E58] bg-[#020B1A] px-2.5 py-2">
+      <div className="text-[8.5px] tracking-[0.14em] text-[#8AA2C2]">{label}</div>
       <div className={`font-mono font-extrabold ${big ? "text-base" : "text-xs"}`} style={{ color: color ?? C.txt }}>
         {value}
       </div>
@@ -1345,7 +1345,7 @@ function EquityLive({ pts }: { pts: Array<{ t: number; pips: number }> }) {
   }
   if (data.length < 2) {
     return (
-      <div className="flex h-24 items-center justify-center text-[10.5px] text-[#8C98AE]">
+      <div className="flex h-24 items-center justify-center text-[10.5px] text-[#8AA2C2]">
         The curve starts drawing when the first trade closes.
       </div>
     );
@@ -1367,14 +1367,14 @@ function EquityLive({ pts }: { pts: Array<{ t: number; pips: number }> }) {
   const area = `${padL},${zeroY.toFixed(1)} ${line} ${xOf(vals.length - 1).toFixed(1)},${zeroY.toFixed(1)}`;
   return (
     <div className="relative">
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full rounded-lg border border-[#1C2A47] bg-[#0B1426]" role="img" aria-label="Live replay equity curve">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full rounded-lg border border-[#0F2E58] bg-[#020B1A]" role="img" aria-label="Live replay equity curve">
         <defs>
           <linearGradient id="btLiveEq" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={col} stopOpacity="0.28" />
             <stop offset="100%" stopColor={col} stopOpacity="0.02" />
           </linearGradient>
         </defs>
-        <line x1={padL} y1={zeroY} x2={w - padR} y2={zeroY} stroke="#2A3A5C" strokeWidth="1" strokeDasharray="4 4" />
+        <line x1={padL} y1={zeroY} x2={w - padR} y2={zeroY} stroke="#1C4478" strokeWidth="1" strokeDasharray="4 4" />
         <polyline points={area} fill="url(#btLiveEq)" stroke="none" />
         <polyline points={line} fill="none" stroke={col} strokeWidth="1.8" />
         <text x={w - padR + 6} y={yOf(max) + 4} fontSize="9" fill={C.muted} fontFamily="monospace">

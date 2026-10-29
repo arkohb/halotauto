@@ -206,14 +206,14 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
             <Select value={symPick} onValueChange={setSymPick}>
               <SelectTrigger
                 size="sm"
-                className="w-[180px] rounded-md border-[#2A3A5C] bg-[#0B1426] px-2 font-mono text-xs text-[#E8ECF4]"
+                className="w-[180px] rounded-md border-[#1C4478] bg-[#020B1A] px-2 font-mono text-xs text-[#EAF3FF]"
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="max-h-[380px] border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+              <SelectContent className="max-h-[380px] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
                 {SYMBOL_GROUPS.map((g) => (
                   <SelectGroup key={g.key}>
-                    <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#D4AF37]/80">{g.label}</SelectLabel>
+                    <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">{g.label}</SelectLabel>
                     {SYMBOLS.filter((sy) => sy.group === g.key).map((sy) => (
                       <SelectItem key={sy.id} value={sy.id} className="font-mono text-xs">
                         {sy.id}
@@ -232,7 +232,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
                 value={customSym}
                 onChange={(e) => setCustomSym(e.target.value.toUpperCase())}
                 placeholder="BTCUSD, EURJPY, AAPL, ^GSPC…"
-                className="w-44 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4] placeholder:text-[#4A5878]"
+                className="w-44 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF] placeholder:text-[#4A5878]"
               />
             </label>
           )}
@@ -243,11 +243,11 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
             <Select value={btTf} onValueChange={setBtTf}>
               <SelectTrigger
                 size="sm"
-                className="w-[150px] rounded-md border-[#2A3A5C] bg-[#0B1426] px-2 font-mono text-xs text-[#E8ECF4]"
+                className="w-[150px] rounded-md border-[#1C4478] bg-[#020B1A] px-2 font-mono text-xs text-[#EAF3FF]"
               >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+              <SelectContent className="border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
                 {BT_TIMEFRAMES.map((t) => (
                   <SelectItem key={t.id} value={t.id} className="font-mono text-xs">
                     {t.label}
@@ -264,7 +264,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
               value={bars}
               onChange={(e) => setBars(e.target.value)}
               placeholder="any count · or ALL"
-              className="w-32 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4] placeholder:text-[#4A5878]"
+              className="w-32 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF] placeholder:text-[#4A5878]"
             />
           </label>
           <div className="flex gap-1">
@@ -292,7 +292,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
               type="date"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
-              className="w-36 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
+              className="w-36 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF]"
             />
           </label>
 
@@ -304,14 +304,14 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
               min={0}
               step={0.1}
               onChange={(e) => setSpread(e.target.value)}
-              className="w-24 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
+              className="w-24 h-8 text-xs font-mono bg-[#020B1A] border-[#1C4478] text-[#EAF3FF]"
             />
           </label>
 
           <Button
             onClick={() => void run()}
             disabled={busy}
-            className="h-8 px-5 rounded-md text-[11px] font-bold tracking-wider bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]"
+            className="h-8 px-5 rounded-md text-[11px] font-bold tracking-wider bg-[#2ECCFF] text-[#021229] hover:bg-[#7DDDFF]"
           >
             {busy ? `REPLAYING REAL HISTORY… ${elapsed}s` : "RUN BACKTEST"}
           </Button>

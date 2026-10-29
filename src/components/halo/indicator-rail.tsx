@@ -54,13 +54,13 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
       }`}
     >
       {/* header chip */}
-      <div className="flex items-center justify-between rounded-lg border border-[#2A3A5C] bg-[#0F1A30]/92 px-2 py-1.5 backdrop-blur">
+      <div className="flex items-center justify-between rounded-lg border border-[#1C4478] bg-[#021229]/92 px-2 py-1.5 backdrop-blur">
         <span className="text-[8.5px] font-extrabold tracking-[0.18em]" style={{ color: C.gold }}>
           ◎ 3EL INDICATOR
         </span>
         <span
           className="rounded px-1 py-[1px] text-[7.5px] font-extrabold tracking-wider"
-          style={{ background: "rgba(212,175,55,0.16)", color: C.gold }}
+          style={{ background: "rgba(233,185,78,0.16)", color: C.gold }}
         >
           {shown.length > 1 ? "SUP + RES ARMED" : shown.length === 1 ? "CURRENT SIGNAL" : "SCANNING"}
         </span>
@@ -71,7 +71,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
         <div
           aria-label="C3 forming on live candle"
           className="animate-pulse rounded-lg border px-2 py-1.5 text-center text-[9px] font-extrabold tracking-[0.14em] backdrop-blur"
-          style={{ borderColor: "rgba(212,175,55,0.65)", background: "rgba(212,175,55,0.16)", color: C.gold }}
+          style={{ borderColor: "rgba(233,185,78,0.65)", background: "rgba(233,185,78,0.16)", color: C.gold }}
         >
           C3 {best.stage === "retest" ? "RETEST · FIRE IMMINENT" : best.stage === "break" ? "BREAKING WICK LINE" : "AT WICK LINE"} {best.side === -1 ? "▼ SELL SETUP" : "▲ BUY SETUP"}
         </div>
@@ -79,7 +79,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
 
       {/* open position card — TradingView position-tool style */}
       {trade && (
-        <div className="rounded-lg border bg-[#0F1A30]/92 backdrop-blur" style={{ borderColor: sideColor(trade.dir, "0.55") }}>
+        <div className="rounded-lg border bg-[#021229]/92 backdrop-blur" style={{ borderColor: sideColor(trade.dir, "0.55") }}>
           <div
             className="flex items-center gap-1.5 rounded-t-lg px-2 py-1"
             style={{ background: sideColor(trade.dir, "0.2") }}
@@ -96,17 +96,17 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
           </div>
           <div className="space-y-0.5 px-2 py-1.5 text-[9.5px] font-bold tabular-nums">
             <div className="flex items-center justify-between">
-              <span className="tracking-wider text-[#8C98AE]">ENTRY</span>
-              <span className="text-[#E8ECF4]">{fmtPx(trade.entry, mintick)}</span>
+              <span className="tracking-wider text-[#8AA2C2]">ENTRY</span>
+              <span className="text-[#EAF3FF]">{fmtPx(trade.entry, mintick)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="tracking-wider text-[#8C98AE]">SL</span>
+              <span className="tracking-wider text-[#8AA2C2]">SL</span>
               <span style={{ color: C.red }}>
                 {fmtPx(trade.sl, mintick)} <span className="text-[8px]">−{trade.riskPips.toFixed(1)}p</span>
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="tracking-wider text-[#8C98AE]">TP</span>
+              <span className="tracking-wider text-[#8AA2C2]">TP</span>
               <span style={{ color: C.green }}>
                 {fmtPx(trade.tp, mintick)} <span className="text-[8px]">+{trade.rewardPips.toFixed(1)}p</span>
               </span>
@@ -114,7 +114,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
           </div>
           {/* risk : reward split bar (position tool proportions) */}
           <div className="px-2 pb-1.5">
-            <div className="flex h-1.5 overflow-hidden rounded-full bg-[#16233D]">
+            <div className="flex h-1.5 overflow-hidden rounded-full bg-[#07203F]">
               <div
                 style={{
                   width: `${(trade.riskPips / Math.max(1e-9, trade.riskPips + trade.rewardPips)) * 100}%`,
@@ -128,7 +128,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
                 }}
               />
             </div>
-            <div className="mt-0.5 flex items-center justify-between text-[7.5px] font-bold tracking-wider text-[#8C98AE]">
+            <div className="mt-0.5 flex items-center justify-between text-[7.5px] font-bold tracking-wider text-[#8AA2C2]">
               <span>RISK {trade.riskPips.toFixed(0)}p</span>
               <span style={{ color: C.gold }}>
                 R:R 1:{(trade.rewardPips / Math.max(1e-9, trade.riskPips)).toFixed(1)}
@@ -146,33 +146,33 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
         return (
           <div
             key={d.id}
-            className="rounded-lg border bg-[#0F1A30]/92 px-2 py-1.5 backdrop-blur"
-            style={{ borderColor: stage ? "rgba(212,175,55,0.55)" : sideColor(d.side, "0.4") }}
+            className="rounded-lg border bg-[#021229]/92 px-2 py-1.5 backdrop-blur"
+            style={{ borderColor: stage ? "rgba(233,185,78,0.55)" : sideColor(d.side, "0.4") }}
           >
             <div className="flex items-center gap-1.5">
               <span className="h-2.5 w-[3px] rounded" style={{ background: sideColor(d.side, "0.95") }} />
               <span className="text-[8.5px] font-extrabold tracking-[0.12em]" style={{ color: sideColor(d.side, "1") }}>
                 {d.side === -1 ? "RESISTANCE" : "SUPPORT"}
               </span>
-              <span className="ml-auto text-[7px] font-bold tracking-[0.18em] text-[#8C98AE]">C1/C2 EQ</span>
+              <span className="ml-auto text-[7px] font-bold tracking-[0.18em] text-[#8AA2C2]">C1/C2 EQ</span>
             </div>
-            <div className="mt-0.5 pl-[9px] text-[10px] font-bold tabular-nums text-[#E8ECF4]">
-              {fmtPx(d.bot, mintick)} <span className="text-[#5D606B]">–</span> {fmtPx(d.top, mintick)}
+            <div className="mt-0.5 pl-[9px] text-[10px] font-bold tabular-nums text-[#EAF3FF]">
+              {fmtPx(d.bot, mintick)} <span className="text-[#51678A]">–</span> {fmtPx(d.top, mintick)}
             </div>
             <div className="mt-0.5 flex items-center justify-between pl-[9px] text-[9px] font-bold tabular-nums">
-              <span className="tracking-[0.14em] text-[#8C98AE]">DOTTED TRIG</span>
+              <span className="tracking-[0.14em] text-[#8AA2C2]">DOTTED TRIG</span>
               <span style={{ color: C.gold }}>{fmtPx(d.ext, mintick)}</span>
             </div>
             <div className="mt-1 pl-[9px]">
               {stage ? (
                 <span
                   className="animate-pulse rounded px-1 py-[1px] text-[7.5px] font-extrabold tracking-widest"
-                  style={{ background: "rgba(212,175,55,0.2)", color: C.gold }}
+                  style={{ background: "rgba(233,185,78,0.2)", color: C.gold }}
                 >
                   C3 {stage === "retest" ? "RETEST · FIRE IMMINENT" : stage === "break" ? "BREAKING WICK LINE" : "AT WICK LINE"}
                 </span>
               ) : (
-                <span className="text-[7.5px] font-bold tracking-widest text-[#8C98AE]">
+                <span className="text-[7.5px] font-bold tracking-widest text-[#8AA2C2]">
                   C3 WATCH · {isFinite(trigDist) ? `${Math.max(0, trigDist).toFixed(1)}p TO TRIG` : "—"}
                 </span>
               )}
@@ -183,7 +183,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
 
       {/* idle hint */}
       {levels.length === 0 && !trade && (
-        <div className="rounded-lg border border-[#1C2A47] bg-[#0F1A30]/92 px-2 py-1.5 text-center text-[8.5px] font-bold tracking-[0.14em] text-[#8C98AE] backdrop-blur">
+        <div className="rounded-lg border border-[#0F2E58] bg-[#021229]/92 px-2 py-1.5 text-center text-[8.5px] font-bold tracking-[0.14em] text-[#8AA2C2] backdrop-blur">
           SCANNING FOR C1 / C2…
         </div>
       )}

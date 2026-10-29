@@ -92,7 +92,7 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
         <span className="text-xs font-bold tracking-wider" style={{ color: C.txt }}>
           TRADE HISTORY · BOT{FILTER_LABEL[filter] ? <span className="ml-2 rounded px-1.5 py-0.5 text-[9px]" style={{ background: A.gold(0.12), color: C.gold }}>FILTER · {FILTER_LABEL[filter]}</span> : null}
         </span>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] hover:text-[#E8ECF4]" style={{ color: C.muted }} onClick={() => void load()}>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] hover:text-[#EAF3FF]" style={{ color: C.muted }} onClick={() => void load()}>
           refresh
         </Button>
       </div>

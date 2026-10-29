@@ -101,7 +101,7 @@ export function TvChart({ symbol, tf, height, onUnavailable }: Props) {
           theme: "dark",
           style: "1",
           locale: "en",
-          backgroundColor: "#0B1426",
+          backgroundColor: "#020B1A",
           gridColor: "rgba(28, 42, 71, 0.55)",
           hide_side_toolbar: false,
           // the EA is auto-attached to this chart — HALO's own overlay is the
@@ -152,13 +152,13 @@ export function TvChart({ symbol, tf, height, onUnavailable }: Props) {
       {status !== "ready" && (
         <div className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 flex-col items-center gap-2 text-center">
           {status === "loading" ? (
-            <span className="rounded-full border border-[#1C2A47] bg-[#0F1A30]/90 px-3 py-1.5 text-[10px] tracking-[0.2em] text-[#8C98AE]">
+            <span className="rounded-full border border-[#0F2E58] bg-[#021229]/90 px-3 py-1.5 text-[10px] tracking-[0.2em] text-[#8AA2C2]">
               LOADING TRADINGVIEW…
             </span>
           ) : (
             <span
               className="rounded-full border px-3 py-1.5 text-[10px] tracking-[0.2em]"
-              style={{ borderColor: "rgba(212,175,55,0.5)", background: "rgba(212,175,55,0.08)", color: "#D4AF37" }}
+              style={{ borderColor: "rgba(233,185,78,0.5)", background: "rgba(233,185,78,0.08)", color: "#E9B94E" }}
             >
               TRADINGVIEW UNREACHABLE · SWITCHED TO HALO CHART
             </span>

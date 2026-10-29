@@ -14,12 +14,12 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Bell, FlaskConical, Globe, Landmark, Radar, Settings, ShieldCheck, TrendingUp } from "lucide-react";
+import { Activity, Bell, BookOpen, FlaskConical, Globe, Landmark, Mic, Radar, ScrollText, Settings, ShieldCheck, SunMedium, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
-import { C, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { PageHeader } from "@/components/halo/panel";
 import { Header } from "@/components/halo/header";
 import { ControlDeck } from "@/components/halo/control-deck";
@@ -55,12 +55,14 @@ import { TradingActivity } from "@/components/halo/trading-activity";
 import { StrategyExplainer } from "@/components/halo/strategy-explainer";
 import { PerformanceIntel } from "@/components/halo/performance-intel";
 import { DailyBriefing } from "@/components/halo/daily-briefing";
+import { MarketOverview } from "@/components/halo/market-overview";
+import { AccountSummary } from "@/components/halo/account-summary";
+import { LatestSignal, MonitorStatus, RecentTrades } from "@/components/halo/dashboard-strip";
 import { NavRail, NavChips, type HaloView } from "@/components/halo/nav-rail";
 import { FxProvider } from "@/lib/halo/fx";
 import { FxSettingsCard } from "@/components/halo/fx-settings-card";
 import { ActionBridge, type BridgeHandlers } from "@/components/halo/action-bridge";
-import type { HistoryPeriod, ViewId } from "@/lib/halo/actions";
-import { useMediaQuery } from "@/hooks/use-media-query";
+import { HISTORY_PERIODS, type HistoryPeriod, type ViewId } from "@/lib/halo/actions";
 
 export default function Page() {
   const [state, setState] = useState<BotStateRes | null>(null);
@@ -86,9 +88,6 @@ export default function Page() {
   const previousView = useCallback((): ViewId | null => navHistRef.current, []);
 
   // dock the AI assistant as a right rail on xl dashboard screens
-  const isXl = useMediaQuery("(min-width: 1280px)");
-  const dockAssistant = view === "terminal" && isXl;
-
   const notify = useCallback(
     (title: string, desc?: string, bad?: boolean) => {
       toast({ title, description: desc, variant: bad ? "destructive" : "default" });
@@ -322,15 +321,15 @@ export default function Page() {
   if (!state) {
     return (
       <FxProvider>
-        <div className="flex min-h-screen flex-col text-[#E8ECF4]">
+        <div className="flex min-h-screen flex-col text-[#EAF3FF]">
           <FxLayer />
           <div className="mx-auto flex w-full max-w-[1720px] flex-1 flex-col gap-4 px-4 py-8">
-            <Skeleton className="h-14 w-full rounded-xl bg-[#101C33]" />
-            <Skeleton className="h-10 w-72 rounded-lg bg-[#101C33]" />
+            <Skeleton className="h-14 w-full rounded-xl bg-[#041428]" />
+            <Skeleton className="h-10 w-72 rounded-lg bg-[#041428]" />
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-[330px_minmax(0,1fr)_350px]">
-              <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
-              <Skeleton className="h-[540px] rounded-xl bg-[#101C33]" />
-              <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
+              <Skeleton className="h-96 rounded-xl bg-[#041428]" />
+              <Skeleton className="h-[540px] rounded-xl bg-[#041428]" />
+              <Skeleton className="h-96 rounded-xl bg-[#041428]" />
             </div>
           </div>
         </div>
@@ -342,7 +341,7 @@ export default function Page() {
     <FxProvider>
       <HaloVoiceProvider snapshot={state}>
       <ActionBridge handlers={bridgeHandlers} />
-      <div className="flex min-h-screen flex-col text-[#E8ECF4]">
+      <div className="flex min-h-screen flex-col text-[#EAF3FF]">
         <FxLayer />
         <BootSequence />
         <PwaRegister />
@@ -355,7 +354,7 @@ export default function Page() {
             <NavRail view={view} onView={gotoView} />
 
             <main key={view} className="halo-view-in min-w-0 flex-1 px-3 py-4 lg:px-4">
-              {/* ════════ DASHBOARD (command center) ════════ */}
+              {/* ════════ DASHBOARD (command center · mockup 01) ════════ */}
               {view === "terminal" && (
                 <div className="grid grid-cols-12 gap-3">
                   {/* row 0 · personalized welcome + assistant status */}
@@ -363,25 +362,96 @@ export default function Page() {
                     <WelcomeGreeting />
                   </div>
 
-                  {/* row 1 · market pulse / AI core / risk guardian / assistant rail */}
-                  <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
-                    <MarketPulse state={state} candles={candles} />
+                  {/* row 1 · the chart + the AI right rail (orb · market overview · account) */}
+                  <div className="col-span-12 min-w-0 space-y-3 xl:col-span-8">
+                    <StatusBanner state={state} />
+                    <ChartPanel
+                      candles={candles}
+                      drawings={state.engine.drawings}
+                      log={state.engine.log}
+                      trade={state.engine.trade}
+                      mintick={state.mintick}
+                      symbol={state.symbol}
+                      tf={state.tf}
+                      source={candleSource}
+                      statusLine={statusOf(state).text}
+                      routing={
+                        state.exec.executionMode === "live"
+                          ? `LIVE → ${state.exec.broker?.label ?? "broker"}`
+                          : "PAPER"
+                      }
+                      enabled={state.enabled}
+                      autoAttach={state.autoAttach}
+                      busy={busy}
+                      onToggleBot={() => void control(state.enabled ? "stop" : "start")}
+                      onSymbol={(s) => void changeSymbol(s)}
+                      onTf={(t) => void changeTf(t)}
+                      cfg={state.config}
+                      atr={state.engine.atr}
+                      price={state.feed.price}
+                    />
                   </div>
-                  <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
+                  <div className="col-span-12 space-y-3 md:col-span-6 xl:col-span-4">
                     <HaloCore state={state} />
+                    <MarketOverview state={state} />
+                    <AccountSummary />
                   </div>
-                  <div className="col-span-12 lg:col-span-4 xl:col-span-3">
+
+                  {/* row 2 · signal / monitoring / recent trades (mockup bottom row) */}
+                  <div className="col-span-12 md:col-span-6 xl:col-span-4">
+                    <LatestSignal state={state} />
+                  </div>
+                  <div className="col-span-12 md:col-span-6 xl:col-span-4">
+                    <MonitorStatus state={state} />
+                  </div>
+                  <div className="col-span-12 min-h-[260px] xl:col-span-4">
+                    <RecentTrades onOpenHistory={() => gotoView("trade-history")} />
+                  </div>
+
+                  {/* row 3 · live book + risk posture */}
+                  <div className="col-span-12 min-h-[320px] xl:col-span-7">
+                    <TradingActivity state={state} histKey={histKey} />
+                  </div>
+                  <div className="col-span-12 xl:col-span-5">
                     <RiskGuardian state={state} />
                   </div>
-                  {dockAssistant && (
-                    <div className="col-span-12 min-h-0 xl:col-span-3 xl:row-span-2">
-                      <JarvisConsole variant="docked" />
-                    </div>
-                  )}
 
-                {/* row 2 · chart + trading activity */}
-                <div className="col-span-12 min-w-0 space-y-3 xl:col-span-6">
-                  <StatusBanner state={state} />
+                  {/* row 4 · quick actions deck */}
+                  <div className="col-span-12">
+                    <ControlDeck
+                      state={state}
+                      busy={busy}
+                      view={view}
+                      onView={(v) => gotoView(v)}
+                      onControl={control}
+                      onExecMode={setExecMode}
+                    />
+                  </div>
+                </div>
+              )}
+
+            {/* ════════ MARKET · multi-symbol scanner ════════ */}
+            {view === "scanner" && (
+              <>
+                <PageHeader
+                  icon={Radar}
+                  title="MARKET SCANNER"
+                  sub="Every watchlist symbol runs the full 3EL engine — live formations, armed levels and per-symbol auto-trade switches."
+                />
+                <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />
+              </>
+            )}
+
+            {/* ════════ MARKET INTELLIGENCE (mockup 02) ════════ */}
+            {view === "intel" && (
+              <div className="grid grid-cols-12 gap-3">
+                <PageHeader
+                  className="col-span-full"
+                  icon={Globe}
+                  title="Market Intelligence"
+                  sub="AI-powered market analysis and opportunities — live chart, armed levels and external feeds, sources stamped, nothing invented."
+                />
+                <div className="col-span-12 min-w-0 xl:col-span-8">
                   <ChartPanel
                     candles={candles}
                     drawings={state.engine.drawings}
@@ -408,23 +478,28 @@ export default function Page() {
                     price={state.feed.price}
                   />
                 </div>
-                <div className="col-span-12 min-h-[320px] md:col-span-6 xl:col-span-3">
-                  <TradingActivity state={state} histKey={histKey} />
+                <div className="col-span-12 space-y-3 xl:col-span-4">
+                  <MarketPulse state={state} candles={candles} />
+                  <LevelsCard state={state} />
                 </div>
-
-                {/* row 3 · explanation / performance / briefing */}
-                <div className="col-span-12 min-h-[300px] xl:col-span-6">
-                  <StrategyExplainer state={state} />
-                </div>
-                <div className="col-span-12 sm:col-span-6 xl:col-span-3">
-                  <PerformanceIntel refreshKey={histKey} />
-                </div>
-                <div className="col-span-12 sm:col-span-6 xl:col-span-3">
-                  <DailyBriefing state={state} />
-                </div>
-
-                {/* row 4 · quick actions deck */}
                 <div className="col-span-12">
+                  <IntelPanel />
+                </div>
+              </div>
+            )}
+
+            {/* ════════ TRADING ACTIVITY (mockup 03) ════════ */}
+            {view === "activity" && (
+              <div className="space-y-4">
+                <PageHeader
+                  icon={Activity}
+                  title="Trading Activity"
+                  sub="Manage your active trades — open positions, orders and the engine log, exactly what the broker and the 3EL engine report."
+                />
+                <TradeCard state={state} />
+                <TradingActivity state={state} histKey={histKey} />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Mt5MobileApp notify={notify} />
                   <ControlDeck
                     state={state}
                     busy={busy}
@@ -433,46 +508,6 @@ export default function Page() {
                     onControl={control}
                     onExecMode={setExecMode}
                   />
-                </div>
-              </div>
-            )}
-
-            {/* ════════ MARKET · multi-symbol scanner ════════ */}
-            {view === "scanner" && (
-              <>
-                <PageHeader
-                  icon={Radar}
-                  title="MARKET SCANNER"
-                  sub="Every watchlist symbol runs the full 3EL engine — live formations, armed levels and per-symbol auto-trade switches."
-                />
-                <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />
-              </>
-            )}
-
-            {/* ════════ MARKET INTEL · live external feeds ════════ */}
-            {view === "intel" && (
-              <>
-                <PageHeader
-                  icon={Globe}
-                  title="MARKET INTELLIGENCE"
-                  sub="Live external feeds — ForexFactory calendar, Bloomberg & Yahoo headlines, Yahoo quotes. Sources stamped, nothing invented."
-                />
-                <IntelPanel />
-              </>
-            )}
-
-            {/* ════════ TRADING ACTIVITY ════════ */}
-            {view === "activity" && (
-              <div className="space-y-4">
-                <PageHeader
-                  icon={Activity}
-                  title="TRADING ACTIVITY"
-                  sub="Open positions, closed history and the engine log — exactly what the broker and the 3EL engine report."
-                />
-                <TradeCard state={state} />
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <Mt5MobileApp notify={notify} />
-                  <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
                 </div>
               </div>
             )}
@@ -489,7 +524,7 @@ export default function Page() {
                     <span
                       className="rounded-full px-2 py-0.5 text-[8px] font-extrabold tracking-[0.12em]"
                       style={{
-                        background: state.exec.executionMode === "live" ? "rgba(242,54,69,0.12)" : "rgba(8,153,129,0.12)",
+                        background: state.exec.executionMode === "live" ? "rgba(255,77,94,0.12)" : "rgba(0,214,143,0.12)",
                         color: state.exec.executionMode === "live" ? C.red : C.green,
                       }}
                     >
@@ -510,6 +545,81 @@ export default function Page() {
                     onReset={() => control("reset")}
                   />
                   <ExecutionPanel state={state} onSaved={(m) => notify(m)} onError={(t, d) => notify(t, d, true)} />
+                </div>
+              </div>
+            )}
+
+            {/* ════════ TRADE HISTORY (mockup 04) ════════ */}
+            {view === "trade-history" && (
+              <div className="space-y-4">
+                <PageHeader
+                  icon={ScrollText}
+                  title="Trade History"
+                  sub="View and analyse your past trades — the DB-backed bot book with period filters."
+                  right={
+                    <div className="flex gap-1">
+                      {HISTORY_PERIODS.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setHistFilter(p)}
+                          aria-pressed={histFilter === p}
+                          className="rounded-lg px-2.5 py-1 text-[9px] font-extrabold tracking-[0.12em] transition-colors"
+                          style={{
+                            background: histFilter === p ? A.cyan(0.12) : "transparent",
+                            color: histFilter === p ? C.cyan : C.label,
+                            boxShadow: `inset 0 0 0 1px ${histFilter === p ? A.cyan(0.35) : C.lineInner}`,
+                          }}
+                        >
+                          {p === "all" ? "ALL" : p.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  }
+                />
+                <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
+              </div>
+            )}
+
+            {/* ════════ DAILY BRIEFING ════════ */}
+            {view === "briefing" && (
+              <div className="space-y-4">
+                <PageHeader
+                  icon={SunMedium}
+                  title="Daily Briefing"
+                  sub="The engine's honest read of the session — posture, levels and what the co-pilot is watching right now."
+                />
+                <DailyBriefing state={state} />
+              </div>
+            )}
+
+            {/* ════════ LEARNING MISSIONS ════════ */}
+            {view === "learning" && (
+              <div className="space-y-4">
+                <PageHeader
+                  icon={BookOpen}
+                  title="Learning Missions"
+                  sub="Master the 3EL method — how C1 / C2 formations arm, what the C3 trigger means, and how the engine manages a live trade."
+                />
+                <StrategyExplainer state={state} />
+              </div>
+            )}
+
+            {/* ════════ HALO VOICE COMMAND CENTER (mockup 08) ════════ */}
+            {view === "voice" && (
+              <div className="grid grid-cols-12 gap-3">
+                <PageHeader
+                  className="col-span-full"
+                  icon={Mic}
+                  title="Voice Command Center"
+                  sub="Talk to HALO — say the wake word, type in the console, or run the allowlisted operator actions."
+                />
+                <div className="col-span-12 min-h-[560px] xl:col-span-8">
+                  <JarvisConsole variant="docked" />
+                </div>
+                <div className="col-span-12 space-y-3 xl:col-span-4">
+                  <HaloCore state={state} />
+                  <VoiceSettingsCard />
                 </div>
               </div>
             )}
@@ -595,12 +705,14 @@ export default function Page() {
       {/* HALO-B — the robotic face of the EA, present on every view */}
       <RobotAssistant state={state} candles={candles} />
 
-      {/* JARVIS console — floating on non-dashboard / sub-xl screens */}
-      {!dockAssistant && <JarvisConsole variant="floating" />}
+      {/* JARVIS console — floating on every view; the full-screen console lives in Voice Command */}
+      <JarvisConsole variant="floating" />
 
-      <footer className="mt-auto border-t border-[#1C2A47] py-3">
-        <div className="mx-auto flex w-full max-w-[1800px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">
+      <footer className="mt-auto border-t border-[#0F2E58] py-3">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8AA2C2] sm:flex-row">
           <span>
+            <span className="font-bold" style={{ color: C.goldDim }}>© {new Date().getFullYear()} · CREATED BY BISMARK ARKO-OFORI</span>
+            {" · "}
             HALO SUITE · 3EL v1.2 · {state.config.sigMode === "instant" ? "INSTANT" : "BAR CLOSE"} MODE ·{" "}
             <span style={{ color: state.exec.executionMode === "live" ? C.red : C.green }}>
               {state.exec.executionMode === "live" ? "LIVE ORDERS" : "PAPER"}

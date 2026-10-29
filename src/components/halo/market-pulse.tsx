@@ -47,16 +47,16 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
     <PanelCard
       title={`${name} · LIVE`}
       icon={Gauge}
-      accent="gold"
+      accent="cyan"
       right={
-        <Pill tone={fresh ? "ok" : "gold"} pulse>
+        <Pill tone={fresh ? "ok" : "warn"} pulse>
           {state.feed.source.toUpperCase()}
         </Pill>
       }
     >
       <div className="flex h-full flex-col gap-2 p-3">
         <div className="flex items-end gap-2.5">
-          <span className="font-mono text-[30px] font-bold leading-none tracking-tight text-[#F5D778]" style={{ textShadow: "0 0 22px rgba(212,175,55,0.30)" }}>
+          <span className="font-mono text-[30px] font-bold leading-none tracking-tight" style={{ color: C.txt, textShadow: "0 0 24px rgba(46,204,255,0.28)" }}>
             {price > 0 ? fmtPx(price, state.mintick) : "—"}
           </span>
           {chg !== null && chgPct !== null && (
@@ -80,7 +80,7 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
         <div className="mt-auto grid grid-cols-3 gap-1.5">
           <MiniStat label="ATR" value={atr !== null ? atr.toFixed(dec) : "—"} />
           <MiniStat label="SESSION" value={sessions.length > 0 ? sessions.join(" · ") : "Closed"} small />
-          <MiniStat label="FEED AGE" value={age !== null ? `${age}s` : "—"} color={fresh ? C.green : C.gold} />
+          <MiniStat label="FEED AGE" value={age !== null ? `${age}s` : "—"} color={fresh ? C.green : C.warn} />
         </div>
 
         <div
@@ -101,7 +101,7 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
 
 function MiniStat({ label, value, color, small }: { label: string; value: string; color?: string; small?: boolean }) {
   return (
-    <div className="min-w-0 rounded-lg border px-2 py-1.5" style={{ borderColor: C.lineInner, background: `${C.navy}B3` }}>
+    <div className="min-w-0 rounded-lg border px-2 py-1.5" style={{ borderColor: C.lineInner, background: "rgba(2,11,26,0.7)" }}>
       <div className="truncate text-[7.5px] font-bold uppercase tracking-[0.16em]" style={{ color: C.label }}>{label}</div>
       <div className={`truncate font-mono font-bold ${small ? "text-[9.5px]" : "text-[11.5px]"}`} style={{ color: color ?? C.txt }}>
         {value}

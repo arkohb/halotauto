@@ -150,7 +150,7 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
         <Button
           onClick={apply}
           disabled={saving}
-          className="w-full h-9 rounded-lg font-bold text-xs tracking-wider bg-primary text-primary-foreground hover:bg-[var(--hx-gold-hi)]"
+          className="w-full h-9 rounded-lg font-bold text-xs tracking-wider bg-primary text-primary-foreground hover:bg-[#7DDDFF]"
         >
           {saving ? "APPLYING…" : "APPLY SETTINGS"}
         </Button>

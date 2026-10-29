@@ -386,7 +386,7 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
   const entry = p.entryPrice ?? 0;
   const inProfit = p.pnl > 0;
   return (
-    <li className="rounded-lg px-2.5 py-2" style={{ background: C.navy, boxShadow: "inset 0 0 0 1px rgba(28,42,71,0.6)" }}>
+    <li className="rounded-lg px-2.5 py-2" style={{ background: C.navy, boxShadow: "inset 0 0 0 1px rgba(15,46,88,0.6)" }}>
       <div className="flex items-center justify-between gap-2">
         {/* symbol + side + lots */}
         <div className="flex min-w-0 items-center gap-2">
@@ -440,8 +440,8 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel className="border-[#2A3A5C] bg-transparent text-[#8C98AE] hover:text-[#E8ECF4]">Keep position</AlertDialogCancel>
-                <AlertDialogAction className="bg-[#F23645] text-white hover:brightness-125" onClick={(e) => { e.preventDefault(); onClose(); }}>
+                <AlertDialogCancel className="border-[#1C4478] bg-transparent text-[#8AA2C2] hover:text-[#EAF3FF]">Keep position</AlertDialogCancel>
+                <AlertDialogAction className="bg-[#FF4D5E] text-white hover:brightness-125" onClick={(e) => { e.preventDefault(); onClose(); }}>
                   Close position
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -451,7 +451,7 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
       </div>
 
       {/* prices line */}
-      <div className="mt-1.5 flex items-center justify-between gap-3 border-t pt-1.5 font-mono text-[10px]" style={{ borderColor: "rgba(28,42,71,0.7)" }}>
+      <div className="mt-1.5 flex items-center justify-between gap-3 border-t pt-1.5 font-mono text-[10px]" style={{ borderColor: "rgba(15,46,88,0.7)" }}>
         <span className="flex items-baseline gap-1" style={{ color: C.muted }}>
           entry <span className="font-semibold" style={{ color: C.txt }}>{px(entry)}</span>
         </span>

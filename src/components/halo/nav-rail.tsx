@@ -1,10 +1,16 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  HALO NAV RAIL · left command navigation
+//  HALO NAV RAIL · left command navigation (mockup edition)
 //
 //  Desktop (lg+): fixed icon+label rail — every item maps to a REAL view
 //  fed by the existing panels (no dead links, no fake pages).
+//    MAIN list mirrors the reference design order:
+//    Dashboard · Market Intelligence · Trading Activity · Risk Guardian ·
+//    Strategy Lab · Trade History · Performance · Daily Briefing ·
+//    Learning Missions · Settings
+//    SYSTEM group keeps every remaining real surface reachable:
+//    Market Scanner · Voice Command · Brokers · Alerts
 //  Mobile (<lg): horizontally scrollable chip bar rendered below the header.
 //
 //  Presentation only — fires onView(); owns no trading state.
@@ -13,17 +19,21 @@
 import {
   Activity,
   Bell,
+  BookOpen,
   FlaskConical,
   Globe,
   Landmark,
   LayoutDashboard,
+  Mic,
   Radar,
+  ScrollText,
   Settings,
   ShieldCheck,
+  SunMedium,
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
-import { C, A } from "@/lib/halo/ui-helpers";
+import { A, C } from "@/lib/halo/ui-helpers";
 
 export type HaloView =
   | "terminal"
@@ -35,7 +45,11 @@ export type HaloView =
   | "brokers"
   | "alerts"
   | "intel"
-  | "settings";
+  | "settings"
+  | "trade-history"
+  | "briefing"
+  | "learning"
+  | "voice";
 
 interface NavItem {
   id: HaloView;
@@ -45,28 +59,27 @@ interface NavItem {
 
 const GROUPS: { title: string; items: NavItem[] }[] = [
   {
-    title: "TRADING",
+    title: "COMMAND",
     items: [
       { id: "terminal", label: "Dashboard", icon: LayoutDashboard },
-      { id: "scanner", label: "Market", icon: Radar },
+      { id: "intel", label: "Market Intelligence", icon: Globe },
       { id: "activity", label: "Trading Activity", icon: Activity },
       { id: "risk", label: "Risk Guardian", icon: ShieldCheck },
-    ],
-  },
-  {
-    title: "INTELLIGENCE",
-    items: [
       { id: "backtest", label: "Strategy Lab", icon: FlaskConical },
-      { id: "intel", label: "Market Intel", icon: Globe },
+      { id: "trade-history", label: "Trade History", icon: ScrollText },
       { id: "performance", label: "Performance", icon: TrendingUp },
+      { id: "briefing", label: "Daily Briefing", icon: SunMedium },
+      { id: "learning", label: "Learning Missions", icon: BookOpen },
+      { id: "settings", label: "Settings", icon: Settings },
     ],
   },
   {
     title: "SYSTEM",
     items: [
-      { id: "brokers", label: "Brokers", icon: Landmark },
+      { id: "scanner", label: "Market Scanner", icon: Radar },
+      { id: "voice", label: "Voice Command", icon: Mic },
+      { id: "brokers", label: "Brokers & MT5", icon: Landmark },
       { id: "alerts", label: "Alerts", icon: Bell },
-      { id: "settings", label: "Settings", icon: Settings },
     ],
   },
 ];
@@ -78,12 +91,13 @@ export function NavRail({ view, onView }: { view: HaloView; onView: (v: HaloView
   return (
     <nav
       aria-label="HALO command navigation"
-      className="sticky top-[83px] hidden h-[calc(100vh-83px)] w-[178px] shrink-0 flex-col overflow-y-auto border-r border-[#1C2A47] bg-[#0B1426]/80 backdrop-blur halo-scroll lg:flex xl:w-[196px]"
+      className="sticky top-[57px] hidden h-[calc(100vh-57px)] w-[186px] shrink-0 flex-col overflow-y-auto border-r bg-[#02070F]/85 backdrop-blur halo-scroll lg:flex xl:w-[200px]"
+      style={{ borderColor: C.line }}
     >
-      <div className="flex-1 space-y-4 px-2.5 py-4">
+      <div className="flex-1 space-y-4 px-2.5 py-3.5">
         {GROUPS.map((g) => (
           <div key={g.title}>
-            <div className="px-2 pb-1.5 text-[8.5px] font-extrabold tracking-[0.26em]" style={{ color: C.label }}>{g.title}</div>
+            <div className="px-2 pb-1.5 text-[8px] font-extrabold tracking-[0.26em]" style={{ color: C.label }}>{g.title}</div>
             <ul className="space-y-0.5">
               {g.items.map((it) => {
                 const active = view === it.id;
@@ -94,24 +108,36 @@ export function NavRail({ view, onView }: { view: HaloView; onView: (v: HaloView
                       type="button"
                       onClick={() => onView(it.id)}
                       aria-current={active ? "page" : undefined}
-                      className="group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors"
-                      style={{
-                        background: active ? A.gold(0.1) : "transparent",
-                        boxShadow: active ? `inset 2.5px 0 0 ${C.gold}, 0 0 14px 0 ${A.gold(0.07)}` : undefined,
-                      }}
+                      className="group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-left transition-all duration-200"
+                      style={
+                        active
+                          ? {
+                              background: `linear-gradient(135deg, ${A.blue(0.85)}, ${A.cyan(0.72)})`,
+                              boxShadow: `0 0 16px 0 ${A.blue(0.35)}, inset 0 1px 0 rgba(255,255,255,0.22)`,
+                            }
+                          : undefined
+                      }
                     >
                       <Icon
                         size={15}
                         strokeWidth={2}
-                        style={{ color: active ? C.gold : C.muted }}
-                        className="shrink-0 transition-colors group-hover:text-[#D4AF37]"
+                        style={{ color: active ? "#FFFFFF" : C.muted }}
+                        className={`shrink-0 transition-colors ${active ? "" : "group-hover:text-[#2ECCFF]"}`}
                       />
                       <span
                         className="truncate text-[11.5px] font-semibold tracking-wide transition-colors"
-                        style={{ color: active ? C.gold : C.txt2 }}
+                        style={{ color: active ? "#FFFFFF" : C.txt2, textShadow: active ? "0 1px 6px rgba(0,20,50,0.4)" : undefined }}
                       >
                         {it.label}
                       </span>
+                      {/* hover glow for inactive rows */}
+                      {!active && (
+                        <span
+                          aria-hidden
+                          className="absolute inset-0 rounded-lg opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+                          style={{ background: `linear-gradient(90deg, ${A.cyan(0.09)}, transparent 70%)`, boxShadow: `inset 0 0 0 1px ${A.cyan(0.14)}` }}
+                        />
+                      )}
                     </button>
                   </li>
                 );
@@ -122,11 +148,11 @@ export function NavRail({ view, onView }: { view: HaloView; onView: (v: HaloView
       </div>
 
       {/* creed */}
-      <div className="border-t border-[#1C2A47]/70 px-4 py-3">
-        <p className="text-[9.5px] italic leading-relaxed text-[#5D6B85]">
+      <div className="border-t px-4 py-3" style={{ borderColor: `${C.line}80` }}>
+        <p className="text-[9.5px] italic leading-relaxed" style={{ color: C.dim }}>
           &ldquo;Discipline builds wealth. Automation protects it.&rdquo;
         </p>
-        <p className="mt-1 text-[8px] font-bold tracking-[0.22em] text-[#8A7423]">— HALO</p>
+        <p className="mt-1 text-[8px] font-bold tracking-[0.22em]" style={{ color: C.goldDim }}>— HALO</p>
       </div>
     </nav>
   );
@@ -146,12 +172,17 @@ export function NavChips({ view, onView }: { view: HaloView; onView: (v: HaloVie
               type="button"
               onClick={() => onView(it.id)}
               aria-current={active ? "page" : undefined}
-              className="flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10.5px] font-bold tracking-wide transition-colors"
-              style={{
-                borderColor: active ? `${C.gold}88` : C.line,
-                background: active ? A.gold(0.12) : C.navy2,
-                color: active ? C.gold : C.muted,
-              }}
+              className="flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10.5px] font-bold tracking-wide transition-all"
+              style={
+                active
+                  ? {
+                      borderColor: "transparent",
+                      background: `linear-gradient(135deg, ${A.blue(0.9)}, ${A.cyan(0.75)})`,
+                      color: "#FFFFFF",
+                      boxShadow: `0 0 14px 0 ${A.blue(0.4)}`,
+                    }
+                  : { borderColor: C.line, background: C.navy2, color: C.muted }
+              }
             >
               <Icon size={12} />
               {it.label}

@@ -55,7 +55,7 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
 
   return (
     <PanelCard title="STRATEGY EXPLANATION" icon={Lightbulb} accent="gold" className="h-full" bodyClassName="p-3">
-      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#F5D778]/90">{headline}</p>
+      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#F5CD6B]/90">{headline}</p>
       <p className="mt-1 text-[10.5px] leading-relaxed" style={{ color: C.txt2 }}>
         Bullish/bearish structure is only traded when it ends in an <span style={{ color: C.txt }}>equal-level rejection</span>: the wick line is frozen, broken, and retested — the engine never repaints and never anticipates.
       </p>

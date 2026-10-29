@@ -83,32 +83,32 @@ export function CandleTimer({ tf, barOpenTime }: CandleTimerProps) {
       role="timer"
       aria-label="Time until the current candle closes"
       title="Candle timer — time left until this candle closes"
-      className="pointer-events-none absolute bottom-2.5 right-2.5 z-20 w-[118px] select-none rounded-lg border border-[#1C2A47] bg-[#0F1A30]/92 px-2.5 py-1.5 shadow-lg backdrop-blur-sm"
+      className="pointer-events-none absolute bottom-2.5 right-2.5 z-20 w-[118px] select-none rounded-lg border border-[#0F2E58] bg-[#021229]/92 px-2.5 py-1.5 shadow-lg backdrop-blur-sm"
     >
       <div className="flex items-center justify-between gap-1.5">
         <span className="flex items-center gap-1">
           {/* mini candle icon */}
           <svg width="8" height="13" viewBox="0 0 10 14" aria-hidden="true" className="shrink-0">
-            <line x1="5" y1="0.5" x2="5" y2="3.5" stroke="#D4AF37" strokeWidth="1.2" />
-            <rect x="1.5" y="3.5" width="7" height="7" rx="0.8" fill="#D4AF37" opacity="0.9" />
-            <line x1="5" y1="10.5" x2="5" y2="13.5" stroke="#D4AF37" strokeWidth="1.2" />
+            <line x1="5" y1="0.5" x2="5" y2="3.5" stroke="#E9B94E" strokeWidth="1.2" />
+            <rect x="1.5" y="3.5" width="7" height="7" rx="0.8" fill="#E9B94E" opacity="0.9" />
+            <line x1="5" y1="10.5" x2="5" y2="13.5" stroke="#E9B94E" strokeWidth="1.2" />
           </svg>
-          <span className="text-[8px] font-extrabold uppercase tracking-[0.16em] text-[#8C98AE]">Close</span>
+          <span className="text-[8px] font-extrabold uppercase tracking-[0.16em] text-[#8AA2C2]">Close</span>
         </span>
         <span
           className={`font-mono text-[12px] font-bold leading-none tabular-nums ${urgent ? "animate-pulse" : ""}`}
-          style={{ color: urgent ? "#D4AF37" : "#E8ECF4" }}
+          style={{ color: urgent ? "#E9B94E" : "#EAF3FF" }}
         >
           {now === null ? "--:--" : fmtRemaining(left)}
         </span>
       </div>
       {/* bar progress — how far this candle has printed */}
-      <div className="mt-1 h-[2px] w-full overflow-hidden rounded-full bg-[#1C2A47]">
+      <div className="mt-1 h-[2px] w-full overflow-hidden rounded-full bg-[#0F2E58]">
         <div
           className="h-full rounded-full"
           style={{
             width: `${now === null ? 0 : progress * 100}%`,
-            background: "linear-gradient(90deg, rgba(212,175,55,0.35), #D4AF37)",
+            background: "linear-gradient(90deg, rgba(233,185,78,0.35), #E9B94E)",
           }}
         />
       </div>

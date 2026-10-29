@@ -22,7 +22,7 @@ import { A, C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers"
 import { PanelCard, StateFrame, StatCell } from "./panel";
 import { usePwa } from "./pwa";
 
-export type DeckView = "terminal" | "scanner" | "backtest" | "brokers" | "alerts";
+export type DeckView = "terminal" | "scanner" | "activity" | "backtest" | "brokers" | "alerts";
 
 interface Props {
   state: BotStateRes;
@@ -197,22 +197,22 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
                 <TileFace icon="◎" label="PAPER" sub="tap for live" gold />
               </button>
             </AlertDialogTrigger>
-            <AlertDialogContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+            <AlertDialogContent className="border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
               <AlertDialogHeader>
-                <AlertDialogTitle className="text-[#D4AF37]">Switch to LIVE order routing?</AlertDialogTitle>
-                <AlertDialogDescription className="text-[#8C98AE]">
+                <AlertDialogTitle className="text-[#E9B94E]">Switch to LIVE order routing?</AlertDialogTitle>
+                <AlertDialogDescription className="text-[#8AA2C2]">
                   Real market orders with attached SL/TP will be sent to{" "}
-                  <span className="text-[#E8ECF4]">{state.exec.broker?.label ?? "the active broker account"}</span>.
+                  <span className="text-[#EAF3FF]">{state.exec.broker?.label ?? "the active broker account"}</span>.
                   Configure and test the broker in the BROKERS deck first. Paper mode keeps every fill
                   simulated — you can switch back anytime.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel className="border-[#2A3A5C] bg-transparent text-[#8C98AE] hover:text-[#E8ECF4]">
+                <AlertDialogCancel className="border-[#1C4478] bg-transparent text-[#8AA2C2] hover:text-[#EAF3FF]">
                   Stay on paper
                 </AlertDialogCancel>
                 <AlertDialogAction
-                  className="bg-[#F23645] text-white hover:bg-[#FF4B59]"
+                  className="bg-[#FF4D5E] text-white hover:bg-[#FF4B59]"
                   onClick={() => void onExecMode("live")}
                 >
                   Go live
@@ -235,21 +235,21 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
               <TileFace icon="✕" label="CLOSE" sub={hasTrade ? "flatten now" : "flat book"} danger />
             </button>
           </AlertDialogTrigger>
-          <AlertDialogContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+          <AlertDialogContent className="border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-[#F23645]">Close open position?</AlertDialogTitle>
-              <AlertDialogDescription className="text-[#8C98AE]">
+              <AlertDialogTitle className="text-[#FF4D5E]">Close open position?</AlertDialogTitle>
+              <AlertDialogDescription className="text-[#8AA2C2]">
                 {live
                   ? "A market close order is sent to the broker immediately and the EA trade record is finalized."
                   : "The paper position is closed at current price and the trade record is finalized."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="border-[#2A3A5C] bg-transparent text-[#8C98AE] hover:text-[#E8ECF4]">
+              <AlertDialogCancel className="border-[#1C4478] bg-transparent text-[#8AA2C2] hover:text-[#EAF3FF]">
                 Keep position
               </AlertDialogCancel>
               <AlertDialogAction
-                className="bg-[#F23645] text-white hover:bg-[#FF4B59]"
+                className="bg-[#FF4D5E] text-white hover:bg-[#FF4B59]"
                 onClick={(e) => {
                   e.preventDefault();
                   void onControl("close");
@@ -274,20 +274,20 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
               <TileFace icon="⟲" label="RESET" sub="clear levels" />
             </button>
           </AlertDialogTrigger>
-          <AlertDialogContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+          <AlertDialogContent className="border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-[#D4AF37]">Reset strategy engine?</AlertDialogTitle>
-              <AlertDialogDescription className="text-[#8C98AE]">
+              <AlertDialogTitle className="text-[#E9B94E]">Reset strategy engine?</AlertDialogTitle>
+              <AlertDialogDescription className="text-[#8AA2C2]">
                 Clears all fresh levels, counters and stats, then re-warms the engine over the latest
                 history. Trade history in the database is kept. Requires a flat book.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="border-[#2A3A5C] bg-transparent text-[#8C98AE] hover:text-[#E8ECF4]">
+              <AlertDialogCancel className="border-[#1C4478] bg-transparent text-[#8AA2C2] hover:text-[#EAF3FF]">
                 Cancel
               </AlertDialogCancel>
               <AlertDialogAction
-                className="bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]"
+                className="bg-[#2ECCFF] text-[#021229] hover:bg-[#7DDDFF]"
                 onClick={(e) => {
                   e.preventDefault();
                   void onControl("reset");
@@ -387,9 +387,9 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
 
 function tileClass(p: { danger?: boolean; gold?: boolean; selected?: boolean; active?: boolean }): string {
   const base =
-    "group relative flex h-[72px] w-full flex-col items-center justify-center gap-0.5 rounded-xl border px-1 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37]/70 disabled:opacity-45 disabled:cursor-not-allowed active:scale-[0.97]";
+    "group relative flex h-[72px] w-full flex-col items-center justify-center gap-0.5 rounded-xl border px-1 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#E9B94E]/70 disabled:opacity-45 disabled:cursor-not-allowed active:scale-[0.97]";
   if (p.active) return `${base} text-white hover:brightness-110`;
-  return `${base} hover:border-[#D4AF37]/70 hover:bg-[#16233D]`;
+  return `${base} hover:border-[#E9B94E]/70 hover:bg-[#07203F]`;
 }
 
 function tileStyle(p: { danger?: boolean; gold?: boolean; selected?: boolean; active?: boolean; activeBg?: string }): React.CSSProperties {
@@ -426,7 +426,7 @@ function TileFace(p: { icon: string; label: string; sub?: string; danger?: boole
         {p.label}
       </span>
       {p.sub && (
-        <span className="max-w-full truncate px-0.5 text-[8px] uppercase tracking-wider text-[#8C98AE] group-hover:text-[#B8C2D6]">
+        <span className="max-w-full truncate px-0.5 text-[8px] uppercase tracking-wider text-[#8AA2C2] group-hover:text-[#B9CBE4]">
           {p.sub}
         </span>
       )}

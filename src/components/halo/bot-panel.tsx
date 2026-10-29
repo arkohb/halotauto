@@ -63,7 +63,7 @@ export function BotPanel({ state, busy, onStart, onStop, onReset }: Props) {
             <Button
               variant="outline"
               disabled={busy !== null}
-              className="h-8 px-3 text-[11px] rounded-md border-[#2A3A5C] text-[#8C98AE] hover:text-[#E8ECF4] hover:border-[#8C98AE] bg-transparent"
+              className="h-8 px-3 text-[11px] rounded-md border-[#1C4478] text-[#8AA2C2] hover:text-[#EAF3FF] hover:border-[#8AA2C2] bg-transparent"
             >
               RESET ENGINE
             </Button>
@@ -77,9 +77,9 @@ export function BotPanel({ state, busy, onStart, onStop, onReset }: Props) {
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE] hover:text-[#E8ECF4]">Cancel</AlertDialogCancel>
+              <AlertDialogCancel className="bg-transparent border-[#1C4478] text-[#8AA2C2] hover:text-[#EAF3FF]">Cancel</AlertDialogCancel>
               <AlertDialogAction
-                className="bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]"
+                className="bg-[#2ECCFF] text-[#021229] hover:bg-[#7DDDFF]"
                 onClick={async (e) => {
                   e.preventDefault();
                   setResetOpen(false);

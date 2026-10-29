@@ -30,7 +30,11 @@ export type ViewId =
   | "brokers"
   | "alerts"
   | "intel"
-  | "settings";
+  | "settings"
+  | "trade-history"
+  | "briefing"
+  | "learning"
+  | "voice";
 
 export interface ViewMeta {
   id: ViewId;
@@ -40,15 +44,19 @@ export interface ViewMeta {
 
 export const VIEWS: ViewMeta[] = [
   { id: "terminal", label: "Dashboard", aliases: ["dashboard", "command center", "terminal", "home", "main view"] },
-  { id: "scanner", label: "Market", aliases: ["market", "scanner", "market intelligence", "multi-symbol", "watchlist"] },
-  { id: "activity", label: "Trading Activity", aliases: ["trading activity", "activity", "trades", "trade history", "history"] },
+  { id: "intel", label: "Market Intelligence", aliases: ["market intelligence", "intelligence", "market intel", "intel", "markets"] },
+  { id: "activity", label: "Trading Activity", aliases: ["trading activity", "activity", "open positions", "positions"] },
   { id: "risk", label: "Risk Guardian", aliases: ["risk guardian", "risk", "protection"] },
   { id: "backtest", label: "Strategy Lab", aliases: ["strategy lab", "backtest", "lab", "signals lab"] },
-  { id: "performance", label: "Performance", aliases: ["performance", "stats", "statistics"] },
-  { id: "brokers", label: "Brokers", aliases: ["brokers", "broker", "mt5", "connections", "accounts"] },
-  { id: "alerts", label: "Alerts", aliases: ["alerts", "notifications", "telegram"] },
-  { id: "intel", label: "Market Intel", aliases: ["market intel", "intel", "economic calendar", "calendar", "news", "headlines", "forex factory", "forexfactory"] },
+  { id: "trade-history", label: "Trade History", aliases: ["trade history", "history", "closed trades", "trade log"] },
+  { id: "performance", label: "Performance", aliases: ["performance", "stats", "statistics", "analytics"] },
+  { id: "briefing", label: "Daily Briefing", aliases: ["daily briefing", "briefing", "market brief"] },
+  { id: "learning", label: "Learning Missions", aliases: ["learning missions", "learning", "missions", "strategy guide", "how it works"] },
   { id: "settings", label: "Settings", aliases: ["settings", "preferences", "config", "voice settings"] },
+  { id: "scanner", label: "Market Scanner", aliases: ["market scanner", "scanner", "multi-symbol", "watchlist"] },
+  { id: "voice", label: "Voice Command", aliases: ["voice command", "voice center", "voice", "talk to halo", "conversation"] },
+  { id: "brokers", label: "Brokers & MT5", aliases: ["brokers", "broker", "mt5", "connections", "accounts"] },
+  { id: "alerts", label: "Alerts", aliases: ["alerts", "notifications", "telegram"] },
 ];
 
 export const VIEW_IDS = VIEWS.map((v) => v.id);

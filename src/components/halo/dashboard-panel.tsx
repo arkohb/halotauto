@@ -36,7 +36,7 @@ export function DashboardPanel({ state }: { state: BotStateRes }) {
   return (
     <PanelCard title="◆ HALO 3EL · EQUAL LEVEL REJECTION" icon={Table2} accent="gold">
       <div
-        className="divide-y divide-[#1C2A47]/60"
+        className="divide-y divide-[#0F2E58]/60"
         style={{ ["--zA" as string]: C.navy, ["--zB" as string]: C.navy2 }}
       >
         <Row k="Symbol · TF" v={`${state.symbol} · ${state.tf}`} vc={C.txt} />

@@ -260,7 +260,7 @@ export default function ChartPanel(props: ChartProps) {
         fontSize: 11,
         attributionLogo: false,
       },
-      grid: { vertLines: { color: "#121D35" }, horzLines: { color: "#121D35" } },
+      grid: { vertLines: { color: "#061B38" }, horzLines: { color: "#061B38" } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: C.line },
       timeScale: { borderColor: C.line, timeVisible: true, secondsVisible: false, rightOffset: 10 },
@@ -271,7 +271,7 @@ export default function ChartPanel(props: ChartProps) {
       wickUpColor: C.green,
       wickDownColor: C.red,
       borderVisible: false,
-      priceLineColor: "#5D606B",
+      priceLineColor: "#51678A",
     });
     candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: 0.12 } });
     chartRef.current = chart;
@@ -547,20 +547,20 @@ export default function ChartPanel(props: ChartProps) {
   const heightCls = "h-[380px] sm:h-[440px] xl:h-[540px]";
 
   return (
-    <div className="relative rounded-xl border border-[#1C2A47] bg-[#0B1426] overflow-hidden">
+    <div className="relative rounded-xl border border-[#0F2E58] bg-[#020B1A] overflow-hidden">
       {/* ── EA AUTO-ATTACH OVERLAY · the chart IS the EA control surface ── */}
       <div className="absolute left-2.5 top-2 z-20 flex flex-wrap items-center gap-1.5">
         <Select value={symbol} onValueChange={(v) => onSymbol(v)} disabled={busy !== null}>
           <SelectTrigger
             aria-label="Chart symbol — the EA follows automatically"
-            className="h-7 w-[132px] rounded-md border-[#2A3A5C] bg-[#0F1A30]/95 text-[10.5px] font-bold text-[#E8ECF4] backdrop-blur"
+            className="h-7 w-[132px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="max-h-[380px] border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+          <SelectContent className="max-h-[380px] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
             {SYMBOL_GROUPS.map((g) => (
               <SelectGroup key={g.key}>
-                <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#D4AF37]/80">{g.label}</SelectLabel>
+                <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">{g.label}</SelectLabel>
                 {symbolsByGroup(g.key).map((s) => (
                   <SelectItem key={s.id} value={s.id} className="text-xs">
                     {s.label}
@@ -573,11 +573,11 @@ export default function ChartPanel(props: ChartProps) {
         <Select value={tf} onValueChange={(v) => onTf(v)} disabled={busy !== null}>
           <SelectTrigger
             aria-label="Chart timeframe — the EA follows automatically"
-            className="h-7 w-[62px] rounded-md border-[#2A3A5C] bg-[#0F1A30]/95 text-[10.5px] font-bold text-[#E8ECF4] backdrop-blur"
+            className="h-7 w-[62px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+          <SelectContent className="border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
             {TIMEFRAMES.map((t) => (
               <SelectItem key={t} value={t} className="text-xs">
                 {t}
@@ -585,11 +585,11 @@ export default function ChartPanel(props: ChartProps) {
             ))}
           </SelectContent>
         </Select>
-        <span className="hidden rounded-md border border-[#1C2A47] bg-[#0F1A30]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#D4AF37] backdrop-blur md:inline">
+        <span className="hidden rounded-md border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#E9B94E] backdrop-blur md:inline">
           {source}
         </span>
         {tvNote && mode === "tv" && (
-          <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(212,175,55,0.5)", color: C.gold }}>
+          <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(233,185,78,0.5)", color: C.gold }}>
             TV FALLBACK
           </span>
         )}
@@ -604,12 +604,12 @@ export default function ChartPanel(props: ChartProps) {
           aria-label={enabled ? "Stop EA bot" : "Start EA bot"}
           className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] backdrop-blur transition-colors disabled:opacity-50"
           style={{
-            borderColor: enabled ? "rgba(8,153,129,0.55)" : "#1C2A47",
-            background: enabled ? "rgba(8,153,129,0.16)" : "rgba(15,26,48,0.95)",
+            borderColor: enabled ? "rgba(0,214,143,0.55)" : "#0F2E58",
+            background: enabled ? "rgba(0,214,143,0.16)" : "rgba(2,18,41,0.95)",
             color: enabled ? C.green : C.muted,
           }}
         >
-          <span className={`h-1.5 w-1.5 rounded-full ${enabled ? "animate-pulse" : ""}`} style={{ background: enabled ? C.green : "#5D606B" }} />
+          <span className={`h-1.5 w-1.5 rounded-full ${enabled ? "animate-pulse" : ""}`} style={{ background: enabled ? C.green : "#51678A" }} />
           EA {enabled ? "ON" : "OFF"}
         </button>
         {autoAttach && (
@@ -617,12 +617,12 @@ export default function ChartPanel(props: ChartProps) {
             aria-label="EA auto-attach enabled"
             title="Auto-attach: the EA re-attaches to this chart on boot — no manual start"
             className="hidden rounded-lg border px-1.5 py-1 text-[8px] font-extrabold tracking-[0.18em] sm:inline"
-            style={{ borderColor: "rgba(212,175,55,0.5)", background: "rgba(212,175,55,0.1)", color: C.gold }}
+            style={{ borderColor: "rgba(233,185,78,0.5)", background: "rgba(233,185,78,0.1)", color: C.gold }}
           >
             AUTO
           </span>
         )}
-        <div className="flex overflow-hidden rounded-lg border border-[#1C2A47] bg-[#0F1A30]/95 backdrop-blur">
+        <div className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur">
           {(
             [
               ["3el", "TRADINGVIEW · 3EL"],
@@ -690,7 +690,7 @@ export default function ChartPanel(props: ChartProps) {
             <div
               aria-label="C3 forming on live candle"
               className="absolute left-1/2 top-2 z-30 -translate-x-1/2 animate-pulse whitespace-nowrap rounded-full border px-3 py-1 text-[9px] font-extrabold tracking-[0.18em] backdrop-blur"
-              style={{ borderColor: "rgba(212,175,55,0.65)", background: "rgba(212,175,55,0.2)", color: C.gold }}
+              style={{ borderColor: "rgba(233,185,78,0.65)", background: "rgba(233,185,78,0.2)", color: C.gold }}
             >
               ◎ C3 {bestForm.stage === "retest" ? "RETEST · FIRE IMMINENT" : bestForm.stage === "break" ? "BREAKING WICK LINE" : "AT WICK LINE"} {bestForm.side === -1 ? "▼" : "▲"}
             </div>
@@ -698,18 +698,18 @@ export default function ChartPanel(props: ChartProps) {
           {/* EA attach HUD — EA state drawn over the TradingView chart */}
           <div
             aria-label="EA attach status"
-            className="pointer-events-none absolute bottom-2.5 left-3 z-10 max-w-[calc(100%-160px)] rounded-lg border border-[#1C2A47] bg-[#0F1A30]/92 px-3 py-2 backdrop-blur-sm sm:max-w-[78%]"
+            className="pointer-events-none absolute bottom-2.5 left-3 z-10 max-w-[calc(100%-160px)] rounded-lg border border-[#0F2E58] bg-[#021229]/92 px-3 py-2 backdrop-blur-sm sm:max-w-[78%]"
           >
             <div className="flex items-center gap-1.5 text-[9px] font-extrabold tracking-[0.16em]">
               <span
                 className="h-1.5 w-1.5 rounded-full"
-                style={{ background: !enabled ? "#5D606B" : routing?.startsWith("LIVE") ? C.gold : C.green }}
+                style={{ background: !enabled ? "#51678A" : routing?.startsWith("LIVE") ? C.gold : C.green }}
               />
               <span style={{ color: enabled ? C.gold : C.muted }}>{enabled ? "EA AUTO-ATTACHED" : "EA DETACHED"}</span>
-              {routing && enabled && <span className="text-[#8C98AE]">· {routing}</span>}
+              {routing && enabled && <span className="text-[#8AA2C2]">· {routing}</span>}
             </div>
             {statusLine && (
-              <div className="mt-0.5 text-[10px] font-bold tracking-wide text-[#E8ECF4]">{statusLine}</div>
+              <div className="mt-0.5 text-[10px] font-bold tracking-wide text-[#EAF3FF]">{statusLine}</div>
             )}
             {trade ? (
               <div className="mt-0.5 flex flex-wrap gap-x-3 text-[9px] tracking-wide">
@@ -720,7 +720,7 @@ export default function ChartPanel(props: ChartProps) {
                 <span style={{ color: C.green }}>TP {fmtPx(trade.tp, mintick)}</span>
               </div>
             ) : (
-              <div className="mt-0.5 text-[9px] tracking-wide text-[#8C98AE]">
+              <div className="mt-0.5 text-[9px] tracking-wide text-[#8AA2C2]">
                 {enabled
                   ? "C3 fires auto-execute on the linked account — no manual steps"
                   : "Press EA ON — the EA re-attaches to this chart instantly"}
@@ -729,7 +729,7 @@ export default function ChartPanel(props: ChartProps) {
             {/* free-embed notice — the TV web widget is a cross-origin iframe;
                 the 3EL ladder overlays it approximately, full precision lives
                 on the 3EL view */}
-            <div className="mt-1 border-t border-[#1C2A47]/70 pt-1 text-[8px] font-bold tracking-[0.1em] text-[#8C98AE]/80">
+            <div className="mt-1 border-t border-[#0F2E58]/70 pt-1 text-[8px] font-bold tracking-[0.1em] text-[#8AA2C2]/80">
               FREE EMBED · 3EL LINES OVERLAID APPROXIMATELY (DRAG TO ALIGN) · FULL PRECISION ON “TRADINGVIEW · 3EL”
             </div>
           </div>

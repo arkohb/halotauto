@@ -135,7 +135,7 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
             variant="outline"
             onClick={() => void post({ action: "scan" }, "scan")}
             disabled={busy !== null}
-            className="h-9 px-4 rounded-lg border-[#2A3A5C] text-[#E8ECF4] hover:border-[#D4AF37] hover:text-[#D4AF37] bg-transparent text-xs font-bold tracking-wider"
+            className="h-9 px-4 rounded-lg border-[#1C4478] text-[#EAF3FF] hover:border-[#E9B94E] hover:text-[#E9B94E] bg-transparent text-xs font-bold tracking-wider"
           >
             {busy === "scan" ? "SCANNING…" : "⟳ SCAN NOW"}
           </Button>
@@ -167,13 +167,13 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
           <div className="space-y-1">
             <label className="text-[10px] tracking-wider" style={{ color: C.muted }}>SYMBOL</label>
             <Select value={addSym} onValueChange={setAddSym}>
-              <SelectTrigger className="w-[190px] h-9 bg-[#0B1426] border-[#1C2A47] text-xs text-[#E8ECF4]">
+              <SelectTrigger className="w-[190px] h-9 bg-[#020B1A] border-[#0F2E58] text-xs text-[#EAF3FF]">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4] max-h-[380px]">
+              <SelectContent className="bg-[#041428] border-[#1C4478] text-[#EAF3FF] max-h-[380px]">
                 {SYMBOL_GROUPS.map((g) => (
                   <SelectGroup key={g.key}>
-                    <SelectLabel className="text-[9px] tracking-[0.18em] text-[#D4AF37]/80 pl-2">{g.label}</SelectLabel>
+                    <SelectLabel className="text-[9px] tracking-[0.18em] text-[#E9B94E]/80 pl-2">{g.label}</SelectLabel>
                     {symbolsByGroup(g.key).map((s) => (
                       <SelectItem key={s.id} value={s.id} className="text-xs">{s.label}</SelectItem>
                     ))}
@@ -185,10 +185,10 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
           <div className="space-y-1">
             <label className="text-[10px] tracking-wider" style={{ color: C.muted }}>TIMEFRAME</label>
             <Select value={addTf} onValueChange={setAddTf}>
-              <SelectTrigger className="w-[100px] h-9 bg-[#0B1426] border-[#1C2A47] text-xs text-[#E8ECF4]">
+              <SelectTrigger className="w-[100px] h-9 bg-[#020B1A] border-[#0F2E58] text-xs text-[#EAF3FF]">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+              <SelectContent className="bg-[#041428] border-[#1C4478] text-[#EAF3FF]">
                 {TIMEFRAMES.map((t) => (
                   <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
                 ))}
@@ -202,7 +202,7 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
           <Button
             onClick={() => void post({ action: "add", symbol: addSym, tf: addTf, autoTrade: addAuto }, "add")}
             disabled={busy !== null || (st?.rows.length ?? 0) >= (st?.maxRows ?? 12)}
-            className="h-9 px-4 rounded-lg bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold text-xs tracking-wider"
+            className="h-9 px-4 rounded-lg bg-[#2ECCFF] text-[#021229] hover:bg-[#7DDDFF] font-bold text-xs tracking-wider"
           >
             {busy === "add" ? "ADDING…" : "+ ADD TO WATCHLIST"}
           </Button>
@@ -257,7 +257,7 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
                     <Td>
                       <button
                         onClick={() => onJumpToSymbol?.(r.symbol)}
-                        className="font-bold text-xs text-[#E8ECF4] hover:text-[#D4AF37]"
+                        className="font-bold text-xs text-[#EAF3FF] hover:text-[#E9B94E]"
                         title="open in terminal"
                       >
                         {r.symbolLabel.split("·")[0].trim()}
@@ -309,18 +309,18 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
                     <Td className="text-right">
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <button className="text-[11px] text-[#5D606B] hover:text-[#F23645] px-1" aria-label={`remove ${r.symbol}`}>✕</button>
+                          <button className="text-[11px] text-[#51678A] hover:text-[#FF4D5E] px-1" aria-label={`remove ${r.symbol}`}>✕</button>
                         </AlertDialogTrigger>
-                        <AlertDialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+                        <AlertDialogContent className="bg-[#041428] border-[#1C4478] text-[#EAF3FF]">
                           <AlertDialogHeader>
-                            <AlertDialogTitle className="text-[#D4AF37]">Remove {r.symbol} {r.tf}?</AlertDialogTitle>
-                            <AlertDialogDescription className="text-[#8C98AE]">
+                            <AlertDialogTitle className="text-[#E9B94E]">Remove {r.symbol} {r.tf}?</AlertDialogTitle>
+                            <AlertDialogDescription className="text-[#8AA2C2]">
                               Stops scanning and alerts for this row. Existing trades in history are kept.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE]">Cancel</AlertDialogCancel>
-                            <AlertDialogAction className="bg-[#F23645] text-white hover:bg-[#FF4D5B]" onClick={() => void post({ action: "remove", id: r.id }, `rm:${r.id}`)}>
+                            <AlertDialogCancel className="bg-transparent border-[#1C4478] text-[#8AA2C2]">Cancel</AlertDialogCancel>
+                            <AlertDialogAction className="bg-[#FF4D5E] text-white hover:bg-[#FF4D5B]" onClick={() => void post({ action: "remove", id: r.id }, `rm:${r.id}`)}>
                               Remove
                             </AlertDialogAction>
                           </AlertDialogFooter>

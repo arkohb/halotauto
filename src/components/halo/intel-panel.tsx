@@ -75,8 +75,8 @@ type NewsKey = "bloomberg" | "yahoo";
 const IMPACT_COLOR: Record<EconEvent["impact"], string> = {
   high: C.red,
   medium: C.gold,
-  low: "#5D6B85",
-  holiday: "#4FD8FF",
+  low: "#51678A",
+  holiday: "#2ECCFF",
 };
 
 const QUICK_QUOTES: { q: string; label: string }[] = [
@@ -110,7 +110,7 @@ function srcStamp(ok: boolean, stale: boolean, fetchedAt: string): string {
 
 const chipCls = (active: boolean) =>
   `rounded-full border px-2.5 py-1 text-[9.5px] font-bold tracking-wide transition-colors ${
-    active ? "border-[#D4AF37]/60 bg-[#D4AF37]/10 text-[#D4AF37]" : "border-[#1C2A47] bg-[#101C33] text-[#8C98AE] hover:text-[#B8C2D6]"
+    active ? "border-[#E9B94E]/60 bg-[#E9B94E]/10 text-[#E9B94E]" : "border-[#0F2E58] bg-[#041428] text-[#8AA2C2] hover:text-[#B9CBE4]"
   }`;
 
 export function IntelPanel() {
@@ -192,24 +192,24 @@ export function IntelPanel() {
     <div className="space-y-4">
       {/* header strip */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex items-center gap-2 rounded-lg border border-[#1C2A47] bg-[#0D1730]/90 px-3 py-2">
-          <Globe size={14} className="text-[#4FD8FF]" />
-          <span className="text-[10.5px] font-extrabold tracking-[0.2em] text-[#DDE6F5]">MARKET INTEL</span>
-          <span className="text-[9px] font-bold uppercase tracking-wider text-[#6B7A94]">· live external feeds</span>
+        <div className="flex items-center gap-2 rounded-lg border border-[#0F2E58] bg-[#021430]/90 px-3 py-2">
+          <Globe size={14} className="text-[#2ECCFF]" />
+          <span className="text-[10.5px] font-extrabold tracking-[0.2em] text-[#DCE9FA]">MARKET INTEL</span>
+          <span className="text-[9px] font-bold uppercase tracking-wider text-[#6485AB]">· live external feeds</span>
         </div>
-        <span className="rounded-full border border-[#1C2A47] bg-[#101C33] px-2.5 py-1 text-[9px] font-bold text-[#8C98AE]">
+        <span className="rounded-full border border-[#0F2E58] bg-[#041428] px-2.5 py-1 text-[9px] font-bold text-[#8AA2C2]">
           ForexFactory {cal ? srcStamp(cal.ok, cal.stale, cal.fetchedAt) : "…"}
         </span>
-        <span className="rounded-full border border-[#1C2A47] bg-[#101C33] px-2.5 py-1 text-[9px] font-bold text-[#8C98AE]">
+        <span className="rounded-full border border-[#0F2E58] bg-[#041428] px-2.5 py-1 text-[9px] font-bold text-[#8AA2C2]">
           Bloomberg {news && newsSrc === "bloomberg" ? srcStamp(news.ok, news.stale, news.fetchedAt) : newsSrc === "bloomberg" ? "…" : "idle"}
         </span>
-        <span className="rounded-full border border-[#1C2A47] bg-[#101C33] px-2.5 py-1 text-[9px] font-bold text-[#8C98AE]">
+        <span className="rounded-full border border-[#0F2E58] bg-[#041428] px-2.5 py-1 text-[9px] font-bold text-[#8AA2C2]">
           Yahoo {news && newsSrc === "yahoo" ? srcStamp(news.ok, news.stale, news.fetchedAt) : newsSrc === "yahoo" ? "…" : "idle"}
         </span>
         <button
           type="button"
           onClick={refreshAll}
-          className="ml-auto flex items-center gap-1.5 rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-1.5 text-[10px] font-bold text-[#B8C2D6] transition-colors hover:border-[#D4AF37]/50 hover:text-[#D4AF37]"
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-[#0F2E58] bg-[#041428] px-3 py-1.5 text-[10px] font-bold text-[#B9CBE4] transition-colors hover:border-[#E9B94E]/50 hover:text-[#E9B94E]"
         >
           <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
           Refresh feeds
@@ -226,13 +226,13 @@ export function IntelPanel() {
                 {d.replace("_", " ")}
               </button>
             ))}
-            <span className="mx-1 h-4 w-px bg-[#1C2A47]" />
+            <span className="mx-1 h-4 w-px bg-[#0F2E58]" />
             {(["all", "med_high", "high"] as ImpactKey[]).map((i) => (
               <button key={i} type="button" onClick={() => setImpact(i)} className={chipCls(impact === i)}>
                 {i === "all" ? "all impact" : i === "high" ? "high only" : "med + high"}
               </button>
             ))}
-            <span className="mx-1 h-4 w-px bg-[#1C2A47]" />
+            <span className="mx-1 h-4 w-px bg-[#0F2E58]" />
             {["ALL", "USD", "EUR", "GBP", "JPY"].map((cc) => (
               <button key={cc} type="button" onClick={() => setCurrency(cc)} className={chipCls(currency === cc)}>
                 {cc}
@@ -241,7 +241,7 @@ export function IntelPanel() {
           </div>
 
           {/* column legend */}
-          <div className="grid grid-cols-[44px_38px_1fr_58px_58px_58px] gap-1 border-b border-[#16263F] pb-1 text-[8px] font-extrabold uppercase tracking-[0.12em] text-[#6B7A94]">
+          <div className="grid grid-cols-[44px_38px_1fr_58px_58px_58px] gap-1 border-b border-[#0A2447] pb-1 text-[8px] font-extrabold uppercase tracking-[0.12em] text-[#6485AB]">
             <span>Time</span>
             <span>Cur</span>
             <span>Event</span>
@@ -253,13 +253,13 @@ export function IntelPanel() {
           {/* rows */}
           <div className="halo-scroll max-h-[430px] min-h-[120px] overflow-y-auto pr-1">
             {!cal ? (
-              <p className="py-6 text-center text-[10.5px] text-[#6B7A94]">Fetching ForexFactory calendar…</p>
+              <p className="py-6 text-center text-[10.5px] text-[#6485AB]">Fetching ForexFactory calendar…</p>
             ) : !cal.ok ? (
-              <p className="rounded-lg border border-[rgba(242,54,69,0.4)] bg-[rgba(242,54,69,0.07)] px-3 py-3 text-[10.5px] leading-snug text-[#F23645]">
+              <p className="rounded-lg border border-[rgba(255,77,94,0.4)] bg-[rgba(255,77,94,0.07)] px-3 py-3 text-[10.5px] leading-snug text-[#FF4D5E]">
                 Calendar feed unreachable — {cal.error}. Retry with the refresh button; nothing is invented to fill the gap.
               </p>
             ) : cal.events.length === 0 ? (
-              <p className="py-6 text-center text-[10.5px] text-[#6B7A94]">
+              <p className="py-6 text-center text-[10.5px] text-[#6485AB]">
                 No {impact === "all" ? "" : impact === "high" ? "high-impact " : "medium-or-higher "}
                 {currency !== "ALL" ? `${currency} ` : ""}releases for {day.replace("_", " ")}.
               </p>
@@ -270,21 +270,21 @@ export function IntelPanel() {
                   return (
                     <li
                       key={`${e.date}-${e.title}-${i}`}
-                      className="grid grid-cols-[44px_38px_1fr_58px_58px_58px] items-center gap-1 rounded-md px-1 py-1 hover:bg-[#101C33]"
+                      className="grid grid-cols-[44px_38px_1fr_58px_58px_58px] items-center gap-1 rounded-md px-1 py-1 hover:bg-[#041428]"
                       title={e.title}
                     >
-                      <span className="font-mono text-[10px] font-bold text-[#8C98AE]">{fmtClock(e.date)}</span>
-                      <span className="font-mono text-[9.5px] font-extrabold text-[#B8C2D6]">{e.currency}</span>
+                      <span className="font-mono text-[10px] font-bold text-[#8AA2C2]">{fmtClock(e.date)}</span>
+                      <span className="font-mono text-[9.5px] font-extrabold text-[#B9CBE4]">{e.currency}</span>
                       <span className="flex min-w-0 items-center gap-1.5">
                         <span
                           className="h-1.5 w-1.5 shrink-0 rounded-full"
                           style={{ background: IMPACT_COLOR[e.impact], boxShadow: e.impact === "high" ? `0 0 6px ${IMPACT_COLOR[e.impact]}` : undefined }}
                           title={e.impact}
                         />
-                        <span className="truncate text-[10.5px] font-medium text-[#DDE6F5]">{e.title}</span>
+                        <span className="truncate text-[10.5px] font-medium text-[#DCE9FA]">{e.title}</span>
                       </span>
-                      <span className="truncate text-right font-mono text-[9.5px] text-[#8C98AE]">{e.forecast || "—"}</span>
-                      <span className="truncate text-right font-mono text-[9.5px] text-[#6B7A94]">{e.previous || "—"}</span>
+                      <span className="truncate text-right font-mono text-[9.5px] text-[#8AA2C2]">{e.forecast || "—"}</span>
+                      <span className="truncate text-right font-mono text-[9.5px] text-[#6485AB]">{e.previous || "—"}</span>
                       <span
                         className="truncate text-right font-mono text-[9.5px] font-bold"
                         style={{ color: released ? C.gold : "#4A5568" }}
@@ -297,7 +297,7 @@ export function IntelPanel() {
               </ul>
             )}
           </div>
-          <p className="text-[8.5px] leading-snug text-[#5D6B85]">
+          <p className="text-[8.5px] leading-snug text-[#51678A]">
             Times in UTC · impact dot: red = high, gold = medium · source {cal?.source ?? "ForexFactory"} · informational, not trade advice.
           </p>
         </PanelCard>
@@ -310,23 +310,23 @@ export function IntelPanel() {
               const q = quotes[qq.q];
               const up = (q?.changePct ?? 0) >= 0;
               return (
-                <div key={qq.q} className="min-w-0 rounded-lg border border-[#16263F] bg-[#0B1426]/70 px-2.5 py-2">
+                <div key={qq.q} className="min-w-0 rounded-lg border border-[#0A2447] bg-[#020B1A]/70 px-2.5 py-2">
                   <div className="flex items-center justify-between gap-1">
-                    <span className="truncate text-[8.5px] font-bold uppercase tracking-[0.14em] text-[#6B7A94]">{q?.label ?? qq.label}</span>
+                    <span className="truncate text-[8.5px] font-bold uppercase tracking-[0.14em] text-[#6485AB]">{q?.label ?? qq.label}</span>
                     {q?.ok && q.changePct != null && (
                       <span className="shrink-0 font-mono text-[8.5px] font-bold" style={{ color: up ? C.green : C.red }}>
                         {up ? "▲" : "▼"} {Math.abs(q.changePct).toFixed(2)}%
                       </span>
                     )}
                   </div>
-                  <div className="truncate font-mono text-[12.5px] font-bold leading-tight" style={{ color: q?.ok ? C.txt : "#6B7A94" }}>
+                  <div className="truncate font-mono text-[12.5px] font-bold leading-tight" style={{ color: q?.ok ? C.txt : "#6485AB" }}>
                     {q?.ok && q.price != null
                       ? q.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: Math.abs(q.price) < 5 ? 4 : 2 })
                       : q && !q.ok
                         ? "—"
                         : "…"}
                   </div>
-                  {q && !q.ok && <div className="truncate text-[8px] text-[#F23645]/80" title={q.error}>{q.error?.slice(0, 30) ?? "unreachable"}</div>}
+                  {q && !q.ok && <div className="truncate text-[8px] text-[#FF4D5E]/80" title={q.error}>{q.error?.slice(0, 30) ?? "unreachable"}</div>}
                 </div>
               );
             })}
@@ -349,9 +349,9 @@ export function IntelPanel() {
             bodyClassName="flex flex-col gap-1 p-3"
           >
             {!news ? (
-              <p className="py-4 text-center text-[10.5px] text-[#6B7A94]">Fetching headlines…</p>
+              <p className="py-4 text-center text-[10.5px] text-[#6485AB]">Fetching headlines…</p>
             ) : !news.ok ? (
-              <p className="rounded-lg border border-[rgba(242,54,69,0.4)] bg-[rgba(242,54,69,0.07)] px-3 py-2.5 text-[10.5px] leading-snug text-[#F23645]">
+              <p className="rounded-lg border border-[rgba(255,77,94,0.4)] bg-[rgba(255,77,94,0.07)] px-3 py-2.5 text-[10.5px] leading-snug text-[#FF4D5E]">
                 {newsSrc} feed unreachable — {news.error}. Try the other source or refresh; no headlines are fabricated.
               </p>
             ) : (
@@ -362,16 +362,16 @@ export function IntelPanel() {
                       href={n.link || "#"}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="group flex items-start gap-2 rounded-md px-1 py-1.5 hover:bg-[#101C33]"
+                      className="group flex items-start gap-2 rounded-md px-1 py-1.5 hover:bg-[#041428]"
                     >
-                      <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-[#4FD8FF]/70" />
+                      <span className="mt-1 h-1 w-1 shrink-0 rounded-full bg-[#2ECCFF]/70" />
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[10.5px] font-medium leading-snug text-[#DDE6F5] group-hover:text-[#9BE8FF]">{n.title}</span>
-                        <span className="text-[8.5px] font-bold uppercase tracking-wider text-[#5D6B85]">
+                        <span className="block text-[10.5px] font-medium leading-snug text-[#DCE9FA] group-hover:text-[#9BE8FF]">{n.title}</span>
+                        <span className="text-[8.5px] font-bold uppercase tracking-wider text-[#51678A]">
                           {n.outlet} · {relTime(n.publishedAt)}
                         </span>
                       </span>
-                      <ExternalLink size={10} className="mt-1 shrink-0 text-[#3D4C66] group-hover:text-[#4FD8FF]" />
+                      <ExternalLink size={10} className="mt-1 shrink-0 text-[#3D4C66] group-hover:text-[#2ECCFF]" />
                     </a>
                   </li>
                 ))}

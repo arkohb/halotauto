@@ -69,7 +69,7 @@ export function FxLayer() {
         className="absolute inset-0"
         style={{
           background:
-            "radial-gradient(120% 90% at 50% 30%, rgba(11,20,38,0) 40%, rgba(4,8,18,0.55) 100%)",
+            "radial-gradient(120% 90% at 50% 30%, rgba(2,11,26,0) 40%, rgba(4,8,18,0.55) 100%)",
         }}
       />
 
@@ -78,7 +78,7 @@ export function FxLayer() {
         className={`halo-grid-pan absolute inset-x-[-40%] bottom-[-6%] h-[42vh]`}
         style={{
           backgroundImage:
-            "linear-gradient(rgba(212,175,55,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.13) 1px, transparent 1px)",
+            "linear-gradient(rgba(30,144,255,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(30,144,255,0.11) 1px, transparent 1px)",
           backgroundSize: "46px 46px, 46px 46px",
           transform: "perspective(520px) rotateX(63deg)",
           transformOrigin: "center top",
@@ -94,7 +94,7 @@ export function FxLayer() {
           className="halo-scan-sweep absolute inset-x-0 top-0 h-[26vh]"
           style={{
             background:
-              "linear-gradient(to bottom, transparent, rgba(212,175,55,0.05) 55%, rgba(212,175,55,0.11) 98%, rgba(212,175,55,0.22) 100%)",
+              "linear-gradient(to bottom, transparent, rgba(46,204,255,0.04) 55%, rgba(46,204,255,0.09) 98%, rgba(46,204,255,0.18) 100%)",
             animation: "halo-scan-sweep 11s linear infinite",
           }}
         />
@@ -112,8 +112,8 @@ export function FxLayer() {
                 bottom: "-12px",
                 width: p.size,
                 height: p.size,
-                background: "#D4AF37",
-                boxShadow: "0 0 6px 1px rgba(212,175,55,0.55)",
+                background: "#2ECCFF",
+                boxShadow: "0 0 6px 1px rgba(46,204,255,0.5)",
                 animationDuration: `${p.duration}s`,
                 animationDelay: `${p.delay}s`,
                 "--dx": p.dx,

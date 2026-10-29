@@ -32,7 +32,7 @@ interface Props {
   tf: string;
 }
 
-const GOLD = "#D4AF37";
+const GOLD = "#E9B94E";
 const RED = "242,54,69";
 const GREEN = "8,153,129";
 
@@ -336,7 +336,7 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
           position: "absolute",
           right: 132, // clear of the candle-timer badge (bottom-right, 118px wide)
           bottom: 6,
-          borderColor: "rgba(28,42,71,0.9)",
+          borderColor: "rgba(15,46,88,0.9)",
           background: "rgba(7,13,27,0.8)",
           color: "rgba(140,152,174,0.85)",
         }}

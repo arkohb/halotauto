@@ -223,22 +223,22 @@ function targetsFor(state: OrbVisual, alertWarm: boolean): OrbParams {
 function cssTone(state: OrbVisual, alertWarm: boolean): { tone: string; dim: boolean } {
   switch (state) {
     case "alert":
-      return { tone: alertWarm ? "#F23645" : "#FFB454", dim: false };
+      return { tone: alertWarm ? "#FF4D5E" : "#FFB454", dim: false };
     case "error":
-      return { tone: "#F23645", dim: false };
+      return { tone: "#FF4D5E", dim: false };
     case "executing":
       return { tone: "#35E0C8", dim: false };
     case "offline":
-      return { tone: "#5D606B", dim: true };
+      return { tone: "#51678A", dim: true };
     default:
-      return { tone: "#4FD8FF", dim: false };
+      return { tone: "#2ECCFF", dim: false };
   }
 }
 
 // ── CSS fallback orb (FX off / WebGL unavailable / context lost) ─────────
 export function CssOrb({
   size = 132,
-  tone = "#4FD8FF",
+  tone = "#2ECCFF",
   dim = false,
   animate = true,
 }: {
@@ -264,7 +264,7 @@ export function CssOrb({
       <div
         className={`absolute inset-[20%] rounded-full ${animate ? "halo-anim-breathe" : ""}`}
         style={{
-          background: `radial-gradient(circle at 42% 36%, ${tone}E6, ${tone}44 55%, rgba(11,20,38,0.92) 100%)`,
+          background: `radial-gradient(circle at 42% 36%, ${tone}E6, ${tone}44 55%, rgba(2,11,26,0.92) 100%)`,
           boxShadow: `0 0 22px 2px ${tone}33, inset 0 0 18px ${tone}22`,
           transformBox: "fill-box",
           transformOrigin: "center",

@@ -73,7 +73,7 @@ export function VoiceSettingsCard() {
         background: `linear-gradient(180deg, ${C.panel}, ${C.deep})`,
         // layered glass — the exact PanelCard recipe
         boxShadow:
-          "inset 0 1px 0 rgba(79,216,255,0.07), inset 0 0 0 1px rgba(79,216,255,0.02), 0 12px 32px rgba(3,8,18,0.45), 0 2px 8px rgba(3,8,18,0.35)",
+          "inset 0 1px 0 rgba(46,204,255,0.07), inset 0 0 0 1px rgba(46,204,255,0.02), 0 12px 32px rgba(3,8,18,0.45), 0 2px 8px rgba(3,8,18,0.35)",
       }}
     >
       <div className="flex items-center justify-between border-b border-[var(--hx-line)] px-4 py-3">

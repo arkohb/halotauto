@@ -5,47 +5,50 @@ import type { EngineSnapshot, HaloConfig } from "./types";
 export type VoiceState = "idle" | "listening" | "processing" | "speaking";
 
 export const C = {
-  navy: "#0B1426", // app background
-  navy2: "#101C33", // raised surface / hover
-  navy3: "#16233D", // highest raise
-  navy4: "#0F1A30", // card surface
-  line: "#1C2A47", // primary border
-  gold: "#D4AF37", // metallic gold — brand + primary actions
+  // ── surfaces · deep-space navy with an azure cast (mockup palette) ──
+  navy: "#020B1A", // app background
+  navy2: "#041428", // raised surface / hover
+  navy3: "#07203F", // highest raise
+  navy4: "#021229", // card surface
+  line: "#0F2E58", // primary border
+  gold: "#E9B94E", // metallic gold — brand mark only (logo)
   goldDim: "#8A7423",
-  txt: "#E8ECF4", // primary text
-  muted: "#8C98AE", // muted text
-  red: "#F23645", // negative money color
-  green: "#089981", // positive money color
+  txt: "#EAF3FF", // primary text
+  muted: "#8AA2C2", // muted text
+  red: "#FF4D5E", // negative money color
+  green: "#00D68F", // positive money color
   gray: "#787B86",
-  cyan: "#4FD8FF", // electric cyan — AI core / telemetry illumination
+  cyan: "#2ECCFF", // electric azure — primary interactive accent
+  blue: "#1E90FF", // azure blue — active fills / gradients
   ice: "#9BE8FF", // restrained ice-blue — secondary AI glow
 
   // ── v2 tokens: the previously-hardcoded palette, now first-class ──
-  deep: "#070D1B", // near-black wells (deepest surface)
-  panel: "#0D1730", // glass panel base (PanelCard)
-  panelLine: "#1E3358", // PanelCard border
-  line2: "#2A3A5C", // input / hover border
-  lineInner: "#16263F", // inner dividers
-  divider: "#121D35", // row dividers / chart grid
-  txt2: "#B8C2D6", // secondary text
-  txt3: "#DDE6F5", // panel title text
-  label: "#6B7A94", // label gray
-  dim: "#5D606B", // inactive / dot gray
-  goldHover: "#E3C25A", // gold hover / bright gold
+  deep: "#000714", // near-black wells (deepest surface)
+  panel: "#021430", // glass panel base (PanelCard)
+  panelLine: "#13386A", // PanelCard border
+  line2: "#1C4478", // input / hover border
+  lineInner: "#0A2447", // inner dividers
+  divider: "#061B38", // row dividers / chart grid
+  txt2: "#B9CBE4", // secondary text
+  txt3: "#DCE9FA", // panel title text
+  label: "#6485AB", // label gray
+  dim: "#51678A", // inactive / dot gray
+  goldHover: "#F5CD6B", // gold hover / bright gold
   warn: "#FFB454", // warning amber
   teal: "#35E0C8", // teal — verified execution / positive AI activity
 };
 
 /** rgba() of a token — ONE syntax for translucent HALO colors: A.gold(0.12). */
 export const A = {
-  gold: (a: number) => `rgba(212,175,55,${a})`,
-  cyan: (a: number) => `rgba(79,216,255,${a})`,
+  gold: (a: number) => `rgba(233,185,78,${a})`,
+  cyan: (a: number) => `rgba(46,204,255,${a})`,
+  blue: (a: number) => `rgba(30,144,255,${a})`,
   teal: (a: number) => `rgba(53,224,200,${a})`,
   ice: (a: number) => `rgba(155,232,255,${a})`,
-  green: (a: number) => `rgba(8,153,129,${a})`,
-  red: (a: number) => `rgba(242,54,69,${a})`,
+  green: (a: number) => `rgba(0,214,143,${a})`,
+  red: (a: number) => `rgba(255,77,94,${a})`,
   warn: (a: number) => `rgba(255,180,84,${a})`,
-  white: (a: number) => `rgba(232,236,244,${a})`,
+  white: (a: number) => `rgba(234,243,255,${a})`,
 };
 
 /** Unified status-pill tones — replaces the 6+ ad-hoc pill recipes. */

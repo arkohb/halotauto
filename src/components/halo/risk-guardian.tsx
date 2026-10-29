@@ -95,34 +95,39 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
       icon={ShieldCheck}
       accent="green"
       right={<Pill tone={live ? "live" : "muted"}>{live ? "LIVE ACCOUNT" : "SIMULATOR"}</Pill>}
+      className="h-full"
     >
-      <div className="flex h-full flex-col gap-2 p-3">
-        {/* protective hologram — colour only, never touches risk logic */}
-        <div className="flex items-center gap-3 rounded-lg border bg-[#0B1426]/60 px-3 py-2" style={{ borderColor: C.lineInner }}>
-          <RiskShield level={shieldLevel} size={64} />
+      <div className="flex h-full flex-col gap-2.5 p-3">
+        {/* hero row — protective hologram + status word (mockup 05) */}
+        <div className="flex items-center gap-4 rounded-xl border px-4 py-3" style={{ borderColor: C.lineInner, background: `radial-gradient(circle at 18% 50%, ${A.green(0.07)}, transparent 55%), rgba(2,11,26,0.6)` }}>
+          <RiskShield level={shieldLevel} size={92} />
           <div className="min-w-0">
+            <div className="text-[9px] font-bold uppercase tracking-[0.18em]" style={{ color: C.label }}>Risk Status</div>
             <div
-              className="text-[10.5px] font-extrabold tracking-[0.16em]"
-              style={{ color: shieldLevel === "pass" ? C.green : shieldLevel === "warn" ? C.gold : C.red }}
+              className="mt-0.5 text-[19px] font-extrabold leading-tight"
+              style={{
+                color: shieldLevel === "pass" ? C.green : shieldLevel === "warn" ? C.warn : C.red,
+                textShadow: `0 0 18px ${shieldLevel === "pass" ? A.green(0.35) : shieldLevel === "warn" ? A.warn(0.3) : A.red(0.3)}`,
+              }}
             >
-              {shieldWord}
+              {breach ? "Review" : warn ? "Watching" : "Healthy"}
             </div>
-            <div className="mt-0.5 text-[9.5px] leading-snug" style={{ color: C.muted }}>{shieldSub}</div>
+            <div className="mt-0.5 text-[9.5px] leading-snug" style={{ color: C.muted }}>{shieldWord.charAt(0) + shieldWord.slice(1).toLowerCase()} · {shieldSub}</div>
           </div>
           <div className="ml-auto hidden shrink-0 text-right sm:block">
             <div className="text-[8px] font-bold tracking-[0.14em]" style={{ color: C.label }}>MARGIN LV</div>
-            <div className="font-mono text-[12px] font-bold" style={{ color: marginLevel !== null ? (marginLevel < 200 ? C.gold : C.green) : C.txt }}>
+            <div className="font-mono text-[13px] font-bold" style={{ color: marginLevel !== null ? (marginLevel < 200 ? C.warn : C.green) : C.txt }}>
               {marginLevel !== null ? `${marginLevel.toFixed(0)}%` : "—"}
             </div>
-            <div className="text-[8px] font-bold tracking-[0.14em]" style={{ color: C.label }}>FLOAT</div>
-            <div className="font-mono text-[11px] font-bold" style={{ color: floatDrift >= 0 ? C.green : C.red }}>
+            <div className="mt-1 text-[8px] font-bold tracking-[0.14em]" style={{ color: C.label }}>FLOAT</div>
+            <div className="font-mono text-[12px] font-bold" style={{ color: floatDrift >= 0 ? C.green : C.red }}>
               {floatDrift >= 0 ? "+" : "−"}
               {Math.abs(floatDrift).toFixed(2)}%
             </div>
           </div>
         </div>
 
-        {/* headline account strip */}
+        {/* risk metrics grid — 3 × 3, all real */}
         <div className="grid grid-cols-3 gap-1.5">
           <StatCell label="Balance" value={a ? `$${a.balance.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"} sub={a ? cur : undefined} />
           <StatCell label="Equity" value={a ? `$${a.equity.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"} sub={a ? cur : undefined} />
@@ -131,10 +136,6 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
             value={hasPos ? `${openPnl >= 0 ? "+" : "−"}$${Math.abs(openPnl).toFixed(2)}` : "Flat"}
             color={hasPos ? (openPnl >= 0 ? C.green : C.red) : C.muted}
           />
-        </div>
-
-        {/* risk posture */}
-        <div className="grid grid-cols-3 gap-1.5">
           <StatCell
             label="Risk/trade"
             value={state.exec.sizingMode === "fixed" ? `${state.exec.sizeFixed} lots` : `${state.exec.sizePercent}%`}
@@ -142,16 +143,32 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
           <StatCell
             label="Exposure"
             value={a && a.equity > 0 && a.margin > 0 ? `${((a.margin / a.equity) * 100).toFixed(1)}%` : "0%"}
+            color={exposurePct > 50 ? C.warn : undefined}
+          />
+          <StatCell
+            label="Margin LV"
+            value={marginLevel !== null ? `${marginLevel.toFixed(0)}%` : "—"}
+            color={marginLevel !== null && marginLevel < 200 ? C.warn : marginLevel !== null ? C.green : undefined}
           />
           <StatCell
             label="Run P/L"
             value={state.engine.trade && rp !== null ? fmtPips(rp) : "—"}
             color={state.engine.trade && rp !== null ? (rp >= 0 ? C.green : C.red) : C.muted}
           />
+          <StatCell
+            label="Routing"
+            value={isLive ? "LIVE" : "PAPER"}
+            color={isLive ? C.red : C.cyan}
+          />
+          <StatCell
+            label="Positions"
+            value={String(acct?.positions.length ?? 0)}
+            sub={acct?.positions.length ? "open" : "flat"}
+          />
         </div>
 
-        {/* live checks — all real */}
-        <div className="mt-auto rounded-lg border bg-[#0B1426]/70 px-2.5 py-1" style={{ borderColor: C.lineInner }}>
+        {/* safety checks — all real */}
+        <div className="mt-auto rounded-lg border bg-[#020B1A]/70 px-2.5 py-1" style={{ borderColor: C.lineInner }}>
           <CheckRow label="Feed" verdict={feedOk ? "pass" : "info"} detail={feedOk ? `${state.feed.source} · live` : state.feed.note || state.feed.source} />
           <CheckRow
             label="Execution"
