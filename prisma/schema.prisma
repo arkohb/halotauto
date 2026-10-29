@@ -118,6 +118,19 @@ model AlertLog {
   createdAt DateTime @default(now())
 }
 
+// Trader profile + HALO voice-assistant preferences (id = "main").
+// Presentation layer ONLY — never read by the trading engine, execution
+// path, risk controls or broker integration.
+model TraderProfile {
+  id           String   @id @default("main")
+  displayName  String   @default("")   // preferred spoken/display name; empty → "Trader"
+  voiceEnabled Boolean  @default(false) // consent: spoken welcome + spoken replies (TTS)
+  wakeEnabled  Boolean  @default(false) // consent: wake-word microphone listening
+  wakePhrase   String   @default("halo") // wake word/phrase, matched in speech
+  autoGreeting Boolean  @default(true)  // speak the personalized welcome on return visits
+  updatedAt    DateTime @updatedAt
+}
+
 // Multi-symbol scanner watchlist
 model ScannerSymbol {
   id        String   @id @default(cuid())

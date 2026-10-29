@@ -1,0 +1,885 @@
+"use client";
+
+// ════════════════════════════════════════════════════════════════════════
+//  HALO VOICE PROVIDER · app-wide voice brain (headless state machine)
+//
+//  Owns the entire voice experience so every surface (welcome banner,
+//  HALO AI core, JARVIS console, settings) shares ONE source of truth and
+//  exactly ONE speech engine — no double audio, no mic fights:
+//
+//   • Trader profile  — server-backed name + consents (/api/halo/profile)
+//   • Device prefs    — volume / rate / voice / mute / convo timeout (local)
+//   • TTS engine      — speechSynthesis with autoplay watchdog; speaks the
+//                       personalized welcome automatically on return visits
+//   • Wake word       — continuous SpeechRecognition standby for the
+//                       configurable wake phrase ("HALO" by default),
+//                       with echo guard, activation cooldown, backoff
+//   • Conversation    — wake ack → listen → grounded read-only answer →
+//                       speak → listen … until silence timeout or an exit
+//                       phrase ("goodbye HALO / stop listening / go to sleep")
+//   • Interruptions   — while HALO speaks inside a conversation a barge-in
+//                       listener stops the speech when the trader talks
+//                       (transcripts that merely echo HALO are ignored)
+//
+//  SAFETY: this provider is presentation-only. It never calls trading
+//  endpoints, never mutates engine/broker state, and the assistant it
+//  talks to is the read-only /api/halo/assistant core.
+// ════════════════════════════════════════════════════════════════════════
+
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { BotStateRes, VoiceState } from "@/lib/halo/ui-helpers";
+import { displayGreeting, standbyLine, wakeAck, welcomeScript, type GreetCtx } from "@/lib/halo/greeting";
+import { getSTTCtor, isEcho, ttsAvailable, wakeHit, type HaloSpeechRecognition } from "@/lib/halo/speech";
+
+// ── public types ─────────────────────────────────────────────────────────
+export interface ProfileState {
+  displayName: string;
+  hasName: boolean;
+  voiceEnabled: boolean;
+  wakeEnabled: boolean;
+  wakePhrase: string;
+  autoGreeting: boolean;
+  loaded: boolean;
+}
+
+export interface VoicePrefs {
+  volume: number; // 0..1
+  rate: number; // 0.7..1.4
+  voiceURI: string;
+  muted: boolean;
+  convoSeconds: number; // silence window that ends a conversation
+}
+
+export type MicState = "unsupported" | "denied" | "idle" | "listening";
+export type WakeState = "off" | "standby" | "listening" | "denied" | "unsupported";
+export type AssistantStatus = "initializing" | "online" | "offline";
+export type MsgKind = "normal" | "greeting" | "wake" | "system";
+
+export interface Msg {
+  role: "user" | "halo";
+  text: string;
+  at: number;
+  verifiedAt?: string;
+  err?: boolean;
+  kind?: MsgKind;
+}
+
+interface SpeakOpts {
+  onend?: () => void;
+  onblocked?: () => void;
+  /** bypass the session mute (explicit user actions like Test voice) */
+  ignoreMute?: boolean;
+}
+
+type RecMode = "off" | "wake" | "convo" | "barge";
+
+// ── constants ────────────────────────────────────────────────────────────
+const PREFS_KEY = "halo-voice-prefs.v1";
+const TRANSCRIPT_KEY = "halo-jarvis-transcript"; // same key the console always used
+const GREET_KEY = "halo3el.voice.greeted.v1";
+
+const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false, convoSeconds: 12 };
+
+const EXIT_RE = /(goodbye\s+halo|goodbye,?\s+halo|stop\s+listening|go\s+to\s+sleep)/i;
+const WAKE_COOLDOWN_MS = 4000;
+const ECHO_TAIL_MS = 3000;
+
+// ── context ──────────────────────────────────────────────────────────────
+interface HaloVoiceCtx {
+  profile: ProfileState;
+  saveProfile: (patch: Partial<Omit<ProfileState, "loaded" | "hasName">>) => Promise<boolean>;
+  prefs: VoicePrefs;
+  setPrefs: (patch: Partial<VoicePrefs>) => void;
+  voices: { uri: string; label: string }[];
+  status: AssistantStatus;
+  voice: VoiceState;
+  mic: MicState;
+  requestMic: () => Promise<"granted" | "denied" | "unsupported">;
+  wakeState: WakeState;
+  convoOpen: boolean;
+  blocked: boolean; // autoplay blocked → "Tap once to enable voice"
+  msgs: Msg[];
+  clearMsgs: () => void;
+  send: (text: string) => Promise<void>;
+  startConvo: () => void;
+  closeConvo: (spoken?: boolean) => void;
+  speak: (text: string, opts?: SpeakOpts) => boolean;
+  stopSpeaking: () => void;
+  testVoice: () => void;
+  replayWelcome: () => void;
+  enableVoice: () => Promise<void>;
+  disableVoice: () => Promise<void>;
+  enableWake: () => Promise<"granted" | "denied" | "unsupported">;
+  disableWake: () => Promise<void>;
+  greetingCopy: { headline: string; sub: string };
+}
+
+const Ctx = createContext<HaloVoiceCtx | null>(null);
+
+export function useHaloVoice(): HaloVoiceCtx {
+  const v = useContext(Ctx);
+  if (!v) throw new Error("useHaloVoice must be used inside <HaloVoiceProvider>");
+  return v;
+}
+
+// ── provider ─────────────────────────────────────────────────────────────
+export function HaloVoiceProvider({ children, snapshot }: { children: React.ReactNode; snapshot: BotStateRes | null }) {
+  // ── server profile ──
+  const [profile, setProfile] = useState<ProfileState>({
+    displayName: "",
+    hasName: false,
+    voiceEnabled: false,
+    wakeEnabled: false,
+    wakePhrase: "halo",
+    autoGreeting: true,
+    loaded: false,
+  });
+  const [status, setStatus] = useState<AssistantStatus>("initializing");
+
+  // ── device prefs (volume/rate/voice/mute/convo length) ──
+  const [prefs, setPrefsState] = useState<VoicePrefs>(DEFAULT_PREFS);
+
+  // ── engine state ──
+  const [voice, setVoice] = useState<VoiceState>("idle");
+  const [mic, setMic] = useState<MicState>("idle");
+  const [wakeActive, setWakeActive] = useState(false);
+  const [convoOpen, setConvoOpen] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const [voices, setVoices] = useState<{ uri: string; label: string }[]>([]);
+
+  // ── refs (latest values for callbacks / guards) ──
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+  const prefsRef = useRef(prefs);
+  prefsRef.current = prefs;
+  const snapshotRef = useRef<BotStateRes | null>(snapshot);
+  snapshotRef.current = snapshot;
+  const voiceRef = useRef<VoiceState>("idle");
+  voiceRef.current = voice;
+  const micRef = useRef<MicState>("idle");
+  micRef.current = mic;
+  const convoRef = useRef(false);
+  const busyRef = useRef(false);
+  const msgsRef = useRef<Msg[]>([]);
+  const speakTokenRef = useRef(0);
+  const watchdogRef = useRef<number | null>(null);
+  const lastSpokenRef = useRef<string | null>(null);
+  const speechEndedAtRef = useRef(0);
+  const recRef = useRef<HaloSpeechRecognition | null>(null);
+  const recGenRef = useRef(0);
+  const recModeRef = useRef<RecMode>("off");
+  const errStreakRef = useRef(0);
+  const restartTimerRef = useRef<number | null>(null);
+  const silenceTimerRef = useRef<number | null>(null);
+  const lastActRef = useRef(0);
+  const ackIdxRef = useRef(0);
+  const greetedAttemptRef = useRef(false);
+  const spokenGreetRef = useRef(false);
+  const pendingGreetRef = useRef<string | null>(null);
+  const lastGreetRef = useRef<string>("");
+  const profileRetryRef = useRef<number | null>(null);
+
+  // ── helpers ──
+  const greetCtx = useCallback((): GreetCtx => {
+    const p = profileRef.current;
+    return { name: p.displayName || "Trader", hasName: p.hasName, wakeEnabled: p.voiceEnabled && p.wakeEnabled, wakePhrase: p.wakePhrase };
+  }, []);
+
+  const addMsg = useCallback((m: Msg) => {
+    setMsgs((prev) => [...prev, m].slice(-40));
+  }, []);
+
+  const clearSilence = useCallback(() => {
+    if (silenceTimerRef.current) {
+      window.clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+  }, []);
+
+  const armSilence = useCallback(() => {
+    clearSilence();
+    silenceTimerRef.current = window.setTimeout(() => closeConvo(true), Math.max(6, prefsRef.current.convoSeconds) * 1000);
+     
+  }, [clearSilence]);
+
+  // ── profile persistence ──
+  const saveProfile = useCallback(async (patch: Partial<Omit<ProfileState, "loaded" | "hasName">>): Promise<boolean> => {
+    const prev = profileRef.current;
+    setProfile((p) => ({ ...p, ...patch }));
+    try {
+      const r = await fetch("/api/halo/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const j = (await r.json()) as { ok: boolean; profile?: Omit<ProfileState, "loaded">; error?: string };
+      if (j.ok && j.profile) {
+        setProfile({ ...j.profile, loaded: true });
+        return true;
+      }
+      setProfile(prev);
+      return false;
+    } catch {
+      setProfile(prev);
+      return false;
+    }
+  }, []);
+
+  // ── recognition control ──
+  const stopRec = useCallback(() => {
+    recGenRef.current += 1; // invalidate pending restarts/handlers
+    const rec = recRef.current;
+    recRef.current = null;
+    recModeRef.current = "off";
+    if (rec) {
+      rec.onend = null;
+      rec.onresult = null;
+      rec.onerror = null;
+      try {
+        rec.abort();
+      } catch {
+        // ignore
+      }
+    }
+    setMic((m) => (m === "listening" ? "idle" : m));
+    setWakeActive(false);
+  }, []);
+
+  const shouldWake = useCallback(() => {
+    const p = profileRef.current;
+    return (
+      p.loaded &&
+      p.voiceEnabled &&
+      p.wakeEnabled &&
+      !convoRef.current &&
+      !busyRef.current &&
+      voiceRef.current !== "speaking" &&
+      voiceRef.current !== "processing" &&
+      micRef.current !== "denied" &&
+      micRef.current !== "unsupported" &&
+      typeof document !== "undefined" &&
+      document.visibilityState === "visible"
+    );
+  }, []);
+
+  const startRec = useCallback(
+    (mode: RecMode) => {
+      stopRec();
+      const Ctor = getSTTCtor();
+      if (!Ctor) {
+        setMic("unsupported");
+        return;
+      }
+      const gen = ++recGenRef.current;
+      const rec = new Ctor();
+      rec.lang = "en-US";
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.maxAlternatives = 1;
+
+      rec.onstart = () => {
+        if (gen !== recGenRef.current) return;
+        errStreakRef.current = 0;
+        setMic("listening");
+        if (mode === "wake") setWakeActive(true);
+        if (mode === "convo") setVoice("listening");
+      };
+
+      rec.onend = () => {
+        if (gen !== recGenRef.current) return;
+        recRef.current = null;
+        setMic((m) => (m === "listening" ? "idle" : m));
+        setWakeActive(false);
+        if (mode === "convo") setVoice((v) => (v === "listening" ? "idle" : v));
+        // auto-restart (Chrome ends continuous sessions periodically)
+        const delay = errStreakRef.current === 0 ? 500 : Math.min(10_000, 900 * errStreakRef.current);
+        if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = window.setTimeout(() => {
+          if (gen !== recGenRef.current) return;
+          if (mode === "wake" && shouldWake()) startRec("wake");
+          else if (mode === "convo" && convoRef.current && voiceRef.current === "idle" && !busyRef.current) startRec("convo");
+        }, delay);
+      };
+
+      rec.onerror = (ev) => {
+        if (gen !== recGenRef.current) return;
+        if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+          errStreakRef.current = 0;
+          setMic("denied");
+          stopRec();
+          addMsg({
+            role: "halo",
+            text: "⚠ Microphone permission is denied, so I can't listen. Allow the mic in your browser's site settings, or keep using text chat.",
+            at: Date.now(),
+            err: true,
+          });
+        } else if (ev.error === "network" || ev.error === "audio-capture") {
+          errStreakRef.current += 1;
+        }
+        // "no-speech" / "aborted" — onend restart covers these
+      };
+
+      rec.onresult = (e) => {
+        if (gen !== recGenRef.current) return;
+        let finalText = "";
+        let interimText = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          const t = r[0]?.transcript ?? "";
+          if (r.isFinal) finalText += `${t} `;
+          else interimText += t;
+        }
+
+        if (mode === "wake") {
+          const phrase = profileRef.current.wakePhrase;
+          const hit =
+            (finalText && wakeHit(finalText, phrase)) || (interimText && wakeHit(interimText, phrase)) || false;
+          if (hit && Date.now() - lastActRef.current > WAKE_COOLDOWN_MS) {
+            lastActRef.current = Date.now();
+            stopRec();
+            startConvo(true);
+          }
+          return;
+        }
+
+        // convo / barge
+        if (interimText.trim()) {
+          armSilence();
+          if (mode === "convo") setVoice("listening");
+        }
+        const text = finalText.trim();
+        if (!text) return;
+        // echo guard — ignore our own voice bouncing back
+        if (isEcho(text, lastSpokenRef.current) && Date.now() - speechEndedAtRef.current < ECHO_TAIL_MS) return;
+
+        if (mode === "barge") {
+          // the trader started talking over HALO — stop speaking, take over
+          stopSpeaking();
+          startRec("convo");
+        }
+        handleUtterance(text);
+      };
+
+      recRef.current = rec;
+      recModeRef.current = mode;
+      try {
+        rec.start();
+      } catch {
+        // InvalidStateError — already started; onend will re-schedule
+        recRef.current = null;
+      }
+    },
+     
+    [stopRec, shouldWake, armSilence, addMsg]
+  );
+
+  // ── TTS engine ──
+  const clearWatchdog = () => {
+    if (watchdogRef.current) {
+      window.clearTimeout(watchdogRef.current);
+      watchdogRef.current = null;
+    }
+  };
+
+  const stopSpeaking = useCallback(() => {
+    speakTokenRef.current += 1;
+    clearWatchdog();
+    if (ttsAvailable()) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
+    }
+    setVoice((v) => (v === "speaking" ? "idle" : v));
+  }, []);
+
+  const speak = useCallback(
+    (text: string, opts: SpeakOpts = {}): boolean => {
+      const token = ++speakTokenRef.current;
+      const finish = (fireEnd: boolean) => {
+        if (token !== speakTokenRef.current) return;
+        clearWatchdog();
+        speechEndedAtRef.current = Date.now();
+        setVoice((v) => (v === "speaking" ? "idle" : v));
+        // hand the mic back: conversation listening, or wake standby
+        if (convoRef.current && !busyRef.current) startRec("convo");
+        else if (shouldWake()) {
+          if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = window.setTimeout(() => {
+            if (shouldWake()) startRec("wake");
+          }, 800);
+        }
+        if (fireEnd) opts.onend?.();
+      };
+
+      if (!ttsAvailable() || (prefsRef.current.muted && !opts.ignoreMute)) {
+        window.setTimeout(() => {
+          if (token !== speakTokenRef.current) return;
+          speechEndedAtRef.current = Date.now();
+          if (convoRef.current && !busyRef.current) startRec("convo");
+          else if (shouldWake()) {
+            restartTimerRef.current = window.setTimeout(() => {
+              if (shouldWake()) startRec("wake");
+            }, 800);
+          }
+          opts.onend?.();
+        }, 40);
+        return false;
+      }
+
+      const synth = window.speechSynthesis;
+      try {
+        synth.cancel();
+      } catch {
+        // ignore
+      }
+      const u = new SpeechSynthesisUtterance(text.replace(/⚠/g, "").slice(0, 1200));
+      u.volume = Math.max(0, Math.min(1, prefsRef.current.volume));
+      u.rate = Math.max(0.7, Math.min(1.4, prefsRef.current.rate));
+      u.pitch = 0.92;
+      const vs = synth.getVoices();
+      const v =
+        vs.find((x) => x.voiceURI === prefsRef.current.voiceURI) ??
+        vs.find((x) => /en[-_]GB/i.test(x.lang)) ??
+        vs.find((x) => /^en/i.test(x.lang));
+      if (v) u.voice = v;
+
+      let started = false;
+      u.onstart = () => {
+        if (token !== speakTokenRef.current) return;
+        started = true;
+        clearWatchdog();
+        setVoice("speaking");
+        // while HALO talks: barge-in listener inside a conversation, silence otherwise
+        if (convoRef.current && micRef.current !== "denied" && micRef.current !== "unsupported") startRec("barge");
+        else stopRec();
+      };
+      u.onend = () => finish(true);
+      u.onerror = () => finish(false);
+
+      clearWatchdog();
+      watchdogRef.current = window.setTimeout(() => {
+        if (token === speakTokenRef.current && !started) {
+          // Autoplay policy or missing voices silently swallowed the utterance.
+          finish(false);
+          opts.onblocked?.();
+        }
+      }, 1700);
+
+      window.setTimeout(() => {
+        if (token !== speakTokenRef.current) return;
+        try {
+          synth.speak(u);
+        } catch {
+          finish(false);
+        }
+      }, 60);
+      return true;
+    },
+     
+    [startRec, stopRec, shouldWake]
+  );
+
+  // ── conversation turns ──
+  const handleUtterance = useCallback(
+    (raw: string) => {
+      const text = raw.trim().slice(0, 800);
+      if (!text) return;
+      armSilence();
+      if (EXIT_RE.test(text)) {
+        addMsg({ role: "user", text, at: Date.now() });
+        closeConvo(true);
+        return;
+      }
+      // strip a leading wake phrase — "HALO, what's the gold price?"
+      const p = profileRef.current.wakePhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const stripped = text.replace(new RegExp(`^${p}[,.!?\\s]*`, "i"), "").trim();
+      void send(stripped || text);
+    },
+     
+    [armSilence, addMsg]
+  );
+
+  const send = useCallback(
+    async (raw: string) => {
+      const text = raw.trim().slice(0, 800);
+      if (!text || busyRef.current) return;
+      busyRef.current = true;
+      clearSilence();
+      stopSpeaking();
+      stopRec();
+      addMsg({ role: "user", text, at: Date.now() });
+      setVoice("processing");
+
+      const history = msgsRef.current.slice(-8).map((m) => ({ role: m.role, text: m.text }));
+      try {
+        const r = await fetch("/api/halo/assistant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, history, mode: "voice" }),
+        });
+        const j = (await r.json()) as { ok: boolean; reply?: string; error?: string; snapshotAt?: string };
+        if (j.ok && j.reply) {
+          addMsg({ role: "halo", text: j.reply, at: Date.now(), verifiedAt: j.snapshotAt });
+          lastSpokenRef.current = j.reply;
+          setVoice("idle");
+          speak(j.reply);
+        } else {
+          addMsg({ role: "halo", text: `⚠ ${j.error ?? "Assistant unavailable — try again shortly."}`, at: Date.now(), err: true });
+          setVoice("idle");
+          if (convoRef.current) armSilence();
+        }
+      } catch (e) {
+        addMsg({ role: "halo", text: `⚠ Connection lost: ${(e as Error).message}`, at: Date.now(), err: true });
+        setVoice("idle");
+        if (convoRef.current) armSilence();
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [addMsg, speak, stopRec, stopSpeaking, clearSilence, armSilence]
+  );
+
+  const startConvo = useCallback(
+    (fromWake = false) => {
+      convoRef.current = true;
+      setConvoOpen(true);
+      armSilence();
+      if (fromWake) {
+        const ctx = greetCtx();
+        const ack = wakeAck(ctx, ackIdxRef.current++);
+        addMsg({ role: "user", text: `“${profileRef.current.wakePhrase.toUpperCase()}”`, at: Date.now(), kind: "wake" });
+        lastSpokenRef.current = ack;
+        speak(ack);
+      } else {
+        // manual open — user gesture; go straight to listening
+        stopSpeaking();
+        startRec("convo");
+      }
+    },
+     
+    [addMsg, speak, startRec, stopSpeaking, armSilence, greetCtx]
+  );
+
+  const closeConvo = useCallback(
+    (spoken = false) => {
+      const wasOpen = convoRef.current;
+      convoRef.current = false;
+      setConvoOpen(false);
+      clearSilence();
+      stopRec();
+      if (!wasOpen) return;
+      if (spoken && profileRef.current.voiceEnabled) {
+        const line = standbyLine(greetCtx());
+        lastSpokenRef.current = line;
+        speak(line); // speak() hands the mic back to wake standby afterwards
+      } else if (shouldWake()) {
+        if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = window.setTimeout(() => {
+          if (shouldWake()) startRec("wake");
+        }, 600);
+      }
+    },
+     
+    [clearSilence, stopRec, speak, shouldWake, startRec, greetCtx]
+  );
+
+  // ── personalized greeting ──
+  const attemptGreeting = useCallback(() => {
+    const p = profileRef.current;
+    greetedAttemptRef.current = true;
+    try {
+      if (window.sessionStorage.getItem(GREET_KEY) === "1") return;
+      window.sessionStorage.setItem(GREET_KEY, "1");
+    } catch {
+      // storage blocked (private mode) — in-memory guard still prevents dupes
+    }
+    if (!p.voiceEnabled || !p.autoGreeting) return; // banner shows the onboarding control
+    if (!ttsAvailable()) return;
+
+    const script = welcomeScript(snapshotRef.current, greetCtx());
+    lastGreetRef.current = script;
+    spokenGreetRef.current = true;
+    pendingGreetRef.current = script;
+    addMsg({ role: "halo", text: script, at: Date.now(), kind: "greeting" });
+    // let the boot sequence clear, then speak without requiring a click
+    window.setTimeout(() => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      speak(script, { onblocked: () => setBlocked(true), onend: () => (pendingGreetRef.current = null) });
+    }, 2800);
+     
+  }, [addMsg, speak, greetCtx]);
+
+  const replayWelcome = useCallback(() => {
+    const script = lastGreetRef.current || welcomeScript(snapshotRef.current, greetCtx());
+    lastSpokenRef.current = script;
+    speak(script);
+     
+  }, [speak, greetCtx]);
+
+  const testVoice = useCallback(() => {
+    const ctx = greetCtx();
+    const line = ctx.hasName ? `Voice check complete. HALO is online, ${ctx.name}.` : "Voice check complete. HALO is online.";
+    lastSpokenRef.current = line;
+    speak(line);
+     
+  }, [speak, greetCtx]);
+
+  const enableVoice = useCallback(async () => {
+    const ok = await saveProfile({ voiceEnabled: true });
+    if (!ok) return;
+    if (!spokenGreetRef.current && profileRef.current.autoGreeting) {
+      // first-time activation: deliver the welcome right away (user gesture → autoplay allowed)
+      const script = welcomeScript(snapshotRef.current, greetCtx());
+      lastGreetRef.current = script;
+      spokenGreetRef.current = true;
+      pendingGreetRef.current = null;
+      addMsg({ role: "halo", text: script, at: Date.now(), kind: "greeting" });
+      lastSpokenRef.current = script;
+      speak(script);
+    } else {
+      const line = "HALO voice enabled.";
+      lastSpokenRef.current = line;
+      speak(line);
+    }
+     
+  }, [speak, addMsg, greetCtx]);
+
+  const disableVoice = useCallback(async () => {
+    await saveProfile({ voiceEnabled: false, wakeEnabled: false });
+    stopSpeaking();
+    stopRec();
+    closeConvo(false);
+     
+  }, [saveProfile, stopSpeaking, stopRec, closeConvo]);
+
+  // ── microphone permission ──
+  const requestMic = useCallback(async (): Promise<"granted" | "denied" | "unsupported"> => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setMic("unsupported");
+      return "unsupported";
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop()); // permission persists; we never record
+      setMic("idle");
+      return "granted";
+    } catch {
+      setMic("denied");
+      return "denied";
+    }
+  }, []);
+
+  const enableWake = useCallback(async (): Promise<"granted" | "denied" | "unsupported"> => {
+    const res = await requestMic();
+    if (res !== "granted") return res;
+    await saveProfile({ wakeEnabled: true });
+    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = window.setTimeout(() => {
+      if (shouldWake()) startRec("wake");
+    }, 500);
+    return "granted";
+  }, [requestMic, saveProfile, shouldWake, startRec]);
+
+  const disableWake = useCallback(async () => {
+    await saveProfile({ wakeEnabled: false });
+    if (recModeRef.current === "wake") stopRec();
+  }, [saveProfile, stopRec]);
+
+  // ── mount: hydrate prefs + transcript, detect capabilities ──
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      try {
+        const raw = window.localStorage.getItem(PREFS_KEY);
+        if (raw) setPrefsState({ ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<VoicePrefs>) });
+      } catch {
+        // ignore
+      }
+      try {
+        const raw = window.localStorage.getItem(TRANSCRIPT_KEY);
+        const arr = raw ? (JSON.parse(raw) as Msg[]) : [];
+        setMsgs(Array.isArray(arr) ? arr.slice(-40) : []);
+      } catch {
+        // ignore
+      }
+      if (getSTTCtor() === null) setMic("unsupported");
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  // persist prefs + transcript
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    } catch {
+      // ignore
+    }
+  }, [prefs]);
+
+  useEffect(() => {
+    if (msgs.length === 0) return;
+    try {
+      window.localStorage.setItem(TRANSCRIPT_KEY, JSON.stringify(msgs.filter((m) => m.at > 0).slice(-40)));
+    } catch {
+      // ignore
+    }
+  }, [msgs]);
+
+  const setPrefs = useCallback((patch: Partial<VoicePrefs>) => {
+    setPrefsState((p) => ({ ...p, ...patch }));
+  }, []);
+
+  const clearMsgs = useCallback(() => {
+    setMsgs([]);
+    try {
+      window.localStorage.removeItem(TRANSCRIPT_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  // ── profile fetch (with retry → honest Initializing/Offline status) ──
+  useEffect(() => {
+    let alive = true;
+    const load = async (attempt = 0) => {
+      try {
+        const r = await fetch("/api/halo/profile", { cache: "no-store" });
+        const j = (await r.json()) as { ok: boolean; profile?: Omit<ProfileState, "loaded">; error?: string };
+        if (!alive) return;
+        if (j.ok && j.profile) {
+          setProfile({ ...j.profile, loaded: true });
+          setStatus("online");
+        } else throw new Error(j.error ?? "profile unavailable");
+      } catch {
+        if (!alive) return;
+        setStatus("offline");
+        const wait = Math.min(30_000, 4000 * (attempt + 1));
+        profileRetryRef.current = window.setTimeout(() => load(attempt + 1), wait);
+      }
+    };
+    const t = window.setTimeout(() => load(), 0);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+      if (profileRetryRef.current) window.clearTimeout(profileRetryRef.current);
+    };
+  }, []);
+
+  // ── voice list (for the voice picker) ──
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      if (!ttsAvailable()) return;
+      const load = () => {
+        const vs = window.speechSynthesis
+          .getVoices()
+          .filter((v) => v.lang.toLowerCase().startsWith("en"))
+          .map((v) => ({ uri: v.voiceURI, label: `${v.name} (${v.lang})` }));
+        setVoices(vs);
+      };
+      load();
+      window.speechSynthesis.onvoiceschanged = load;
+    }, 0);
+    return () => {
+      window.clearTimeout(id);
+      if (ttsAvailable()) window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
+
+  // ── greeting trigger: once per session, after profile + snapshot arrive ──
+  useEffect(() => {
+    if (!profile.loaded || !snapshot || greetedAttemptRef.current) return;
+    const t = window.setTimeout(() => attemptGreeting(), 200);
+    return () => window.clearTimeout(t);
+  }, [profile.loaded, snapshot, attemptGreeting]);
+
+  // ── autoplay blocked → one-tap retry on the next qualifying interaction ──
+  useEffect(() => {
+    if (!blocked) return;
+    const retry = () => {
+      setBlocked(false);
+      const pending = pendingGreetRef.current;
+      pendingGreetRef.current = null;
+      const script = pending ?? lastGreetRef.current;
+      if (script) {
+        lastSpokenRef.current = script;
+        speak(script, { onblocked: () => setBlocked(true) });
+      }
+    };
+    const evs: (keyof WindowEventMap)[] = ["pointerdown", "keydown", "touchstart"];
+    evs.forEach((ev) => window.addEventListener(ev, retry, { once: true }));
+    return () => evs.forEach((ev) => window.removeEventListener(ev, retry));
+  }, [blocked, speak]);
+
+  // ── tab visibility: pause mic standby in background tabs ──
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        if (shouldWake() && recModeRef.current === "off") {
+          if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = window.setTimeout(() => {
+            if (shouldWake()) startRec("wake");
+          }, 600);
+        }
+      } else {
+        stopRec();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [shouldWake, startRec, stopRec]);
+
+  // ── unmount: full teardown (no orphan mic or audio) ──
+  useEffect(() => {
+    return () => {
+      stopRec();
+      stopSpeaking();
+      clearSilence();
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+    };
+     
+  }, []);
+
+  // ── derived ──
+  const wakeState: WakeState = useMemo(() => {
+    const p = profile;
+    if (!p.loaded || !p.voiceEnabled || !p.wakeEnabled) return "off";
+    if (mic === "denied") return "denied";
+    if (mic === "unsupported") return "unsupported";
+    return wakeActive ? "listening" : "standby";
+  }, [profile, mic, wakeActive]);
+
+  const greetingCopy = useMemo(() => displayGreeting(snapshot, { name: profile.displayName || "Trader", hasName: profile.hasName, wakeEnabled: profile.voiceEnabled && profile.wakeEnabled, wakePhrase: profile.wakePhrase }), [snapshot, profile]);
+
+  const value: HaloVoiceCtx = {
+    profile,
+    saveProfile,
+    prefs,
+    setPrefs,
+    voices,
+    status,
+    voice,
+    mic,
+    requestMic,
+    wakeState,
+    convoOpen,
+    blocked,
+    msgs,
+    clearMsgs,
+    send,
+    startConvo,
+    closeConvo,
+    speak,
+    stopSpeaking,
+    testVoice,
+    replayWelcome,
+    enableVoice,
+    disableVoice,
+    enableWake,
+    disableWake,
+    greetingCopy,
+  };
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+}

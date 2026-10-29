@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
-import { C, statusOf, type BotStateRes, type VoiceState } from "@/lib/halo/ui-helpers";
+import { C, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { Header } from "@/components/halo/header";
 import { ControlDeck } from "@/components/halo/control-deck";
 import { StatusBanner } from "@/components/halo/status-banner";
@@ -43,6 +43,9 @@ import { BootSequence } from "@/components/halo/boot-sequence";
 import { RobotAssistant } from "@/components/halo/robot-assistant";
 import { HaloCore } from "@/components/halo/halo-core";
 import { JarvisConsole } from "@/components/halo/jarvis-console";
+import { HaloVoiceProvider } from "@/components/halo/voice-provider";
+import { WelcomeGreeting } from "@/components/halo/welcome-greeting";
+import { VoiceSettingsCard } from "@/components/halo/voice-settings-card";
 import { MarketPulse } from "@/components/halo/market-pulse";
 import { RiskGuardian } from "@/components/halo/risk-guardian";
 import { TradingActivity } from "@/components/halo/trading-activity";
@@ -59,7 +62,6 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<HaloView>("terminal");
-  const [voice, setVoice] = useState<VoiceState>("idle");
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
@@ -67,9 +69,6 @@ export default function Page() {
   // dock the AI assistant as a right rail on xl dashboard screens
   const isXl = useMediaQuery("(min-width: 1280px)");
   const dockAssistant = view === "terminal" && isXl;
-
-  // JARVIS console mirrors its voice activity onto the HALO AI Core orb
-  const onVoice = useCallback((v: VoiceState) => setVoice(v), []);
 
   const notify = useCallback(
     (title: string, desc?: string, bad?: boolean) => {
@@ -286,37 +285,43 @@ export default function Page() {
   }
 
   return (
-    <div className="flex min-h-screen flex-col text-[#E8ECF4]">
-      <FxLayer />
-      <BootSequence />
-      <PwaRegister />
+    <HaloVoiceProvider snapshot={state}>
+      <div className="flex min-h-screen flex-col text-[#E8ECF4]">
+        <FxLayer />
+        <BootSequence />
+        <PwaRegister />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
-        <NavChips view={view} onView={setView} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
+          <NavChips view={view} onView={setView} />
 
-        <div className="flex min-w-0 flex-1 items-start">
-          <NavRail view={view} onView={setView} />
+          <div className="flex min-w-0 flex-1 items-start">
+            <NavRail view={view} onView={setView} />
 
-          <main className="min-w-0 flex-1 px-3 py-4 lg:px-4">
-            {/* ════════ DASHBOARD (command center) ════════ */}
-            {view === "terminal" && (
-              <div className="grid grid-cols-12 gap-3">
-                {/* row 1 · market pulse / AI core / risk guardian / assistant rail */}
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
-                  <MarketPulse state={state} candles={candles} />
-                </div>
-                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
-                  <HaloCore state={state} voice={voice} />
-                </div>
-                <div className="col-span-12 lg:col-span-4 xl:col-span-3">
-                  <RiskGuardian state={state} />
-                </div>
-                {dockAssistant && (
-                  <div className="col-span-12 min-h-0 xl:col-span-3 xl:row-span-2">
-                    <JarvisConsole variant="docked" onVoice={onVoice} />
+            <main className="min-w-0 flex-1 px-3 py-4 lg:px-4">
+              {/* ════════ DASHBOARD (command center) ════════ */}
+              {view === "terminal" && (
+                <div className="grid grid-cols-12 gap-3">
+                  {/* row 0 · personalized welcome + assistant status */}
+                  <div className="col-span-12">
+                    <WelcomeGreeting />
                   </div>
-                )}
+
+                  {/* row 1 · market pulse / AI core / risk guardian / assistant rail */}
+                  <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
+                    <MarketPulse state={state} candles={candles} />
+                  </div>
+                  <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
+                    <HaloCore state={state} />
+                  </div>
+                  <div className="col-span-12 lg:col-span-4 xl:col-span-3">
+                    <RiskGuardian state={state} />
+                  </div>
+                  {dockAssistant && (
+                    <div className="col-span-12 min-h-0 xl:col-span-3 xl:row-span-2">
+                      <JarvisConsole variant="docked" />
+                    </div>
+                  )}
 
                 {/* row 2 · chart + trading activity */}
                 <div className="col-span-12 min-w-0 space-y-3 xl:col-span-6">
@@ -438,6 +443,7 @@ export default function Page() {
               <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
                 <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
                 <div className="space-y-4">
+                  <VoiceSettingsCard />
                   <EaAttachCard
                     state={state}
                     notify={notify}
@@ -455,7 +461,7 @@ export default function Page() {
       <RobotAssistant state={state} candles={candles} />
 
       {/* JARVIS console — floating on non-dashboard / sub-xl screens */}
-      {!dockAssistant && <JarvisConsole variant="floating" onVoice={onVoice} />}
+      {!dockAssistant && <JarvisConsole variant="floating" />}
 
       <footer className="mt-auto border-t border-[#1C2A47] py-3">
         <div className="mx-auto flex w-full max-w-[1800px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">
@@ -472,6 +478,7 @@ export default function Page() {
           </span>
         </div>
       </footer>
-    </div>
+      </div>
+    </HaloVoiceProvider>
   );
 }

@@ -226,7 +226,7 @@ const STRATEGY_BRIEF = `3EL STRATEGY (v1.2 — wick-line break & return):
 
 const SYSTEM_RULES = `You are HALO — the AI core of the HALO 3EL Autotrader, a JARVIS-style trading companion for one trader.
 
-VOICE: calm, precise, professional, lightly witty (at most one dry remark — never during losses). Concise during market activity; more detailed when asked "why" or "explain". Conversational, never robotic, never hypey.
+VOICE: calm, precise, professional, lightly witty (at most one dry remark — never during losses). Concise during market activity; more detailed when asked "why" or "explain". Conversational, never robotic, never hypey. Address the trader by their preferred name when one is given below — naturally (greetings, acknowledgements), not in every sentence.
 
 HARD RULES (non-negotiable):
 1. You are READ-ONLY. You cannot place, modify, or close any order and cannot change any setting. Never pretend you executed anything. If asked to trade, halt, or change something: say you are read-only and point to the manual controls (EA ON/OFF pill in the header, action buttons on the dashboard, close button on the trade card). A spoken or typed request is never authorization to touch the trading system.
@@ -235,6 +235,8 @@ HARD RULES (non-negotiable):
 4. If the feed is degraded (simulator/slow/error) or the broker is disconnected, disclose it prominently instead of glossing over.
 5. You are not a financial advisor. No buy/sell recommendations beyond what the strategy engine already did — explain mechanics, not advice.
 6. Keep unsolicited market answers under ~90 words unless the user asks for depth. Plain text only (no markdown tables/headers); short sentences.`;
+
+const VOICE_RULES = `SPOKEN-MODE ADDENDUM: this answer will be read aloud by text-to-speech. Keep it under ~65 words. Plain conversational sentences only — no markdown, no bullet lists, no symbols like ⚠ or arrows. Say numbers naturally ("three thousand three hundred" is fine, digits also read well).`;
 
 export async function GET() {
   return NextResponse.json({ ok: true, service: "halo-assistant", readOnly: true });
@@ -252,9 +254,9 @@ export async function POST(req: Request) {
   }
 
   // ── validate payload ──
-  let body: { message?: unknown; history?: unknown };
+  let body: { message?: unknown; history?: unknown; mode?: unknown };
   try {
-    body = (await req.json()) as { message?: unknown; history?: unknown };
+    body = (await req.json()) as { message?: unknown; history?: unknown; mode?: unknown };
   } catch {
     return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
   }
@@ -262,6 +264,7 @@ export async function POST(req: Request) {
   if (!message) {
     return NextResponse.json({ ok: false, error: "Message is empty." }, { status: 400 });
   }
+  const voiceMode = body.mode === "voice";
 
   type Turn = { role: "user" | "halo"; text: string };
   let history: Turn[] = [];
@@ -285,8 +288,17 @@ export async function POST(req: Request) {
 
   // ── grounded completion (server-side only) ──
   try {
+    // trader's preferred name — read server-side, sanitized at the profile API
+    let nameLine = "The trader has not set a preferred name — use “Trader” or no name.";
+    try {
+      const row = await db.traderProfile.findUnique({ where: { id: "main" } });
+      if (row?.displayName?.trim()) nameLine = `The trader's preferred name is “${row.displayName.trim().slice(0, 24)}”.`;
+    } catch {
+      // profile unavailable — never invent a name
+    }
+
     const zai = await ZAI.create();
-    const systemPrompt = `${SYSTEM_RULES}\n\n${STRATEGY_BRIEF}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}`;
+    const systemPrompt = `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}\n\n${nameLine}\n\n${STRATEGY_BRIEF}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}`;
 
     const msgs: { role: "assistant" | "user"; content: string }[] = [
       { role: "assistant", content: systemPrompt },

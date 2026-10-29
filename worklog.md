@@ -84,3 +84,26 @@ Work Log:
   · agent-browser: BROKERS tab renders green BROKER APIs · BUILT-IN badge, MT-only form, catalog of all 9 platforms, mobile iPhone-14 layout, zero console errors
   · bunx eslint on brokers code clean; tsc clean for brokers/* (pre-existing unrelated errors in alerts-panel/execution-panel/market/tv-webhook left untouched)
   · NOTE: this sandbox's egress blocks api.metaapi.cloud + ln.ln.ai (k8s fake-cert ingress) — live provisioning completes on hosts with open egress; the trading API host IS reachable here and the token is verified accepted by real MetaApi
+
+---
+Task ID: voice-1
+Agent: main (Z.ai)
+Task: HALO voice experience — personalized welcome-by-name, automatic spoken greeting, wake-word "HALO" listening, and natural voice conversation (JARVIS-style), without touching trading behaviour
+
+Work Log:
+- Audited codebase: no auth system (next-auth installed but unwired) → added additive Prisma `TraderProfile` singleton (displayName/voiceEnabled/wakeEnabled/wakePhrase/autoGreeting); db push verified all trading tables + rows intact
+- New `/api/halo/profile` (GET/PUT) with strict name/wake-phrase sanitization (unicode-safe, script-injection tested)
+- `src/lib/halo/greeting.ts`: time-band greeting engine, 3 rotating daily variants, honest status clauses strictly derived from BotStateRes (discloses open trades, degraded feed, live routing; never invents health), wake ack + standby lines
+- `src/lib/halo/speech.ts`: Web Speech typings, wake matcher ("halo"/"hey halo"/"hi halo" + mishear table, configurable phrase), echo guard for speaker→mic loops
+- `src/components/halo/voice-provider.tsx`: app-wide voice brain — single TTS engine with autoplay watchdog (blocked → one-tap retry chip), once-per-session auto greeting (refresh-safe, post-boot-sequence), wake-word standby loop (backoff restarts, visibility-aware, cooldown), conversation turn-taking (ack → listen → grounded answer → speak → listen), configurable silence timeout, exit phrases ("goodbye HALO / stop listening / go to sleep"), echo-filtered barge-in interruption, transcript persistence (same localStorage key as before)
+- `jarvis-console.tsx` rewritten as UI over the provider (timestamped transcript incl. wake/greeting entries, mic session toggle, honest mic-denied/unsupported states, mute/volume/voice controls)
+- `welcome-greeting.tsx` banner: personalized headline+name (or "Trader" + PERSONALIZE inline editor), ASSISTANT/VOICE/WAKE status chips, speaking waveform, Enable-voice onboarding, full-banner→slim-strip session collapse
+- `voice-settings-card.tsx` in Settings: name, voice master toggle (disable also stops wake), auto-welcome, volume/speed/voice picker, TEST VOICE + REPLAY WELCOME, wake toggle + phrase editor, conversation window length, mic permission + re-check, read-only safety disclosure
+- `halo-core.tsx`: wake-word telemetry row + personalized identity line; `page.tsx`: provider wrapper + welcome row + settings card; `api/halo/assistant`: server-side trader-name injection + `mode:"voice"` short-reply addendum (read-only rules untouched)
+- Verification: eslint clean, tsc 0 src errors, zero page errors; E2E headless (screenshots download/test-01..10): first-visit onboarding, enable flow, grounded personalized chat reply, settings card, mic-denied honest states, refresh no-duplicate, new-tab auto greeting, mobile viewport, EA stop→start regression + open trade untouched
+- NOT executed (no mic/audio in headless): real wake-word detection accuracy, false-positive rates, audible autoplay-blocked watchdog — flagged for manual device test; nothing deployed to production
+
+Stage Summary:
+- Deliverable: voice-enabled HALO at dev server (port 3000) — greet by name → auto spoken welcome on return visits → say "HALO" to converse hands-free → grounded read-only answers, all states honest
+- Key files: docs/VOICE-ASSISTANT.md (full docs + test matrix), src/components/halo/{voice-provider,welcome-greeting,voice-settings-card,jarvis-console}.tsx, src/lib/halo/{greeting,speech}.ts, src/app/api/halo/{profile,assistant}/route.ts, prisma/schema.prisma
+- Trading engine, execution, risk controls, broker integration: unchanged (voice layer talks only to read-only assistant + profile APIs)

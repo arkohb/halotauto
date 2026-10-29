@@ -21,7 +21,8 @@
 
 import { C, fmtPx, type BotStateRes, type VoiceState } from "@/lib/halo/ui-helpers";
 import { PanelCard, TelemetryRow } from "./panel";
-import { Bot, Globe2, Radar, Settings2, Mic, Waves } from "lucide-react";
+import { useHaloVoice, type WakeState } from "./voice-provider";
+import { Bot, Globe2, Radar, Radio, Settings2, Mic, Waves } from "lucide-react";
 
 type CoreState = "offline" | "standby" | "scanning" | "evaluating" | "managing" | "warning";
 
@@ -38,6 +39,14 @@ const VOICE_META: Record<Exclude<VoiceState, "idle">, { label: string }> = {
   listening: { label: "LISTENING" },
   processing: { label: "PROCESSING" },
   speaking: { label: "SPEAKING" },
+};
+
+const WAKE_META: Record<WakeState, { label: string; color?: string }> = {
+  off: { label: "Off" },
+  standby: { label: "Armed · say the wake word", color: C.cyan },
+  listening: { label: "Listening for wake word", color: C.cyan },
+  denied: { label: "Mic permission denied", color: "#FFB454" },
+  unsupported: { label: "Mic API unavailable", color: "#FFB454" },
 };
 
 // ── the reactor avatar — robot face inside orbiting rings ────────────────
@@ -124,7 +133,9 @@ function CoreAvatar({ color, active, voice }: { color: string; active: boolean; 
 }
 
 // ── main card ────────────────────────────────────────────────────────────
-export function HaloCore({ state, voice }: { state: BotStateRes | null; voice: VoiceState }) {
+export function HaloCore({ state }: { state: BotStateRes | null }) {
+  const v = useHaloVoice();
+  const voice = v.voice;
   // derive the honest core state from the polled bot state
   let core: CoreState = "offline";
   let dir: -1 | 1 = 1;
@@ -162,7 +173,13 @@ export function HaloCore({ state, voice }: { state: BotStateRes | null; voice: V
     return meta.label;
   })();
 
-  const openAssistant = () => window.dispatchEvent(new CustomEvent("halo:assistant-open"));
+  const openAssistant = () => v.startConvo();
+
+  // personalized identity line — the trader's own name, never invented
+  const bandWord = (() => {
+    const h = new Date().getHours();
+    return h < 12 ? "GOOD MORNING" : h < 17 ? "GOOD AFTERNOON" : h < 22 ? "GOOD EVENING" : "LATE SHIFT";
+  })();
 
   return (
     <PanelCard
@@ -186,7 +203,9 @@ export function HaloCore({ state, voice }: { state: BotStateRes | null; voice: V
         {/* identity + telemetry */}
         <div className="min-w-0 flex-1">
           <div className="text-[13px] font-extrabold tracking-wide text-[#E8ECF4]">HALO</div>
-          <div className="mb-1 text-[8.5px] font-bold tracking-[0.2em] text-[#6B7A94]">YOUR TRADING CO-PILOT · READ-ONLY</div>
+          <div className="mb-1 truncate text-[8.5px] font-bold tracking-[0.2em] text-[#6B7A94]">
+            {v.profile.hasName ? `${bandWord}, ${v.profile.displayName.toUpperCase()} · READ-ONLY` : "YOUR TRADING CO-PILOT · READ-ONLY"}
+          </div>
 
           <TelemetryRow icon={<Globe2 size={11} />} label="Connection" value={connection} color={core === "warning" ? "#FFB454" : connection.startsWith("Online") ? C.green : connection.startsWith("Stale") ? C.gold : "#8C98AE"} />
           <TelemetryRow
@@ -200,8 +219,14 @@ export function HaloCore({ state, voice }: { state: BotStateRes | null; voice: V
           <TelemetryRow
             icon={<Waves size={11} />}
             label="Voice"
-            value={speaking ? VOICE_META[voice].label : "Standby"}
+            value={speaking ? VOICE_META[voice].label : v.prefs.muted ? "Muted" : "Standby"}
             color={speaking ? C.cyan : "#8C98AE"}
+          />
+          <TelemetryRow
+            icon={<Radio size={11} />}
+            label="Wake word"
+            value={WAKE_META[v.wakeState].label}
+            color={WAKE_META[v.wakeState].color ?? "#8C98AE"}
           />
         </div>
       </div>
@@ -220,7 +245,7 @@ export function HaloCore({ state, voice }: { state: BotStateRes | null; voice: V
       >
         <Mic size={13} color={C.cyan} />
         <span className="text-[10px] font-extrabold tracking-[0.18em]" style={{ color: C.cyan }}>
-          {voice === "listening" ? "LISTENING…" : voice === "processing" ? "THINKING…" : voice === "speaking" ? "SPEAKING…" : "TALK TO HALO"}
+          {voice === "listening" ? "LISTENING…" : voice === "processing" ? "THINKING…" : voice === "speaking" ? "SPEAKING…" : `TALK TO HALO${v.profile.voiceEnabled ? "" : " · VOICE OFF"}`}
         </span>
         {/* mini equalizer */}
         <span className="flex items-end gap-[2px]" aria-hidden>
