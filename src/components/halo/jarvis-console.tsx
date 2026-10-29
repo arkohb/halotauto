@@ -1,19 +1,22 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  HALO JARVIS CONSOLE · conversational voice + chat assistant (UI layer)
+//  HALO JARVIS CONSOLE · conversational voice + chat operator (UI layer)
 //
 //  Pure presentation over the app-wide HaloVoiceProvider, which owns the
 //  single TTS engine, the wake-word loop, the personalized greeting and
-//  the grounded read-only Q&A core (/api/halo/assistant).
+//  the operator brain (/api/halo/brain — verified answers + allowlisted
+//  actions).
 //
 //  • Text chat with timestamped transcript (persisted by the provider)
 //  • Mic button starts/ends a voice conversation session
 //  • Wake-word standby status is shown honestly (armed / listening /
 //    denied / unsupported / off)
 //  • Spoken replies + interruption are handled by the provider
-//  • READ-ONLY: this console cannot place, close or modify anything —
-//    trading controls stay exclusively in the existing dashboard panels.
+//  • CONSEQUENTIAL ACTIONS: HALO never executes trading controls without
+//    an explicit confirmation — this console shows the pending request
+//    with tap-friendly Confirm / Cancel buttons (same contract as the
+//    spoken "confirm / cancel" reply).
 // ════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from "react";
@@ -37,7 +40,8 @@ const CHIPS: { label: string; prompt: string }[] = [
   { label: "BRIEFING", prompt: "HALO, give me a market briefing." },
   { label: "WHY NO ENTRY?", prompt: "Why haven't I entered a trade yet?" },
   { label: "MY RISK", prompt: "Show me my current risk." },
-  { label: "LAST TRADE", prompt: "Explain the last trade." },
+  { label: "OPEN STRATEGY LAB", prompt: "Open Strategy Lab and show me today's signals." },
+  { label: "MT5 STATUS", prompt: "Is MT5 connected?" },
   { label: "HEALTH", prompt: "Run a system health check." },
 ];
 
@@ -134,7 +138,7 @@ export function JarvisConsole({ variant = "floating" }: { variant?: "floating" |
             >
               {v.status.toUpperCase()}
             </span>
-            <span className="hidden text-[8px] tracking-wider text-[#8C98AE] md:inline">READ-ONLY</span>
+            <span className="hidden text-[8px] tracking-wider text-[#8C98AE] md:inline">VOICE OPERATOR</span>
             <div className="ml-auto flex items-center gap-1">
               {v.wakeState !== "off" && (
                 <span
@@ -195,7 +199,7 @@ export function JarvisConsole({ variant = "floating" }: { variant?: "floating" |
           <div ref={scrollRef} role="log" aria-live="polite" className="halo-scroll flex-1 space-y-2 overflow-y-auto px-3 py-2.5">
             {v.msgs.length === 0 && (
               <div className="rounded-lg border border-[rgba(79,216,255,0.25)] bg-[#0F1A30]/90 px-2.5 py-2 text-[11px] leading-snug text-[#B8C2D6]">
-                HALO online. Ask me for a briefing, why a trade fired (or didn&apos;t), or your current risk. I&apos;m read-only — orders and settings stay on your dashboard.
+                HALO online. I can open sections, switch symbol or timeframe, filter the trade book, read verified stats — and pause or resume entries with your explicit confirmation. Just say “{v.profile.wakePhrase}” or type below.
               </div>
             )}
             {v.msgs.map((m, i) =>
@@ -210,12 +214,18 @@ export function JarvisConsole({ variant = "floating" }: { variant?: "floating" |
                   <div
                     className={`max-w-[86%] rounded-lg border px-2.5 py-1.5 ${m.role === "user" ? "rounded-br-sm" : "rounded-bl-sm"}`}
                     style={{
-                      borderColor: m.err ? "rgba(242,54,69,0.5)" : m.role === "user" ? "rgba(212,175,55,0.4)" : m.kind === "greeting" ? "rgba(155,232,255,0.45)" : "rgba(79,216,255,0.35)",
-                      background: m.role === "user" ? "rgba(22,35,61,0.9)" : "rgba(15,26,48,0.9)",
+                      borderColor: m.err ? "rgba(242,54,69,0.5)" : m.kind === "confirm" ? "rgba(212,175,55,0.55)" : m.kind === "action" ? "rgba(212,175,55,0.4)" : m.role === "user" ? "rgba(212,175,55,0.4)" : m.kind === "greeting" ? "rgba(155,232,255,0.45)" : "rgba(79,216,255,0.35)",
+                      background: m.kind === "confirm" ? "rgba(42,36,16,0.55)" : m.role === "user" ? "rgba(22,35,61,0.9)" : "rgba(15,26,48,0.9)",
                     }}
                   >
                     {m.kind === "greeting" && (
                       <p className="mb-0.5 text-[7.5px] font-extrabold tracking-[0.2em] text-[#9BE8FF]">PERSONAL WELCOME</p>
+                    )}
+                    {m.kind === "action" && (
+                      <p className="mb-0.5 text-[7.5px] font-extrabold tracking-[0.2em]" style={{ color: C.gold }}>ACTION EXECUTED</p>
+                    )}
+                    {m.kind === "confirm" && (
+                      <p className="mb-0.5 text-[7.5px] font-extrabold tracking-[0.2em]" style={{ color: C.gold }}>CONFIRMATION REQUIRED</p>
                     )}
                     <p className="whitespace-pre-wrap text-[11px] leading-snug text-[#E8ECF4]">{m.text}</p>
                     {(m.verifiedAt || m.at > 0) && (
@@ -238,6 +248,40 @@ export function JarvisConsole({ variant = "floating" }: { variant?: "floating" |
               </div>
             )}
           </div>
+
+          {/* pending consequential action — tap-friendly confirm/cancel */}
+          {v.pendingConfirm && !busy && (
+            <div
+              role="alertdialog"
+              aria-label="Confirm consequential action"
+              className="border-t px-2.5 py-2"
+              style={{ borderColor: "rgba(212,175,55,0.5)", background: "rgba(42,36,16,0.35)" }}
+            >
+              <p className="text-[9px] font-extrabold tracking-[0.18em]" style={{ color: C.gold }}>
+                CONFIRM · {v.pendingConfirm.action.replace(/_/g, " ").toUpperCase()}
+              </p>
+              <p className="mt-0.5 text-[10px] leading-snug text-[#E8ECF4]">{v.pendingConfirm.question}</p>
+              {v.pendingConfirm.effect && <p className="mt-0.5 text-[9px] leading-snug text-[#8C98AE]">{v.pendingConfirm.effect}</p>}
+              <div className="mt-1.5 flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={v.approvePending}
+                  className="rounded-md px-2.5 py-1 text-[9.5px] font-extrabold tracking-wider"
+                  style={{ background: "rgba(212,175,55,0.16)", color: C.gold, border: `1px solid ${C.gold}66` }}
+                >
+                  CONFIRM
+                </button>
+                <button
+                  type="button"
+                  onClick={v.cancelPending}
+                  className="rounded-md border px-2.5 py-1 text-[9.5px] font-extrabold tracking-wider"
+                  style={{ borderColor: "#2A3A5C", color: "#8C98AE" }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* quick prompts */}
           <div className="flex flex-wrap gap-1 border-t border-[#1C2A47]/70 px-2.5 py-1.5">

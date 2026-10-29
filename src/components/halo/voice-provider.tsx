@@ -14,16 +14,23 @@
 //   • Wake word       — continuous SpeechRecognition standby for the
 //                       configurable wake phrase ("HALO" by default),
 //                       with echo guard, activation cooldown, backoff
-//   • Conversation    — wake ack → listen → grounded read-only answer →
-//                       speak → listen … until silence timeout or an exit
-//                       phrase ("goodbye HALO / stop listening / go to sleep")
+//   • Conversation    — wake ack → listen → operator brain → speak →
+//                       listen … until an exit phrase or the close button
 //   • Interruptions   — while HALO speaks inside a conversation a barge-in
 //                       listener stops the speech when the trader talks
 //                       (transcripts that merely echo HALO are ignored)
+//   • OPERATIONS      — utterances route through /api/halo/brain: answers
+//                       come from the verified snapshot; actions come back
+//                       as allowlisted registry selections. UI-scope
+//                       actions run through the registered ActionBridge
+//                       runner on REAL app state; consequential actions
+//                       require an explicit spoken confirm/cancel before
+//                       the server executes anything.
 //
-//  SAFETY: this provider is presentation-only. It never calls trading
-//  endpoints, never mutates engine/broker state, and the assistant it
-//  talks to is the read-only /api/halo/assistant core.
+//  SAFETY: this provider never invents results. It speaks success only
+//  after the executor verified the real application state, and it never
+//  bypasses the trading engine — consequential trading controls flow
+//  through /api/halo/brain's audited confirmation path only.
 // ════════════════════════════════════════════════════════════════════════
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
@@ -55,7 +62,7 @@ export interface VoicePrefs {
 export type MicState = "unsupported" | "denied" | "idle" | "listening";
 export type WakeState = "off" | "standby" | "listening" | "denied" | "unsupported";
 export type AssistantStatus = "initializing" | "online" | "offline";
-export type MsgKind = "normal" | "greeting" | "wake" | "system";
+export type MsgKind = "normal" | "greeting" | "wake" | "system" | "action" | "confirm";
 
 export interface Msg {
   role: "user" | "halo";
@@ -65,6 +72,22 @@ export interface Msg {
   err?: boolean;
   kind?: MsgKind;
 }
+
+export interface PendingConfirm {
+  token: string;
+  action: string;
+  question: string;
+  effect: string;
+  at: number;
+}
+
+export interface ClientAction {
+  id: string;
+  params: Record<string, string | boolean>;
+  description?: string;
+}
+
+export type ActionRunner = (a: ClientAction) => Promise<{ ok: boolean; detail: string }>;
 
 interface SpeakOpts {
   onend?: () => void;
@@ -88,6 +111,10 @@ const WELCOME_BACK_THROTTLE_MS = 120_000; // at most one spoken ack per 2 minute
 const EXIT_RE = /(goodbye\s+halo|goodbye,?\s+halo|stop\s+listening|go\s+to\s+sleep)/i;
 const WAKE_COOLDOWN_MS = 4000;
 const ECHO_TAIL_MS = 3000;
+
+// spoken confirmation of a consequential action — deterministic, no LLM
+const AFFIRM_RE = /^(yes|yeah|yep|yup|confirm|confirmed|do it|go ahead|proceed|approve|approved|affirmative|sure|ok|okay)\b/i;
+const NEGATE_RE = /^(no|nope|nah|cancel|cancelled|canceled|stop|abort|don't|do not|dont|negative|nevermind|never mind)\b/i;
 
 // ── context ──────────────────────────────────────────────────────────────
 interface HaloVoiceCtx {
@@ -117,6 +144,11 @@ interface HaloVoiceCtx {
   enableWake: () => Promise<"granted" | "denied" | "unsupported">;
   disableWake: () => Promise<void>;
   greetingCopy: { headline: string; sub: string };
+  // ── operator actions ──
+  registerActionRunner: (fn: ActionRunner | null) => void;
+  pendingConfirm: PendingConfirm | null;
+  approvePending: () => void;
+  cancelPending: () => void;
 }
 
 const Ctx = createContext<HaloVoiceCtx | null>(null);
@@ -188,6 +220,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const hiddenAtRef = useRef(0);
   const lastBackAckRef = useRef(0);
   const backIdxRef = useRef(0);
+  const runnerRef = useRef<ActionRunner | null>(null);
+  const pendingConfirmRef = useRef<PendingConfirm | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
 
   // ── helpers ──
   const greetCtx = useCallback((): GreetCtx => {
@@ -512,6 +547,62 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     [startRec, stopRec, shouldWake]
   );
 
+  // ── operator actions: runner registration + pending confirmation ──
+  const registerActionRunner = useCallback((fn: ActionRunner | null) => {
+    runnerRef.current = fn;
+  }, []);
+
+  const setPending = useCallback((p: PendingConfirm | null) => {
+    pendingConfirmRef.current = p;
+    setPendingConfirm(p);
+  }, []);
+
+  const sendConfirm = useCallback(
+    async (token: string, approve: boolean) => {
+      setPending(null);
+      busyRef.current = true;
+      stopRec();
+      setVoice("processing");
+      try {
+        const r = await fetch("/api/halo/brain", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmToken: token, approve }),
+        });
+        const j = (await r.json()) as { ok: boolean; say?: string; error?: string; declined?: boolean };
+        if (j.ok && j.say) {
+          addMsg({ role: "halo", text: j.say, at: Date.now(), kind: approve ? "action" : "system" });
+          lastSpokenRef.current = j.say;
+          setVoice("idle");
+          speak(j.say);
+        } else {
+          const line = j.error ?? "The confirmation could not be processed — nothing was changed.";
+          addMsg({ role: "halo", text: `⚠ ${line}`, at: Date.now(), err: true });
+          setVoice("idle");
+          speak(line);
+        }
+      } catch (e) {
+        addMsg({ role: "halo", text: `⚠ Connection lost during confirmation: ${(e as Error).message}`, at: Date.now(), err: true });
+        setVoice("idle");
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [addMsg, speak, stopRec]
+  );
+
+  const approvePending = useCallback(() => {
+    const p = pendingConfirmRef.current;
+    if (!p || busyRef.current) return;
+    void sendConfirm(p.token, true);
+  }, [sendConfirm]);
+
+  const cancelPending = useCallback(() => {
+    const p = pendingConfirmRef.current;
+    if (!p || busyRef.current) return;
+    void sendConfirm(p.token, false);
+  }, [sendConfirm]);
+
   // ── conversation turns ──
   const handleUtterance = useCallback(
     (raw: string) => {
@@ -523,17 +614,33 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         closeConvo(true);
         return;
       }
+      // pending consequential action? a plain yes/no resolves it — anything
+      // else supersedes it (the request is cancelled, never silently kept)
+      const pc = pendingConfirmRef.current;
+      if (pc) {
+        if (AFFIRM_RE.test(text)) {
+          addMsg({ role: "user", text, at: Date.now() });
+          approvePending();
+          return;
+        }
+        if (NEGATE_RE.test(text)) {
+          addMsg({ role: "user", text, at: Date.now() });
+          cancelPending();
+          return;
+        }
+        addMsg({ role: "halo", text: "Previous request cancelled — nothing was changed.", at: Date.now(), kind: "system" });
+        setPending(null);
+      }
       // strip a leading wake phrase — "HALO, what's the gold price?"
       const p = profileRef.current.wakePhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const stripped = text.replace(new RegExp(`^${p}[,.!?\\s]*`, "i"), "").trim();
-      void send(stripped || text);
+      void send(stripped || text, "voice");
     },
-     
-    [armSilence, addMsg]
+    [armSilence, addMsg, approvePending, cancelPending, setPending]
   );
 
   const send = useCallback(
-    async (raw: string) => {
+    async (raw: string, origin: "voice" | "text" = "text") => {
       const text = raw.trim().slice(0, 800);
       if (!text || busyRef.current) return;
       // typed exit phrase ends the session too — same contract as the voice path
@@ -541,6 +648,21 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         addMsg({ role: "user", text, at: Date.now() });
         closeConvo(true);
         return;
+      }
+      // typed confirm/cancel answers a pending consequential action directly
+      if (pendingConfirmRef.current && AFFIRM_RE.test(text)) {
+        addMsg({ role: "user", text, at: Date.now() });
+        approvePending();
+        return;
+      }
+      if (pendingConfirmRef.current && NEGATE_RE.test(text)) {
+        addMsg({ role: "user", text, at: Date.now() });
+        cancelPending();
+        return;
+      }
+      if (pendingConfirmRef.current) {
+        addMsg({ role: "halo", text: "Previous request cancelled — nothing was changed.", at: Date.now(), kind: "system" });
+        setPending(null);
       }
       busyRef.current = true;
       clearSilence();
@@ -551,22 +673,84 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
 
       const history = msgsRef.current.slice(-8).map((m) => ({ role: m.role, text: m.text }));
       try {
-        const r = await fetch("/api/halo/assistant", {
+        const r = await fetch("/api/halo/brain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, history, mode: "voice" }),
+          body: JSON.stringify({ message: text, history, mode: "voice", source: origin }),
         });
-        const j = (await r.json()) as { ok: boolean; reply?: string; error?: string; snapshotAt?: string };
-        if (j.ok && j.reply) {
-          addMsg({ role: "halo", text: j.reply, at: Date.now(), verifiedAt: j.snapshotAt });
-          lastSpokenRef.current = j.reply;
-          setVoice("idle");
-          speak(j.reply);
-        } else {
-          addMsg({ role: "halo", text: `⚠ ${j.error ?? "Assistant unavailable — try again shortly."}`, at: Date.now(), err: true });
+        const j = (await r.json()) as {
+          ok: boolean;
+          say?: string;
+          error?: string;
+          verifiedAt?: string;
+          actions?: ClientAction[];
+          readResults?: { id: string; ok: boolean; detail: string }[];
+          confirmation?: { token: string; action: string; question: string; effect: string };
+          declined?: boolean;
+        };
+
+        if (!j.ok || !j.say) {
+          addMsg({ role: "halo", text: `⚠ ${j.error ?? "Operator core unavailable — try again shortly."}`, at: Date.now(), err: true });
           setVoice("idle");
           if (convoRef.current) armSilence();
+          return;
         }
+
+        // ── consequential action → hold for explicit confirm ──
+        if (j.confirmation) {
+          const pc: PendingConfirm = { ...j.confirmation, at: Date.now() };
+          setPending(pc);
+          const spoken = `${j.say} ${pc.question}`.trim();
+          addMsg({ role: "halo", text: j.say, at: Date.now(), verifiedAt: j.verifiedAt, kind: "confirm" });
+          if (pc.effect) addMsg({ role: "halo", text: pc.effect, at: Date.now(), kind: "confirm" });
+          lastSpokenRef.current = spoken;
+          setVoice("idle");
+          speak(spoken);
+          return;
+        }
+
+        // ── declined consequential confirmation ──
+        if (j.declined) {
+          addMsg({ role: "halo", text: j.say, at: Date.now(), kind: "system" });
+          lastSpokenRef.current = j.say;
+          setVoice("idle");
+          speak(j.say);
+          return;
+        }
+
+        // ── allowlisted UI actions → execute on real state, verify, then speak ──
+        if (j.actions && j.actions.length > 0) {
+          const lines: string[] = [];
+          let failures = 0;
+          for (const a of j.actions) {
+            const runner = runnerRef.current;
+            if (!runner) {
+              failures += 1;
+              lines.push(`✗ ${a.id.replace(/_/g, " ")} — executor not attached`);
+              continue;
+            }
+            try {
+              const res = await runner({ id: a.id, params: a.params ?? {} });
+              if (!res.ok) failures += 1;
+              lines.push(`${res.ok ? "✓" : "✗"} ${res.detail}`);
+            } catch (e) {
+              failures += 1;
+              lines.push(`✗ ${(e as Error).message}`);
+            }
+          }
+          addMsg({ role: "halo", text: lines.join("\n"), at: Date.now(), kind: "action" });
+          const spoken = failures > 0 ? `${j.say} However, ${failures === 1 ? "one step failed" : `${failures} steps failed`} — the details are on screen.` : j.say;
+          lastSpokenRef.current = spoken;
+          setVoice("idle");
+          speak(spoken);
+          return;
+        }
+
+        // ── grounded answer / verified read-out ──
+        addMsg({ role: "halo", text: j.say, at: Date.now(), verifiedAt: j.verifiedAt });
+        lastSpokenRef.current = j.say;
+        setVoice("idle");
+        speak(j.say);
       } catch (e) {
         addMsg({ role: "halo", text: `⚠ Connection lost: ${(e as Error).message}`, at: Date.now(), err: true });
         setVoice("idle");
@@ -575,7 +759,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         busyRef.current = false;
       }
     },
-    [addMsg, speak, stopRec, stopSpeaking, clearSilence, armSilence]
+    [addMsg, speak, stopRec, stopSpeaking, clearSilence, armSilence, approvePending, cancelPending, setPending]
   );
 
   const startConvo = useCallback(
@@ -982,6 +1166,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     enableWake,
     disableWake,
     greetingCopy,
+    registerActionRunner,
+    pendingConfirm,
+    approvePending,
+    cancelPending,
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

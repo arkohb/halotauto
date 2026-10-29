@@ -131,6 +131,20 @@ model TraderProfile {
   updatedAt    DateTime @updatedAt
 }
 
+// Audit trail for consequential HALO operator actions (voice or text).
+// Written ONLY by /api/halo/brain when an allowlisted action actually
+// executes (or is rejected) — presentation data, never read by the
+// trading engine, execution path, risk controls or broker integration.
+model ActionAudit {
+  id        String   @id @default(cuid())
+  action    String // registry action id, e.g. pause_new_entries
+  paramsJson String  @default("{}")
+  source    String   @default("text") // voice | text
+  outcome   String // executed | rejected | failed | expired
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+}
+
 // Multi-symbol scanner watchlist
 model ScannerSymbol {
   id        String   @id @default(cuid())

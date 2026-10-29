@@ -55,6 +55,8 @@ import { DailyBriefing } from "@/components/halo/daily-briefing";
 import { NavRail, NavChips, type HaloView } from "@/components/halo/nav-rail";
 import { FxProvider } from "@/lib/halo/fx";
 import { FxSettingsCard } from "@/components/halo/fx-settings-card";
+import { ActionBridge, type BridgeHandlers } from "@/components/halo/action-bridge";
+import type { HistoryPeriod, ViewId } from "@/lib/halo/actions";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 export default function Page() {
@@ -64,9 +66,21 @@ export default function Page() {
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [view, setView] = useState<HaloView>("terminal");
+  const navHistRef = useRef<ViewId | null>(null);
+  const [histFilter, setHistFilter] = useState<HistoryPeriod>("all");
+  const [candleNonce, setCandleNonce] = useState(0);
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
+
+  // voice-operator navigation wrapper — remembers the previous view for go_back
+  const gotoView = useCallback((nv: ViewId) => {
+    setView((prev) => {
+      if (prev !== nv) navHistRef.current = prev;
+      return nv;
+    });
+  }, []);
+  const previousView = useCallback((): ViewId | null => navHistRef.current, []);
 
   // dock the AI assistant as a right rail on xl dashboard screens
   const isXl = useMediaQuery("(min-width: 1280px)");
@@ -131,7 +145,7 @@ export default function Page() {
       alive = false;
       clearInterval(id);
     };
-  }, [symbol, tf]);
+  }, [symbol, tf, candleNonce]);
 
   // refresh history when a trade closes
   useEffect(() => {
@@ -224,7 +238,7 @@ export default function Page() {
   );
 
   const changeSymbol = useCallback(
-    async (s: string) => {
+    async (s: string): Promise<{ ok: boolean; symbol?: string; error?: string }> => {
       setBusy("symbol");
       try {
         const r = await fetch("/api/bot/config", {
@@ -233,8 +247,14 @@ export default function Page() {
           body: JSON.stringify({ symbol: s }),
         });
         const j = (await r.json()) as { ok: boolean; state?: BotStateRes; error?: string };
-        if (j.ok && j.state) setState(j.state);
-        else toast({ title: "Cannot switch symbol", description: j.error, variant: "destructive" });
+        if (j.ok && j.state) {
+          setState(j.state);
+          // verify the runtime actually reports the requested symbol
+          return j.state.symbol === s ? { ok: true, symbol: j.state.symbol } : { ok: false, error: `engine reports ${j.state.symbol} instead of ${s}` };
+        }
+        return { ok: false, error: j.error ?? "the server rejected the switch" };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
       } finally {
         setBusy(null);
       }
@@ -243,7 +263,7 @@ export default function Page() {
   );
 
   const changeTf = useCallback(
-    async (t: string) => {
+    async (t: string): Promise<{ ok: boolean; tf?: string; error?: string }> => {
       setBusy("tf");
       try {
         const r = await fetch("/api/bot/config", {
@@ -252,8 +272,13 @@ export default function Page() {
           body: JSON.stringify({ tf: t }),
         });
         const j = (await r.json()) as { ok: boolean; state?: BotStateRes; error?: string };
-        if (j.ok && j.state) setState(j.state);
-        else toast({ title: "Cannot switch timeframe", description: j.error, variant: "destructive" });
+        if (j.ok && j.state) {
+          setState(j.state);
+          return j.state.tf === t ? { ok: true, tf: j.state.tf } : { ok: false, error: `engine reports ${j.state.tf} instead of ${t}` };
+        }
+        return { ok: false, error: j.error ?? "the server rejected the switch" };
+      } catch (e) {
+        return { ok: false, error: (e as Error).message };
       } finally {
         setBusy(null);
       }
@@ -261,13 +286,35 @@ export default function Page() {
     [toast]
   );
 
+  // voice operator: force a fresh bot-state + candle pull right now
+  const refreshData = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await fetch("/api/bot/state", { cache: "no-store" });
+      if (r.ok) setState((await r.json()) as BotStateRes);
+      setCandleNonce((n) => n + 1);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
   const jumpToSymbol = useCallback(
     (sym: string) => {
-      setView("terminal");
+      gotoView("terminal");
       void changeSymbol(sym);
     },
-    [changeSymbol]
+    [changeSymbol, gotoView]
   );
+
+  // voice-operator client executor (registry → real app functions)
+  const bridgeHandlers: BridgeHandlers = {
+    gotoView,
+    previousView,
+    changeSymbol,
+    changeTf,
+    refreshData,
+    setHistFilter,
+  };
 
   if (!state) {
     return (
@@ -291,6 +338,7 @@ export default function Page() {
   return (
     <FxProvider>
       <HaloVoiceProvider snapshot={state}>
+      <ActionBridge handlers={bridgeHandlers} />
       <div className="flex min-h-screen flex-col text-[#E8ECF4]">
         <FxLayer />
         <BootSequence />
@@ -298,10 +346,10 @@ export default function Page() {
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
-          <NavChips view={view} onView={setView} />
+          <NavChips view={view} onView={gotoView} />
 
           <div className="flex min-w-0 flex-1 items-start">
-            <NavRail view={view} onView={setView} />
+            <NavRail view={view} onView={gotoView} />
 
             <main key={view} className="halo-view-in min-w-0 flex-1 px-3 py-4 lg:px-4">
               {/* ════════ DASHBOARD (command center) ════════ */}
@@ -378,7 +426,7 @@ export default function Page() {
                     state={state}
                     busy={busy}
                     view={view}
-                    onView={(v) => setView(v)}
+                    onView={(v) => gotoView(v)}
                     onControl={control}
                     onExecMode={setExecMode}
                   />
@@ -395,7 +443,7 @@ export default function Page() {
                 <TradeCard state={state} />
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Mt5MobileApp notify={notify} />
-                  <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
+                  <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
                 </div>
               </div>
             )}
@@ -433,7 +481,7 @@ export default function Page() {
               <div className="grid items-start gap-4 lg:grid-cols-3">
                 <DashboardPanel state={state} />
                 <PerformanceIntel refreshKey={histKey} />
-                <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
+                <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
               </div>
             )}
 

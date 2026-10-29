@@ -10,8 +10,8 @@ import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols"
 interface Props {
   state: BotStateRes | null;
   busy: string | null;
-  onSymbol: (s: string) => Promise<void>;
-  onTf: (tf: string) => Promise<void>;
+  onSymbol: (s: string) => Promise<unknown> | void; // result is verified by the voice-operator bridge when used
+  onTf: (tf: string) => Promise<unknown> | void;
 }
 
 /** UTC clock — client-only, ticks every second. */

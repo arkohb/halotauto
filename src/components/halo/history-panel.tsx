@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { C, fmtPx } from "@/lib/halo/ui-helpers";
+import type { HistoryPeriod } from "@/lib/halo/actions";
 
 interface TradeRow {
   id: string;
@@ -24,9 +25,18 @@ interface TradeRow {
 interface Props {
   mintick: number;
   refreshKey: number; // bump to force refresh (e.g. when stats change)
+  /** optional display filter (voice operator) — pure client-side, changes nothing on any broker */
+  filter?: HistoryPeriod;
 }
 
-export function HistoryPanel({ mintick, refreshKey }: Props) {
+const FILTER_LABEL: Record<HistoryPeriod, string> = {
+  today: "TODAY",
+  week: "THIS WEEK",
+  month: "THIS MONTH",
+  all: "",
+};
+
+export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
   const [trades, setTrades] = useState<TradeRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -52,10 +62,32 @@ export function HistoryPanel({ mintick, refreshKey }: Props) {
     return () => clearInterval(id);
   }, [load, refreshKey]);
 
+  // period filter (display only) — computed from real openedAt timestamps
+  const startOf = (period: HistoryPeriod): number | null => {
+    if (period === "all") return null;
+    const d = new Date();
+    if (period === "today") {
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    }
+    if (period === "week") {
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - 6);
+      return d.getTime();
+    }
+    d.setDate(1);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  };
+
+  const filtered = filter === "all" ? trades : trades.filter((t) => new Date(t.openedAt).getTime() >= (startOf(filter) ?? 0));
+
   return (
     <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1C2A47]">
-        <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">TRADE HISTORY · BOT</span>
+        <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">
+          TRADE HISTORY · BOT{FILTER_LABEL[filter] ? <span className="ml-2 rounded px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(212,175,55,0.12)", color: C.gold }}>FILTER · {FILTER_LABEL[filter]}</span> : null}
+        </span>
         <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-[#8C98AE] hover:text-[#E8ECF4]" onClick={() => void load()}>
           refresh
         </Button>
@@ -65,6 +97,10 @@ export function HistoryPanel({ mintick, refreshKey }: Props) {
       ) : trades.length === 0 ? (
         <div className="px-4 py-4 text-xs text-[#8C98AE]">
           No bot trades yet. Start the EA — every C3 fire will be logged here with its SL/TP result.
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="px-4 py-4 text-xs text-[#8C98AE]">
+          No trades in the selected period — clear the filter to see the full book.
         </div>
       ) : (
         <ScrollArea className="max-h-72">
@@ -80,7 +116,7 @@ export function HistoryPanel({ mintick, refreshKey }: Props) {
               </tr>
             </thead>
             <tbody>
-              {trades.map((t) => (
+              {filtered.map((t) => (
                 <tr key={t.id} className="border-t border-[#121D35]">
                   <td className="px-3 py-1.5 font-mono text-[#8C98AE]">
                     {new Date(t.openedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
