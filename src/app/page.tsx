@@ -28,6 +28,7 @@ import { BotPanel } from "@/components/halo/bot-panel";
 import { ExecutionPanel } from "@/components/halo/execution-panel";
 import { HistoryPanel } from "@/components/halo/history-panel";
 import { BacktestPanel } from "@/components/halo/backtest-panel";
+import { BacktestLive } from "@/components/halo/backtest-live";
 import { ScannerPanel } from "@/components/halo/scanner-panel";
 import { BrokersPanel } from "@/components/halo/brokers-panel";
 import { AlertsPanel } from "@/components/halo/alerts-panel";
@@ -357,7 +358,10 @@ export default function Page() {
 
           {/* ════════ BACKTEST · real-data profitability dashboard ════════ */}
           <TabsContent value="backtest" className="mt-0">
-            <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
+            <div className="space-y-6">
+              <BacktestLive symbol={state.symbol} tf={state.tf} config={state.config} />
+              <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
+            </div>
           </TabsContent>
 
           {/* ════════ SCANNER ════════ */}

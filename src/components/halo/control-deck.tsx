@@ -300,7 +300,7 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
         <Tile
           icon="∝"
           label="BACKTEST"
-          sub="real-data P&L"
+          sub="live replay · P&L"
           selected={view === "backtest"}
           disabled={disabled}
           onClick={go("backtest")}
