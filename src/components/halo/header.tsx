@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { C, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { fxModeLabel, useFx } from "@/lib/halo/fx";
 import { usePwa } from "./pwa";
 import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
 
@@ -46,28 +47,8 @@ function UtcClock() {
 export function Header({ state, busy, onSymbol, onTf }: Props) {
   const { canInstall, install } = usePwa();
 
-  // ── ambience kill-switch (reduced-animation setting, persisted) ──
-  const [ambience, setAmbience] = useState(true);
-  useEffect(() => {
-    const t = window.setTimeout(() => {
-      const on = window.localStorage.getItem("halo-ambience") !== "off";
-      setAmbience(on);
-      document.documentElement.dataset.ambience = on ? "on" : "off";
-    }, 0);
-    return () => window.clearTimeout(t);
-  }, []);
-  const toggleAmbience = () => {
-    setAmbience((v) => {
-      const next = !v;
-      document.documentElement.dataset.ambience = next ? "on" : "off";
-      try {
-        window.localStorage.setItem("halo-ambience", next ? "on" : "off");
-      } catch {
-        // storage blocked — toggle still applies for this session
-      }
-      return next;
-    });
-  };
+  // ── FX switch — cycles FULL → REDUCED → OFF (persisted by the provider) ──
+  const fx = useFx();
 
   const feedLive = state ? state.feed.source !== "simulator" && !/slow|error|unreachable/i.test(state.feed.note || "") : false;
 
@@ -162,21 +143,20 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
             </Select>
           </div>
 
-          {/* ambience toggle */}
+          {/* FX switch — full / reduced / off */}
           <button
             type="button"
-            onClick={toggleAmbience}
-            aria-pressed={!ambience}
-            aria-label={ambience ? "Disable ambience and decorative animations" : "Enable ambience and decorative animations"}
-            title={ambience ? "Ambience ON — click to strip FX & freeze animations" : "Ambience OFF — click to restore FX & animations"}
+            onClick={fx.cycle}
+            aria-label={`Visual effects: ${fxModeLabel(fx.mode)} — click for the next level`}
+            title={`Visual effects: ${fxModeLabel(fx.mode)} — click to cycle FULL → REDUCED → OFF`}
             className="hidden items-center gap-1 rounded-lg border px-2 py-1.5 text-[9px] font-extrabold tracking-[0.18em] transition-colors md:inline-flex"
             style={{
-              borderColor: ambience ? "rgba(79,216,255,0.45)" : "#2A3A5C",
-              color: ambience ? C.cyan : C.muted,
-              background: ambience ? "rgba(79,216,255,0.06)" : "transparent",
+              borderColor: fx.mode === "off" ? "#2A3A5C" : "rgba(79,216,255,0.45)",
+              color: fx.mode === "off" ? C.muted : C.cyan,
+              background: fx.mode === "full" ? "rgba(79,216,255,0.06)" : "transparent",
             }}
           >
-            ✦ FX
+            ✦ {fxModeLabel(fx.mode)}
           </button>
 
           {/* install */}

@@ -30,6 +30,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { BotStateRes, VoiceState } from "@/lib/halo/ui-helpers";
 import { displayGreeting, standbyLine, wakeAck, welcomeBackLine, welcomeScript, type GreetCtx } from "@/lib/halo/greeting";
 import { getSTTCtor, isEcho, ttsAvailable, wakeHit, type HaloSpeechRecognition } from "@/lib/halo/speech";
+import { voiceEnergy } from "@/lib/halo/voice-energy";
 
 // ── public types ─────────────────────────────────────────────────────────
 export interface ProfileState {
@@ -256,6 +257,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     }
     setMic((m) => (m === "listening" ? "idle" : m));
     setWakeActive(false);
+    voiceEnergy.stopMic(); // the mic is genuinely closed — the orb must know
   }, []);
 
   const shouldWake = useCallback(() => {
@@ -296,6 +298,14 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         setMic("listening");
         if (mode === "wake") setWakeActive(true);
         if (mode === "convo") setVoice("listening");
+        // the assistant is genuinely listening — feed the AI core's
+        // listening rings (analyser only in full FX; events always flow)
+        if (mode === "convo" || mode === "barge") voiceEnergy.startMic();
+      };
+
+      rec.onspeechstart = () => {
+        if (gen !== recGenRef.current) return;
+        voiceEnergy.bumpMic(); // real microphone activity
       };
 
       rec.onend = () => {
@@ -416,6 +426,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         if (token !== speakTokenRef.current) return;
         clearWatchdog();
         speechEndedAtRef.current = Date.now();
+        voiceEnergy.setSpeaking(false); // audible playback truly ended
         setVoice((v) => (v === "speaking" ? "idle" : v));
         // hand the mic back: conversation listening, or wake standby
         if (convoRef.current && !busyRef.current) startRec("convo");
@@ -466,9 +477,14 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         started = true;
         clearWatchdog();
         setVoice("speaking");
+        voiceEnergy.setSpeaking(true); // actual audible playback began
         // while HALO talks: barge-in listener inside a conversation, silence otherwise
         if (convoRef.current && micRef.current !== "denied" && micRef.current !== "unsupported") startRec("barge");
         else stopRec();
+      };
+      u.onboundary = () => {
+        if (token !== speakTokenRef.current) return;
+        voiceEnergy.bumpSpeech(); // real word event while the audio plays
       };
       u.onend = () => finish(true);
       u.onerror = () => finish(false);

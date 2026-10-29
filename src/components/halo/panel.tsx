@@ -29,7 +29,12 @@ export function PanelCard({ title, icon: Icon, accent = "cyan", right, children,
     <section
       aria-label={title}
       className={`relative flex min-w-0 flex-col overflow-hidden rounded-xl border bg-[#0D1730]/90 backdrop-blur ${className}`}
-      style={{ borderColor: "#1E3358", boxShadow: "inset 0 1px 0 rgba(79,216,255,0.06)" }}
+      style={{
+        borderColor: "#1E3358",
+        // layered glass: top light edge + deep drop shadow for 3D depth
+        boxShadow:
+          "inset 0 1px 0 rgba(79,216,255,0.07), inset 0 0 0 1px rgba(79,216,255,0.02), 0 12px 32px rgba(3,8,18,0.45), 0 2px 8px rgba(3,8,18,0.35)",
+      }}
     >
       <header
         className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5"

@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { CheckRow, PanelCard, StatCell } from "./panel";
+import { RiskShield, type ShieldLevel } from "./risk-shield";
 
 interface LivePos {
   id: string;
@@ -68,6 +69,26 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
   const brokerOk = state.exec.broker?.status === "ok";
   const isLive = state.exec.executionMode === "live";
 
+  // shield level — computed ONLY from the verified checks below it
+  const exposurePct = a && a.equity > 0 && a.margin > 0 ? (a.margin / a.equity) * 100 : 0;
+  const floatDrift = a && a.balance > 0 ? ((a.equity - a.balance) / a.balance) * 100 : 0;
+  const marginLevel = a && a.marginLevel > 0 ? a.marginLevel : null;
+  const breach = Boolean(acct?.degraded) || (isLive && !brokerOk);
+  const warn = !breach && (!feedOk || exposurePct > 50 || (marginLevel !== null && marginLevel < 200));
+  const shieldLevel: ShieldLevel = breach ? "breach" : warn ? "warn" : "pass";
+  const shieldWord = breach ? "REVIEW REQUIRED" : warn ? "WATCHING" : "ALL CHECKS PASSING";
+  const shieldSub = breach
+    ? acct?.degraded
+      ? "Broker link degraded — trading paused until it recovers"
+      : "Live broker is not healthy — verify the connection before relying on routing"
+    : warn
+      ? !feedOk
+        ? `Feed degraded (${state.feed.source}) — market data may lag`
+        : exposurePct > 50
+          ? `Margin exposure at ${exposurePct.toFixed(0)}% of equity`
+          : `Margin level ${marginLevel?.toFixed(0)}% — keep an eye on free margin`
+      : "Feed, execution, broker and engine verified healthy";
+
   return (
     <PanelCard
       title="RISK GUARDIAN"
@@ -86,6 +107,31 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
       }
     >
       <div className="flex h-full flex-col gap-2 p-3">
+        {/* protective hologram — colour only, never touches risk logic */}
+        <div className="flex items-center gap-3 rounded-lg border border-[#16263F] bg-[#0B1426]/60 px-3 py-2">
+          <RiskShield level={shieldLevel} size={64} />
+          <div className="min-w-0">
+            <div
+              className="text-[10.5px] font-extrabold tracking-[0.16em]"
+              style={{ color: shieldLevel === "pass" ? C.green : shieldLevel === "warn" ? C.gold : C.red }}
+            >
+              {shieldWord}
+            </div>
+            <div className="mt-0.5 text-[9.5px] leading-snug text-[#8C98AE]">{shieldSub}</div>
+          </div>
+          <div className="ml-auto hidden shrink-0 text-right sm:block">
+            <div className="text-[8px] font-bold tracking-[0.14em] text-[#6B7A94]">MARGIN LV</div>
+            <div className="font-mono text-[12px] font-bold" style={{ color: marginLevel !== null ? (marginLevel < 200 ? C.gold : C.green) : C.txt }}>
+              {marginLevel !== null ? `${marginLevel.toFixed(0)}%` : "—"}
+            </div>
+            <div className="text-[8px] font-bold tracking-[0.14em] text-[#6B7A94]">FLOAT</div>
+            <div className="font-mono text-[11px] font-bold" style={{ color: floatDrift >= 0 ? C.green : C.red }}>
+              {floatDrift >= 0 ? "+" : "−"}
+              {Math.abs(floatDrift).toFixed(2)}%
+            </div>
+          </div>
+        </div>
+
         {/* headline account strip */}
         <div className="grid grid-cols-3 gap-1.5">
           <StatCell label="Balance" value={a ? `$${a.balance.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"} sub={a ? cur : undefined} />

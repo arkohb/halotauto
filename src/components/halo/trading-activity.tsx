@@ -66,6 +66,15 @@ export function TradingActivity({ state, histKey }: { state: BotStateRes; histKe
   const positions = acct?.positions ?? [];
   const openPnl = positions.reduce((s, p) => s + (p.pnl ?? 0), 0);
 
+  // one-shot flash when the confirmed total open P&L actually changes
+  // (adjusted during render — the React-recommended pattern for prop drift)
+  const [pnlFlash, setPnlFlash] = useState(0);
+  const [pnlPrev, setPnlPrev] = useState(openPnl);
+  if (pnlPrev !== openPnl) {
+    setPnlPrev(openPnl);
+    setPnlFlash((f) => f + 1);
+  }
+
   const tabBtn = (id: Tab, label: string, badge?: string) => (
     <button
       key={id}
@@ -124,7 +133,7 @@ export function TradingActivity({ state, histKey }: { state: BotStateRes; histKe
                   </thead>
                   <tbody>
                     {positions.map((p) => (
-                      <tr key={p.id} className="border-t border-[#121D35]">
+                      <tr key={p.id} className="halo-row-in border-t border-[#121D35]">
                         <td className="px-1.5 py-1.5 font-semibold text-[#E8ECF4]">
                           {p.symbol}
                           {p.paper && <span className="ml-0.5 rounded bg-[rgba(212,175,55,0.12)] px-0.5 text-[7px] font-bold text-[#D4AF37]">SIM</span>}
@@ -147,7 +156,11 @@ export function TradingActivity({ state, histKey }: { state: BotStateRes; histKe
               </div>
               <div className="flex items-center justify-between border-t border-[#16263F]/70 px-3 py-1.5 text-[9.5px] font-mono">
                 <span className="text-[#6B7A94]">Total open P&L</span>
-                <span className="font-bold" style={{ color: openPnl >= 0 ? C.green : C.red }}>
+                <span
+                  key={pnlFlash}
+                  className={`rounded px-1 font-bold ${pnlFlash > 0 ? "halo-value-flash" : ""}`}
+                  style={{ color: openPnl >= 0 ? C.green : C.red }}
+                >
                   {openPnl >= 0 ? "+" : "−"}
                   {Math.abs(openPnl).toFixed(2)}
                 </span>
@@ -169,7 +182,7 @@ export function TradingActivity({ state, histKey }: { state: BotStateRes; histKe
             <div className="flex h-full items-center justify-center text-[11px] text-[#6B7A94]">Engine log is empty — still warming up.</div>
           ) : (
             state.engine.log.slice(0, 14).map((l, i) => (
-              <div key={`${l.time}-${l.kind}-${i}`} className="flex items-center gap-1.5 text-[9.5px] font-mono">
+              <div key={`${l.time}-${l.kind}-${i}`} className="halo-row-in flex items-center gap-1.5 text-[9.5px] font-mono">
                 <span
                   className="w-14 shrink-0 rounded-sm px-1 py-px text-center text-[7.5px] font-extrabold"
                   style={{

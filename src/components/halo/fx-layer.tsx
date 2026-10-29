@@ -10,10 +10,14 @@
 //    • drifting gold particles — "market dust" rising through the void
 //    • radar scan sweep — a soft light bar patrolling the viewport
 //    • vignette — deep-space edges
-//  Pure CSS animations; disabled under prefers-reduced-motion.
+//
+//  Honours the FX setting: FULL = everything animated · REDUCED = static
+//  grid + vignette only · OFF = layer removed. The OS reduce-motion
+//  preference additionally freezes the CSS animations app-wide.
 // ════════════════════════════════════════════════════════════════════════
 
 import { useMemo } from "react";
+import { useFx } from "@/lib/halo/fx";
 
 interface Particle {
   left: string;
@@ -36,6 +40,8 @@ function mulberry(seed: number): () => number {
 }
 
 export function FxLayer() {
+  const { mode } = useFx();
+
   // deterministic particles — stable between server & client render
   const particles = useMemo<Particle[]>(() => {
     const rnd = mulberry(0x3e1b);
@@ -52,9 +58,13 @@ export function FxLayer() {
     });
   }, []);
 
+  if (mode === "off") return null;
+
+  const reduced = mode === "reduced";
+
   return (
     <div aria-hidden className="halo-ambience pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-      {/* vignette */}
+      {/* vignette — kept in every mode (static, free) */}
       <div
         className="absolute inset-0"
         style={{
@@ -63,9 +73,9 @@ export function FxLayer() {
         }}
       />
 
-      {/* perspective grid floor */}
+      {/* perspective grid floor — panning only in FULL */}
       <div
-        className="halo-grid-pan absolute inset-x-[-40%] bottom-[-6%] h-[42vh]"
+        className={`halo-grid-pan absolute inset-x-[-40%] bottom-[-6%] h-[42vh]`}
         style={{
           backgroundImage:
             "linear-gradient(rgba(212,175,55,0.16) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.13) 1px, transparent 1px)",
@@ -74,41 +84,44 @@ export function FxLayer() {
           transformOrigin: "center top",
           maskImage: "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.35) 45%, transparent 90%)",
           WebkitMaskImage: "linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.35) 45%, transparent 90%)",
-          animation: "halo-grid-pan 3.2s linear infinite",
+          animation: reduced ? undefined : "halo-grid-pan 3.2s linear infinite",
         }}
       />
 
-      {/* radar scan sweep */}
-      <div
-        className="halo-scan-sweep absolute inset-x-0 top-0 h-[26vh]"
-        style={{
-          background:
-            "linear-gradient(to bottom, transparent, rgba(212,175,55,0.05) 55%, rgba(212,175,55,0.11) 98%, rgba(212,175,55,0.22) 100%)",
-          animation: "halo-scan-sweep 11s linear infinite",
-        }}
-      />
-
-      {/* drifting gold particles */}
-      {particles.map((p, i) => (
-        <span
-          key={i}
-          className="halo-drift absolute rounded-full"
-          style={
-            {
-              left: p.left,
-              bottom: "-12px",
-              width: p.size,
-              height: p.size,
-              background: "#D4AF37",
-              boxShadow: "0 0 6px 1px rgba(212,175,55,0.55)",
-              animationDuration: `${p.duration}s`,
-              animationDelay: `${p.delay}s`,
-              "--dx": p.dx,
-              "--po": p.opacity,
-            } as React.CSSProperties
-          }
+      {/* radar scan sweep — FULL only */}
+      {!reduced && (
+        <div
+          className="halo-scan-sweep absolute inset-x-0 top-0 h-[26vh]"
+          style={{
+            background:
+              "linear-gradient(to bottom, transparent, rgba(212,175,55,0.05) 55%, rgba(212,175,55,0.11) 98%, rgba(212,175,55,0.22) 100%)",
+            animation: "halo-scan-sweep 11s linear infinite",
+          }}
         />
-      ))}
+      )}
+
+      {/* drifting gold particles — FULL only */}
+      {!reduced &&
+        particles.map((p, i) => (
+          <span
+            key={i}
+            className="halo-drift absolute rounded-full"
+            style={
+              {
+                left: p.left,
+                bottom: "-12px",
+                width: p.size,
+                height: p.size,
+                background: "#D4AF37",
+                boxShadow: "0 0 6px 1px rgba(212,175,55,0.55)",
+                animationDuration: `${p.duration}s`,
+                animationDelay: `${p.delay}s`,
+                "--dx": p.dx,
+                "--po": p.opacity,
+              } as React.CSSProperties
+            }
+          />
+        ))}
     </div>
   );
 }

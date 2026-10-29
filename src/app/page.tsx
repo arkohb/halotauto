@@ -53,6 +53,8 @@ import { StrategyExplainer } from "@/components/halo/strategy-explainer";
 import { PerformanceIntel } from "@/components/halo/performance-intel";
 import { DailyBriefing } from "@/components/halo/daily-briefing";
 import { NavRail, NavChips, type HaloView } from "@/components/halo/nav-rail";
+import { FxProvider } from "@/lib/halo/fx";
+import { FxSettingsCard } from "@/components/halo/fx-settings-card";
 import { useMediaQuery } from "@/hooks/use-media-query";
 
 export default function Page() {
@@ -269,23 +271,26 @@ export default function Page() {
 
   if (!state) {
     return (
-      <div className="flex min-h-screen flex-col text-[#E8ECF4]">
-        <FxLayer />
-        <div className="mx-auto flex w-full max-w-[1720px] flex-1 flex-col gap-4 px-4 py-8">
-          <Skeleton className="h-14 w-full rounded-xl bg-[#101C33]" />
-          <Skeleton className="h-10 w-72 rounded-lg bg-[#101C33]" />
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[330px_minmax(0,1fr)_350px]">
-            <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
-            <Skeleton className="h-[540px] rounded-xl bg-[#101C33]" />
-            <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
+      <FxProvider>
+        <div className="flex min-h-screen flex-col text-[#E8ECF4]">
+          <FxLayer />
+          <div className="mx-auto flex w-full max-w-[1720px] flex-1 flex-col gap-4 px-4 py-8">
+            <Skeleton className="h-14 w-full rounded-xl bg-[#101C33]" />
+            <Skeleton className="h-10 w-72 rounded-lg bg-[#101C33]" />
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[330px_minmax(0,1fr)_350px]">
+              <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
+              <Skeleton className="h-[540px] rounded-xl bg-[#101C33]" />
+              <Skeleton className="h-96 rounded-xl bg-[#101C33]" />
+            </div>
           </div>
         </div>
-      </div>
+      </FxProvider>
     );
   }
 
   return (
-    <HaloVoiceProvider snapshot={state}>
+    <FxProvider>
+      <HaloVoiceProvider snapshot={state}>
       <div className="flex min-h-screen flex-col text-[#E8ECF4]">
         <FxLayer />
         <BootSequence />
@@ -298,7 +303,7 @@ export default function Page() {
           <div className="flex min-w-0 flex-1 items-start">
             <NavRail view={view} onView={setView} />
 
-            <main className="min-w-0 flex-1 px-3 py-4 lg:px-4">
+            <main key={view} className="halo-view-in min-w-0 flex-1 px-3 py-4 lg:px-4">
               {/* ════════ DASHBOARD (command center) ════════ */}
               {view === "terminal" && (
                 <div className="grid grid-cols-12 gap-3">
@@ -443,6 +448,7 @@ export default function Page() {
               <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
                 <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
                 <div className="space-y-4">
+                  <FxSettingsCard />
                   <VoiceSettingsCard />
                   <EaAttachCard
                     state={state}
@@ -480,5 +486,6 @@ export default function Page() {
       </footer>
       </div>
     </HaloVoiceProvider>
+    </FxProvider>
   );
 }

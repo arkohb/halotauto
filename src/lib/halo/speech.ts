@@ -41,6 +41,9 @@ export interface HaloSpeechRecognition {
   onend: (() => void) | null;
   onerror: ((e: { error: string }) => void) | null;
   onresult: ((e: HaloSREvent) => void) | null;
+  /** real microphone activity events (supported by Chrome's engine) */
+  onspeechstart?: (() => void) | null;
+  onspeechend?: (() => void) | null;
 }
 
 export function getSTTCtor(): (new () => HaloSpeechRecognition) | null {

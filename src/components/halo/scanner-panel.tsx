@@ -16,6 +16,7 @@ import {
 import { C } from "@/lib/halo/ui-helpers";
 import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
 import type { Side } from "@/lib/halo/types";
+import { StrategyRadar } from "./strategy-radar";
 
 interface RowState {
   id: string;
@@ -131,6 +132,14 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
           <Chip label="SIGNALS" value={st ? String(st.totalSignals) : "—"} />
         </div>
       </div>
+
+      {/* holographic strategy radar — real rows, real sweep discipline */}
+      <StrategyRadar
+        rows={st?.rows ?? []}
+        scanning={busy === "scan"}
+        lastRun={st?.lastRun ?? 0}
+        onJumpToSymbol={onJumpToSymbol}
+      />
 
       {/* add row */}
       <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4">

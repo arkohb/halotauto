@@ -310,3 +310,85 @@ html[data-ambience="off"] .halo-scan-sweep,
 html[data-ambience="off"] .halo-ring {
   animation: none !important;
 }
+
+/* ───────────── HALO FX UPGRADE · radar / shield / depth ───────────── */
+
+/* strategy radar sweep — runs only while a real scan is analysing */
+@keyframes halo-radar-sweep {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.halo-radar-sweep {
+  animation: halo-radar-sweep 3.6s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation-play-state: paused;
+}
+.halo-radar-sweep.is-live { animation-play-state: running; }
+
+/* radar blip ping for armed / running setups */
+@keyframes halo-radar-ping {
+  0% { transform: scale(0.55); opacity: 0.85; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+.halo-radar-ping {
+  animation: halo-radar-ping 1.9s ease-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* risk guardian shield — inner scanline, restrained */
+@keyframes halo-shield-scan {
+  0% { transform: translateY(-34px); opacity: 0; }
+  12% { opacity: 1; }
+  88% { opacity: 1; }
+  100% { transform: translateY(34px); opacity: 0; }
+}
+.halo-shield-scan {
+  animation: halo-shield-scan 3.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+/* confirmed order/position rows animate in once, on real events */
+@keyframes halo-row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.halo-row-in { animation: halo-row-in 0.32s ease-out; }
+
+/* one-shot flash when a tracked value actually changes */
+@keyframes halo-value-flash {
+  0% { background-color: rgba(79, 216, 255, 0.16); }
+  100% { background-color: transparent; }
+}
+.halo-value-flash { animation: halo-value-flash 0.9s ease-out; }
+
+/* dashboard section transitions */
+@keyframes halo-view-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.halo-view-in { animation: halo-view-in 0.3s ease-out; }
+
+/* new kill-switch entries for the FX upgrade */
+html[data-ambience="off"] .halo-radar-sweep,
+html[data-ambience="off"] .halo-radar-ping,
+html[data-ambience="off"] .halo-shield-scan,
+html[data-ambience="off"] .halo-row-in,
+html[data-ambience="off"] .halo-value-flash,
+html[data-ambience="off"] .halo-view-in,
+html[data-ambience="off"] .halo-eq {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .halo-radar-sweep,
+  .halo-radar-ping,
+  .halo-shield-scan,
+  .halo-row-in,
+  .halo-value-flash,
+  .halo-view-in {
+    animation: none !important;
+  }
+}
