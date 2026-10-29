@@ -354,14 +354,21 @@ export default function ChartPanel(props: ChartProps) {
     const visible = [...freshAll];
     if (firedForTrade) visible.push(firedForTrade);
 
-    const addLevelLine = (t1: number, t2: number, px: number, color: string, width: 1 | 2, dashed: boolean) => {
+    const addLevelLine = (
+      t1: number,
+      t2: number,
+      px: number,
+      color: string,
+      width: 1 | 2,
+      style: "solid" | "dashed" | "dotted"
+    ) => {
       const a = Math.max(t1, firstT) / 1000;
       const b = Math.max(t2, firstT + 1000) / 1000;
       if (!(b > a)) return;
       const ser = chart.addSeries(LineSeries, {
         color,
         lineWidth: width,
-        lineStyle: dashed ? LineStyle.Dashed : LineStyle.Solid,
+        lineStyle: style === "dotted" ? LineStyle.Dotted : style === "dashed" ? LineStyle.Dashed : LineStyle.Solid,
         lastValueVisible: false,
         priceLineVisible: false,
         crosshairMarkerVisible: false,
@@ -374,23 +381,41 @@ export default function ChartPanel(props: ChartProps) {
       overlayRef.current.series.push(ser);
     };
 
-    // ── 1. armed horizontal lines + equal-level zones ──
-    // One line per armed level, exactly how the script draws it: anchored
-    // at the C1 bar, at the equal-level MID price, extended right (Pine
-    // line.new extend-right). Fresh levels span the whole chart so they
-    // read unmistakably at any zoom; the fired level starts at its own
-    // formation and stops at the fire bar.
+    // ── 1. armed horizontal lines + dotted TRIGGER lines + equal-level zones ──
+    // Per armed level the script draws TWO lines, both anchored at the C1
+    // bar with prices pinned at creation (they can never shift):
+    //   • the equal-level MID (solid) — C1 close ↔ C2 open armed level
+    //   • the DOTTED TRIGGER line at the HIGHEST WICK of candle 1 & 2
+    //     (resistance side) / LOWEST WICK (support side) — C3 must break
+    //     this line and come back to it for the trade to fire.
+    // Fresh levels span the whole chart so they read unmistakably at any
+    // zoom; the fired level starts at its own formation and stops at the
+    // fire bar.
     const rayEnd = lastT + tfSec(tf) * 1000 * 12;
     const zoneRects: ZoneRectSpec[] = [];
     for (const d of visible) {
       const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.32";
       const col = sideColor(d.side, alpha);
       const end = d.endTime ?? rayEnd;
-      const startT = d.b1Time; // pinned anchor — the line cannot shift
-      const mid = (d.top + d.bot) / 2; // the script's armed line price
-      addLevelLine(startT, end, mid, col, 2, false);
-      // wick-extension guide on the live signal (dotted, quieter)
-      if (d.state === "fresh") addLevelLine(startT, end, d.ext, sideColor(d.side, "0.45"), 1, true);
+      const startT = d.b1Time; // pinned anchor — the lines cannot shift
+      const mid = (d.top + d.bot) / 2; // the script's armed level price
+      addLevelLine(startT, end, mid, col, 2, "solid");
+      if (d.state === "fresh") {
+        // DOTTED TRIGGER LINE — the highest wick of C1 & C2 (entry line)
+        addLevelLine(startT, end, d.ext, sideColor(d.side, "0.9"), 2, "dotted");
+        // axis tag for the trigger line (no extra line drawn on the pane)
+        overlayRef.current.priceLines.push(
+          cs.createPriceLine({
+            price: d.ext,
+            color: sideColor(d.side, "0.9"),
+            lineWidth: 1,
+            lineStyle: LineStyle.Dotted,
+            axisLabelVisible: true,
+            lineVisible: false,
+            title: `3EL TRIG ${d.side === -1 ? "▼" : "▲"}`,
+          })
+        );
+      }
       // shaded equal-level zone (C1 close ↔ C2 open band)
       zoneRects.push({
         t1: d.b1Time,
@@ -487,11 +512,13 @@ export default function ChartPanel(props: ChartProps) {
 
     // ── 4. C3 FORMING marker on the live bar (visual tracker) ──
     if (liveCandle && bestForm) {
+      const stageTxt =
+        bestForm.stage === "retest" ? "C3 RETEST · FIRE IMMINENT" : bestForm.stage === "break" ? "C3 BREAKING WICK LINE" : "C3 AT WICK LINE";
       markers.push({
         time: (liveCandle.time / 1000) as UTCTimestamp,
         position: bestForm.side === -1 ? "aboveBar" : "belowBar",
         shape: "circle",
-        text: bestForm.stage === "through" ? "C3 FORMING · IN RANGE" : "C3 FORMING",
+        text: stageTxt,
         color: C.gold,
         size: 2.5,
       });
@@ -664,7 +691,7 @@ export default function ChartPanel(props: ChartProps) {
               className="absolute left-1/2 top-2 z-30 -translate-x-1/2 animate-pulse whitespace-nowrap rounded-full border px-3 py-1 text-[9px] font-extrabold tracking-[0.18em] backdrop-blur"
               style={{ borderColor: "rgba(212,175,55,0.65)", background: "rgba(212,175,55,0.2)", color: C.gold }}
             >
-              ◎ C3 FORMING {bestForm.side === -1 ? "▼" : "▲"}
+              ◎ C3 {bestForm.stage === "retest" ? "RETEST · FIRE IMMINENT" : bestForm.stage === "break" ? "BREAKING WICK LINE" : "AT WICK LINE"} {bestForm.side === -1 ? "▼" : "▲"}
             </div>
           )}
           {/* EA attach HUD — EA state drawn over the TradingView chart */}

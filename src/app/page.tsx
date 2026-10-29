@@ -274,12 +274,15 @@ export default function Page() {
           onExecMode={setExecMode}
         />
         <Tabs value={view} onValueChange={(v) => setView(v as View)}>
-          <TabsList className="grid w-full max-w-[560px] grid-cols-4 bg-[#101C33] border border-[#1C2A47] rounded-lg h-10 mb-4">
+          <TabsList className="grid w-full max-w-[700px] grid-cols-5 bg-[#101C33] border border-[#1C2A47] rounded-lg h-10 mb-4">
             <TabsTrigger value="terminal" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
               TERMINAL
             </TabsTrigger>
             <TabsTrigger value="scanner" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
               SCANNER
+            </TabsTrigger>
+            <TabsTrigger value="backtest" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
+              BACKTEST
             </TabsTrigger>
             <TabsTrigger value="brokers" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
               BROKERS
@@ -347,24 +350,14 @@ export default function Page() {
                 <ExecutionPanel state={state} onSaved={(m) => notify(m)} onError={(t, d) => notify(t, d, true)} />
                 <DashboardPanel state={state} />
                 <Mt5MobileApp notify={notify} />
-                <Tabs defaultValue="history">
-                  <TabsList className="grid w-full grid-cols-2 bg-[#101C33] border border-[#1C2A47] rounded-lg h-9">
-                    <TabsTrigger value="history" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-                      TRADE HISTORY
-                    </TabsTrigger>
-                    <TabsTrigger value="backtest" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-                      BACKTEST
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="history" className="mt-3">
-                    <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
-                  </TabsContent>
-                  <TabsContent value="backtest" className="mt-3">
-                    <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
-                  </TabsContent>
-                </Tabs>
+                <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
               </div>
             </div>
+          </TabsContent>
+
+          {/* ════════ BACKTEST · real-data profitability dashboard ════════ */}
+          <TabsContent value="backtest" className="mt-0">
+            <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
           </TabsContent>
 
           {/* ════════ SCANNER ════════ */}

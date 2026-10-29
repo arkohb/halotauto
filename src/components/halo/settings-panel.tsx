@@ -93,9 +93,14 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
 
         <AccordionItem value="f2" className="border-[#1C2A47]">
           <AccordionTrigger className="text-xs font-bold tracking-wider text-[#D4AF37] py-3 hover:no-underline">
-            ② CANDLE 3 TRIGGER
+            ② C3 TRIGGER · BREAK &amp; RETURN
           </AccordionTrigger>
           <AccordionContent className="space-y-2.5 pb-3">
+            <div className="rounded-lg border border-[#1C2A47] bg-[#0B1426] px-2.5 py-2 text-[10px] leading-relaxed text-[#8C98AE]">
+              The <span className="font-bold text-[#D4AF37]">dotted line</span> marks the highest wick of candle 1 &amp; 2 (lowest for
+              buys). C3 must <span className="font-bold text-[#E8ECF4]">break</span> that wick line, then
+              <span className="font-bold text-[#E8ECF4]"> come back to it</span> — the trade fires instantly at the line.
+            </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] text-[#8C98AE]">Signal mode</span>
               <Select value={shown.sigMode} onValueChange={(v) => edit({ sigMode: v as HaloConfig["sigMode"] })}>
@@ -108,15 +113,8 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <NumRow label="Min break beyond (×ATR)" k="breakATR" step="0.01" draft={shown} onChange={num("breakATR")} />
-            <NumRow label="Equal-level tolerance (×ATR)" k="eqTolATR" step="0.01" draft={shown} onChange={num("eqTolATR")} />
-            <NumRow label="Min C3 wick (×ATR)" k="minWickATR" step="0.01" draft={shown} onChange={num("minWickATR")} />
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[11px] text-[#8C98AE] leading-tight">
-                Wick must stay inside C1/C2 extreme
-              </span>
-              <Switch checked={shown.wickInside} onCheckedChange={(v) => edit({ wickInside: v })} />
-            </div>
+            <NumRow label="Break beyond wick line (×ATR)" k="breakATR" step="0.01" draft={shown} onChange={num("breakATR")} />
+            <NumRow label="Return-to-line tolerance (×ATR)" k="eqTolATR" step="0.01" draft={shown} onChange={num("eqTolATR")} />
           </AccordionContent>
         </AccordionItem>
 
@@ -133,13 +131,13 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
                 </SelectTrigger>
                 <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
                   <SelectItem value="points">Fixed points</SelectItem>
-                  <SelectItem value="wick">C3 wick + buffer</SelectItem>
+                  <SelectItem value="wick">Break extreme + buffer</SelectItem>
                   <SelectItem value="atr">ATR</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <NumRow label="Fixed SL (points)" k="slPts" draft={shown} onChange={num("slPts")} />
-            <NumRow label="C3 wick buffer (points)" k="slBufPts" draft={shown} onChange={num("slBufPts")} />
+            <NumRow label="Break-extreme buffer (points)" k="slBufPts" draft={shown} onChange={num("slBufPts")} />
             <NumRow label="ATR SL multiple" k="slATRm" step="0.1" draft={shown} onChange={num("slATRm")} />
             <NumRow label="Take profit (R multiple)" k="rrMult" step="0.5" draft={shown} onChange={num("rrMult")} />
             <NumRow label="Points per pip" k="pipMult" draft={shown} onChange={num("pipMult")} />

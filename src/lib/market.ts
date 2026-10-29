@@ -10,7 +10,7 @@ import { decimalsOf, getSymbolMeta, tfSec, type SymbolMeta } from "./market-symb
 export { getSymbolMeta, SYMBOLS, tfSec, TIMEFRAMES, decimalsOf } from "./market-symbols";
 export type { SymbolMeta, Timeframe } from "./market-symbols";
 
-const MAX_BARS = 720;
+const MAX_BARS = 2000;
 
 interface CacheEntry {
   candles: Candle[];

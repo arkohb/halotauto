@@ -20,7 +20,7 @@ import {
 import { C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { usePwa } from "./pwa";
 
-export type DeckView = "terminal" | "scanner" | "brokers" | "alerts";
+export type DeckView = "terminal" | "scanner" | "backtest" | "brokers" | "alerts";
 
 interface Props {
   state: BotStateRes;
@@ -296,7 +296,18 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
           ariaLabel="Open multi-symbol scanner"
         />
 
-        {/* 6 · BROKERS */}
+        {/* 6 · BACKTEST */}
+        <Tile
+          icon="∝"
+          label="BACKTEST"
+          sub="real-data P&L"
+          selected={view === "backtest"}
+          disabled={disabled}
+          onClick={go("backtest")}
+          ariaLabel="Open the real-data backtest dashboard"
+        />
+
+        {/* 7 · BROKERS */}
         <Tile
           icon="🏛"
           label="BROKERS"
@@ -308,7 +319,7 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
           ariaLabel="Open broker connections"
         />
 
-        {/* 7 · ALERTS */}
+        {/* 8 · ALERTS */}
         <Tile
           icon="◆"
           label="ALERTS"
@@ -319,7 +330,7 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
           ariaLabel="Open alert channels"
         />
 
-        {/* 8 · INSTALL PWA / TERMINAL */}
+        {/* 9 · INSTALL PWA / TERMINAL */}
         {canInstall ? (
           <Tile
             icon="⬇"

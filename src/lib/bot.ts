@@ -264,7 +264,7 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
         fire: e,
         levelTop: e.levelTop,
         levelBot: e.levelBot,
-        slModeLabel: bot.cfg.slMode === "points" ? "Fixed points" : bot.cfg.slMode === "atr" ? "ATR" : "C3 wick + buffer",
+        slModeLabel: bot.cfg.slMode === "points" ? "Fixed points" : bot.cfg.slMode === "atr" ? "ATR" : "Break extreme + buffer",
         exec,
       });
       bot.openTradeDbId = tradeId;

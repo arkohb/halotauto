@@ -73,8 +73,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
           className="animate-pulse rounded-lg border px-2 py-1.5 text-center text-[9px] font-extrabold tracking-[0.14em] backdrop-blur"
           style={{ borderColor: "rgba(212,175,55,0.65)", background: "rgba(212,175,55,0.16)", color: C.gold }}
         >
-          C3 FORMING {best.side === -1 ? "▼ SELL SETUP" : "▲ BUY SETUP"}
-          {best.stage === "through" ? " · WICK IN RANGE" : ""}
+          C3 {best.stage === "retest" ? "RETEST · FIRE IMMINENT" : best.stage === "break" ? "BREAKING WICK LINE" : "AT WICK LINE"} {best.side === -1 ? "▼ SELL SETUP" : "▲ BUY SETUP"}
         </div>
       )}
 
@@ -143,7 +142,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
       {/* fresh level rows */}
       {shown.map((d) => {
         const stage = formMap.get(d.id);
-        const dist = ref > 0 ? Math.abs(d.side === -1 ? ref - d.top : d.bot - ref) / pip : NaN;
+        const trigDist = ref > 0 ? ((d.side === -1 ? d.ext - ref : ref - d.ext) / pip) : NaN;
         return (
           <div
             key={d.id}
@@ -160,17 +159,21 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
             <div className="mt-0.5 pl-[9px] text-[10px] font-bold tabular-nums text-[#E8ECF4]">
               {fmtPx(d.bot, mintick)} <span className="text-[#5D606B]">–</span> {fmtPx(d.top, mintick)}
             </div>
+            <div className="mt-0.5 flex items-center justify-between pl-[9px] text-[9px] font-bold tabular-nums">
+              <span className="tracking-[0.14em] text-[#8C98AE]">DOTTED TRIG</span>
+              <span style={{ color: C.gold }}>{fmtPx(d.ext, mintick)}</span>
+            </div>
             <div className="mt-1 pl-[9px]">
               {stage ? (
                 <span
                   className="animate-pulse rounded px-1 py-[1px] text-[7.5px] font-extrabold tracking-widest"
                   style={{ background: "rgba(212,175,55,0.2)", color: C.gold }}
                 >
-                  C3 FORMING{stage === "through" ? " · IN RANGE" : ""}
+                  C3 {stage === "retest" ? "RETEST · FIRE IMMINENT" : stage === "break" ? "BREAKING WICK LINE" : "AT WICK LINE"}
                 </span>
               ) : (
                 <span className="text-[7.5px] font-bold tracking-widest text-[#8C98AE]">
-                  C3 WATCH · {isFinite(dist) ? `${dist.toFixed(1)}p TO LINE` : "—"}
+                  C3 WATCH · {isFinite(trigDist) ? `${Math.max(0, trigDist).toFixed(1)}p TO TRIG` : "—"}
                 </span>
               )}
             </div>

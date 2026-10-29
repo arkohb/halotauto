@@ -26,7 +26,7 @@ export function LevelsCard({ state }: { state: BotStateRes }) {
               <tr className="text-[10px] tracking-wider text-[#8C98AE] border-b border-[#1C2A47]">
                 <th className="text-left font-medium px-3 py-1.5">SIDE</th>
                 <th className="text-right font-medium px-3 py-1.5">ZONE</th>
-                <th className="text-right font-medium px-3 py-1.5">WICK EXT</th>
+                <th className="text-right font-medium px-3 py-1.5">DOTTED TRIG</th>
                 <th className="text-right font-medium px-3 py-1.5">AGE</th>
               </tr>
             </thead>
@@ -41,7 +41,7 @@ export function LevelsCard({ state }: { state: BotStateRes }) {
                   <td className="px-3 py-1.5 text-right font-mono text-[#E8ECF4]">
                     {fmtPx(l.bot, state.mintick)} → {fmtPx(l.top, state.mintick)}
                   </td>
-                  <td className="px-3 py-1.5 text-right font-mono text-[#8C98AE]">{fmtPx(l.ext, state.mintick)}</td>
+                  <td className="px-3 py-1.5 text-right font-mono font-bold" style={{ color: C.gold }}>{fmtPx(l.ext, state.mintick)}</td>
                   <td className="px-3 py-1.5 text-right font-mono text-[#8C98AE]">
                     {Math.max(0, state.engine.barIndex - l.b1Index)}b
                   </td>

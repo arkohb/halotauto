@@ -9,7 +9,10 @@
 
 export const PINE_EA_TEMPLATE = `//@version=5
 // ════════════════════════════════════════════════════════════════
-//  HALO 3-CANDLE EQUAL LEVEL [3EL] · EA   v1.1  © Ant · HALO Suite
+//  HALO 3-CANDLE EQUAL LEVEL [3EL] · EA   v1.2  © Ant · HALO Suite
+//  ENTRY: the highest wick of candle 1 & 2 is marked with a DOTTED
+//  line. Candle 3 BREAKS that wick line and the moment price COMES
+//  BACK to the dotted line, the trade fires instantly.
 //  HOW TO ATTACH TO A TRADINGVIEW CHART:
 //   1. Pine Editor → paste this script → "Add to chart"
 //   2. Paste your HALO webhook secret into "Webhook secret" (done below)
@@ -31,16 +34,14 @@ maxLevels  = input.int(3, "Max fresh levels per side", minval=1, maxval=10, grou
 expiryBars = input.int(150, "Level expiry (bars)", minval=5, group="Signal")
 sigMode    = input.string("Instant", "Trigger mode", options=["Instant", "Bar close"], group="Signal")
 
-// ── C3 trigger filter ──
-breakATR   = input.float(0.10, "Break beyond level (xATR)", minval=0, step=0.05, group="C3 filter")
-eqTolATR   = input.float(0.25, "Edge-at-level tolerance (xATR)", minval=0, step=0.05, group="C3 filter")
-minWickATR = input.float(0.0, "Min rejection wick (xATR)", minval=0, step=0.05, group="C3 filter")
-wickInside = input.bool(true, "Wick must stay inside C1/C2 extremes", group="C3 filter")
+// ── C3 trigger filter (wick-line break → return) ──
+breakATR   = input.float(0.02, "Break beyond dotted wick line (xATR)", minval=0, step=0.01, group="C3 filter")
+eqTolATR   = input.float(0.10, "Return-to-line tolerance (xATR)", minval=0, step=0.01, group="C3 filter")
 
 // ── Risk ──
-slMode   = input.string("C3 wick + buffer", "Stop-loss mode", options=["C3 wick + buffer", "Fixed points", "ATR"], group="Risk")
+slMode   = input.string("Break extreme + buffer", "Stop-loss mode", options=["Break extreme + buffer", "Fixed points", "ATR"], group="Risk")
 slPts    = input.int(1000, "SL · fixed points", minval=1, group="Risk")
-slBufPts = input.int(0, "SL · buffer points (wick mode)", minval=0, group="Risk")
+slBufPts = input.int(0, "SL · buffer points (break mode)", minval=0, group="Risk")
 slATRm   = input.float(1.5, "SL · ATR multiple", minval=0.1, step=0.1, group="Risk")
 rrMult   = input.float(3.0, "Take-profit (R multiple)", minval=0.1, step=0.1, group="Risk")
 pipMult  = input.int(10, "Pip = mintick x", minval=1, group="Risk")
@@ -52,19 +53,17 @@ canFire   = barstate.isconfirmed or isInstant
 pt  = syminfo.mintick
 pip = pt * pipMult
 
-bodyTop = math.max(open, close)
-bodyBot = math.min(open, close)
 eqTol   = eqTolATR * a
 brk     = breakATR * a
-minWk   = minWickATR * a
 
-// ── level memory (side, zone top/bot, extreme, C1 index, drawing) ──
+// ── level memory (side, zone top/bot, dotted wick line, C1 index, drawings) ──
 var L_SIDE = array.new_int()
 var L_TOP  = array.new_float()
 var L_BOT  = array.new_float()
 var L_EXT  = array.new_float()
 var L_IDX  = array.new_int()
 var L_LN   = array.new_line()
+var L_WK   = array.new_line()
 
 // ── webhook JSON payload ──
 js(x) => str.tostring(x, format.mintick)
@@ -84,50 +83,48 @@ plot(curEn, "ENTRY", color=#787B86, style=plot.style_linebr, linewidth=2)
 plot(curSl, "SL", color=#F23645, style=plot.style_linebr)
 plot(curTp, "TP", color=#089981, style=plot.style_linebr)
 
-// ═══ 1 · C3 CHECK ON FRESH LEVELS (mirror of the HALO engine) ═══
+// ═══ 1 · C3 CHECK — WICK-LINE BREAK → RETURN (mirror of the HALO engine) ═══
 float fireEntry = na
 int   fireDir   = 0
 float fireExt   = na
 line  fireLn    = na
+line  fireWk    = na
 
 if array.size(L_SIDE) > 0
     for i = array.size(L_SIDE) - 1 to 0
         side = array.get(L_SIDE, i)
-        top  = array.get(L_TOP, i)
-        bot  = array.get(L_BOT, i)
         ext  = array.get(L_EXT, i)
         b1i  = array.get(L_IDX, i)
         bool remove = false
         if bar_index - b1i > expiryBars
             remove := true
         else
-            touched = side == -1 ? high >= bot : low <= top
-            if touched and atrOK
-                broke  = side == -1 ? high >= top + brk : low <= bot - brk
-                edge   = side == -1 ? bodyTop : bodyBot
-                eqLvl  = edge >= bot - eqTol and edge <= top + eqTol
-                back   = side == -1 ? close <= top + eqTol : close >= bot - eqTol
-                wickOK = side == -1 ? high - bodyTop >= minWk : bodyBot - low >= minWk
-                inside = not wickInside or (side == -1 ? high < ext : low > ext)
-                ok     = broke and eqLvl and back and wickOK and inside
-                if ok and canFire and na(fireEntry) and strategy.position_size == 0
+            // BREAK beyond the dotted wick line (C1/C2 extreme)
+            broke = side == -1 ? high >= ext + brk : low <= ext - brk
+            if broke and atrOK
+                // RETURN to the dotted line → fire instantly
+                back = side == -1 ? close <= ext + eqTol : close >= ext - eqTol
+                if back and canFire and na(fireEntry) and strategy.position_size == 0
                     fireDir   := side
-                    fireEntry := side == -1 ? top : bot
+                    fireEntry := ext
                     fireExt   := side == -1 ? high : low
                     fireLn    := array.get(L_LN, i)
+                    fireWk    := array.get(L_WK, i)
                     remove    := true
                 else if barstate.isconfirmed
                     remove := true
         if remove
             line.delete(array.get(L_LN, i))
+            line.delete(array.get(L_WK, i))
             array.remove(L_SIDE, i)
             array.remove(L_TOP, i)
             array.remove(L_BOT, i)
             array.remove(L_EXT, i)
             array.remove(L_IDX, i)
             array.remove(L_LN, i)
+            array.remove(L_WK, i)
 
-// ═══ 2 · FIRE TRADE + WEBHOOK ALERT ═══
+// ═══ 2 · FIRE TRADE + WEBHOOK ALERT (entry AT the dotted line) ═══
 if not na(fireEntry) and atrOK
     risk = slMode == "Fixed points" ? slPts * pt : slMode == "ATR" ? slATRm * a : math.abs(fireExt - fireEntry) + slBufPts * pt
     risk := math.max(risk, pt)
@@ -143,6 +140,9 @@ if not na(fireEntry) and atrOK
     if not na(fireLn)
         line.set_x2(fireLn, bar_index)
         line.set_extend(fireLn, extend.none)
+    if not na(fireWk)
+        line.set_x2(fireWk, bar_index)
+        line.set_extend(fireWk, extend.none)
     alert(tvMsg(fireDir == -1 ? "sell" : "buy", dirTxt, fireEntry, slP, tpP, risk / pip), alert.freq_all)
 
 // ═══ 3 · DETECT NEW C1 / C2 EQUAL-LEVEL PAIR (confirmed bars) ═══
@@ -172,12 +172,14 @@ if barstate.isconfirmed and atrOK
                 for i = array.size(L_SIDE) - 1 to 0
                     if array.get(L_SIDE, i) == newSide and math.abs((array.get(L_TOP, i) + array.get(L_BOT, i)) / 2 - nMid) < sep
                         line.delete(array.get(L_LN, i))
+                        line.delete(array.get(L_WK, i))
                         array.remove(L_SIDE, i)
                         array.remove(L_TOP, i)
                         array.remove(L_BOT, i)
                         array.remove(L_EXT, i)
                         array.remove(L_IDX, i)
                         array.remove(L_LN, i)
+                        array.remove(L_WK, i)
             cnt = 0
             if array.size(L_SIDE) > 0
                 for i = 0 to array.size(L_SIDE) - 1
@@ -187,21 +189,26 @@ if barstate.isconfirmed and atrOK
                 for i = 0 to array.size(L_SIDE) - 1
                     if array.get(L_SIDE, i) == newSide
                         line.delete(array.get(L_LN, i))
+                        line.delete(array.get(L_WK, i))
                         array.remove(L_SIDE, i)
                         array.remove(L_TOP, i)
                         array.remove(L_BOT, i)
                         array.remove(L_EXT, i)
                         array.remove(L_IDX, i)
                         array.remove(L_LN, i)
+                        array.remove(L_WK, i)
                         break
             lnCol = newSide == -1 ? color.new(#F23645, 25) : color.new(#089981, 25)
             ln = line.new(bar_index - 1, nMid, bar_index + 20, nMid, color=lnCol, width=2, extend=extend.right)
+            // the DOTTED TRIGGER line — highest wick of candle 1 & 2
+            wk = line.new(bar_index - 1, nExt, bar_index + 20, nExt, color=color.new(#D4AF37, 15), width=1, style=line.style_dotted, extend=extend.right)
             array.push(L_SIDE, newSide)
             array.push(L_TOP, nTop)
             array.push(L_BOT, nBot)
             array.push(L_EXT, nExt)
             array.push(L_IDX, bar_index - 1)
             array.push(L_LN, ln)
+            array.push(L_WK, wk)
 `;
 
 /** Pine EA source with the user's webhook secret embedded. */

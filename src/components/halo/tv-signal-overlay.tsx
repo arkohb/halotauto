@@ -142,8 +142,10 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
     // EVERY armed level — the armed SUPPORT (BUY) and the armed RESISTANCE
     // (SELL) — one line each, exactly how the script draws it: the
     // equal-level MID price (Pine line.new(bar_index-1, nMid, extend.right)),
-    // plus the quieter wick-extreme guide. Prices are pinned at creation —
-    // the ladder lines never move, they only extend right on the chart.
+    // plus the DOTTED TRIGGER line at the C1/C2 wick extreme (highest wick
+    // of the two candles — C3 breaks it and returns to it to fire). Prices
+    // are pinned at creation — the ladder lines never move, they only
+    // extend right on the chart.
     const armed = [...levels].sort((a, b) => a.b2Time - b.b2Time); // oldest first, newest draws on top
     for (const d of armed) {
       const rgb = sideRgb(d.side);
@@ -161,11 +163,11 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
       out.push({
         key: `wk${d.id}`,
         price: d.ext,
-        color: `rgba(${rgb},0.45)`,
-        width: 1,
-        dash: true,
+        color: `rgba(${rgb},0.9)`,
+        width: 2,
+        dash: false,
         dotted: true,
-        label: `WICK ${fmtPx(d.ext, mintick)}`,
+        label: `TRIG ${fmtPx(d.ext, mintick)}`,
       });
     }
     if (trade) {

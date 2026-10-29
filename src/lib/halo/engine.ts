@@ -1,18 +1,23 @@
 // ════════════════════════════════════════════════════════════════════════
 //  HALO 3EL ENGINE · TypeScript port of the PineScript v5 logic
 //
+//  ENTRY STRATEGY (v1.2 · WICK-LINE BREAK → RETURN):
 //  SELL (resistance):  C1 bullish  →  C2 bearish
 //  BUY  (support)   :  C1 bearish  →  C2 bullish
 //  • C1 body close + C2 body open mark the equal level.
-//  • Level stays FRESH (untouched) until candle 3.
-//  • C3 wicks THROUGH the line, comes back, body sits on the line
-//    (equal level) while leaving a wick → SELL at resistance / BUY at support.
-//  • Same-bar SL+TP counts as SL (conservative, as 2CRB).
+//  • The HIGHEST WICK of candle 1 & 2 (resistance) / LOWEST WICK (support)
+//    is marked with a DOTTED line — the TRIGGER line (LevelSnapshot.ext).
+//  • Candle 3 must BREAK beyond that dotted wick line, and the moment the
+//    price COMES BACK to the dotted line the trade fires INSTANTLY —
+//    entry is AT the dotted line, no delay, no bar-close wait (instant
+//    mode evaluates the live candle on every feed tick).
+//  • Same-bar SL+TP counts as SL (conservative).
 //  • Pairs forming too close: only the farther one is kept.
-//  • focusCurrent (default ON): a new C1/C2 pair REPLACES older fresh levels
-//    on its OWN side — one armed SUPPORT + one armed RESISTANCE stay live
-//    together, and whichever C3 fires first takes the trade (no repaint:
-//    an armed line's price is pinned at creation and never moves).
+//  • focusCurrent (default ON): a new C1/C2 pair REPLACES older fresh
+//    levels on its OWN side — one armed SUPPORT + one armed RESISTANCE
+//    stay live together, and whichever breaks & returns first takes the
+//    trade (no repaint: a trigger line's price is pinned at creation
+//    and never moves).
 // ════════════════════════════════════════════════════════════════════════
 
 import {
@@ -158,7 +163,7 @@ export class HaloEngine {
   /**
    * Process one bar. `confirmed = barstate.isconfirmed`.
    * Section order matches the PineScript exactly:
-   *   1. manage open trade  2. C3 check  3. fire  4. detect new C1/C2
+   *   1. manage open trade  2. C3 break→return check  3. fire  4. detect new C1/C2
    */
   processBar(bar: Candle, confirmed: boolean): EngineEvent[] {
     const s = this.state;
@@ -171,9 +176,6 @@ export class HaloEngine {
     const a = atrOK ? (atr as number) : 0;
     const eqTol = cfg.eqTolATR * a;
     const brk = cfg.breakATR * a;
-    const minWk = cfg.minWickATR * a;
-    const bodyTop = Math.max(bar.open, bar.close);
-    const bodyBot = Math.min(bar.open, bar.close);
     const isInstant = cfg.sigMode === "instant";
     const canFire = confirmed || isInstant;
 
@@ -203,7 +205,15 @@ export class HaloEngine {
       }
     }
 
-    // ═════════════ 2. CANDLE 3 CHECK ON FRESH LEVELS ═════════════
+    // ═════════════ 2. CANDLE 3 CHECK — WICK-LINE BREAK → RETURN ═════════════
+    // The dotted TRIGGER line is the C1/C2 wick extreme (L.ext: the highest
+    // wick of candle 1 & 2 on a resistance side, the lowest on a support
+    // side). The trade fires the instant candle 3 BREAKS beyond that dotted
+    // line AND the price COMES BACK to it:
+    //   broke : side −1 → bar.high ≥ ext + brk    |  side +1 → bar.low ≤ ext − brk
+    //   back  : side −1 → bar.close ≤ ext + eqTol |  side +1 → bar.close ≥ ext − eqTol
+    // In instant mode both sides are evaluated intrabar on the LIVE candle
+    // every feed tick — the fire is immediate, without waiting for close.
     let fireDir: Side | 0 = 0;
     let fireEntry = 0;
     let fireExt = 0;
@@ -219,20 +229,16 @@ export class HaloEngine {
         this.markLevel(L.id, "burned", bar.time);
         ev.push({ type: "expired", id: L.id });
       } else {
-        const touched = L.side === -1 ? bar.high >= L.bot : bar.low <= L.top;
-        if (touched && atrOK) {
-          const broke = L.side === -1 ? bar.high >= L.top + brk : bar.low <= L.bot - brk;
-          const edge = L.side === -1 ? bodyTop : bodyBot;
-          const eqLvl = edge >= L.bot - eqTol && edge <= L.top + eqTol;
-          const back = L.side === -1 ? bar.close <= L.top + eqTol : bar.close >= L.bot - eqTol;
-          const wickOK = L.side === -1 ? bar.high - bodyTop >= minWk : bodyBot - bar.low >= minWk;
-          const inside = !cfg.wickInside || (L.side === -1 ? bar.high < L.ext : bar.low > L.ext);
-          const ok = broke && eqLvl && back && wickOK && inside;
-          if (ok && canFire) {
+        // BREAK beyond the dotted wick line (C1/C2 extreme)
+        const broke = L.side === -1 ? bar.high >= L.ext + brk : bar.low <= L.ext - brk;
+        if (broke && atrOK) {
+          // RETURN to the dotted line → fire instantly
+          const back = L.side === -1 ? bar.close <= L.ext + eqTol : bar.close >= L.ext - eqTol;
+          if (back && canFire) {
             if (!s.trade && fireDir === 0) {
               fireDir = L.side;
-              fireEntry = L.side === -1 ? L.top : L.bot;
-              fireExt = L.side === -1 ? bar.high : bar.low;
+              fireEntry = L.ext; // entry AT the dotted trigger line
+              fireExt = L.side === -1 ? bar.high : bar.low; // C3 break extreme
               fireL = L;
               isFire = true;
             } else {
@@ -241,7 +247,7 @@ export class HaloEngine {
             }
             remove = true;
           } else if (confirmed) {
-            // touched but no valid C3 → no longer fresh
+            // broke the wick line but never returned by bar close → spent
             s.stats.burned += 1;
             ev.push({ type: "burned" });
             remove = true;
@@ -255,7 +261,7 @@ export class HaloEngine {
       }
     }
 
-    // ═════════════ 3. FIRE TRADE ═════════════
+    // ═════════════ 3. FIRE TRADE (instantly, at the dotted line) ═════════════
     if (fireDir !== 0 && fireL && atrOK) {
       const dir = fireDir as Side;
       let risk =
@@ -279,10 +285,11 @@ export class HaloEngine {
         ext: fireExt,
         levelTop: fireL.top,
         levelBot: fireL.bot,
-        slModeLabel: cfg.slMode === "points" ? "Fixed points" : cfg.slMode === "atr" ? "ATR" : "C3 wick + buffer",
+        trigger: fireL.ext,
+        slModeLabel: cfg.slMode === "points" ? "Fixed points" : cfg.slMode === "atr" ? "ATR" : "Break extreme + buffer",
       };
       s.firedLvlId = fireL.id;
-      const msg = `HALO 3EL ${dir === -1 ? "SELL" : "BUY"} · Entry ${fireEntry} · SL ${sl} · TP ${tp}`;
+      const msg = `HALO 3EL ${dir === -1 ? "SELL" : "BUY"} · WICK-LINE BREAK→RETURN · Entry ${fireEntry} · SL ${sl} · TP ${tp}`;
       this.pushLog({ time: bar.time, kind: "fire", dir, pips: 0, entry: fireEntry });
       const fireEv: FireEvent = {
         type: "fire",

@@ -77,8 +77,8 @@ export function statusOf(state: BotStateRes): { text: string; tone: StatusTone }
   if (n > 0) {
     const sup = levels.some((l) => l.side === 1);
     const res = levels.some((l) => l.side === -1);
-    if (sup && res) return { text: "WAITING FOR C3 · SUPPORT + RESISTANCE ARMED", tone: "wait" };
-    return { text: `WAITING FOR C3 · ${n} FRESH LEVEL${n > 1 ? "S" : ""}`, tone: "wait" };
+    if (sup && res) return { text: "WAITING FOR C3 WICK BREAK · SUPPORT + RESISTANCE ARMED", tone: "wait" };
+    return { text: `WAITING FOR C3 WICK BREAK · ${n} ARMED LEVEL${n > 1 ? "S" : ""}`, tone: "wait" };
   }
   return { text: "SCANNING FOR C1 / C2", tone: "scan" };
 }

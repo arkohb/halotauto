@@ -1,6 +1,12 @@
 // ════════════════════════════════════════════════════════════════════════
 //  HALO 3-Candle Equal Level [3EL] · shared types
-//  Faithful TypeScript port of the PineScript v5 indicator by Ant · HALO Suite
+//  TypeScript port of the PineScript v5 indicator by Ant · HALO Suite
+//
+//  ENTRY STRATEGY (v1.2 · WICK-LINE BREAK → RETURN):
+//  • The highest wick of candle 1 & 2 (resistance) / lowest wick (support)
+//    is marked with a DOTTED line — LevelSnapshot.ext is that price.
+//  • Candle 3 must BREAK beyond the dotted wick line, and the moment price
+//    COMES BACK to the dotted line the trade fires instantly — no delay.
 // ════════════════════════════════════════════════════════════════════════
 
 export type Side = -1 | 1; // -1 = resistance (SELL) · +1 = support (BUY)
@@ -25,16 +31,16 @@ export interface HaloConfig {
   maxLevels: number; // Max fresh levels per side (3)
   expiryBars: number; // Level expiry (bars) (150)
   focusCurrent: boolean; // EA follows the CURRENT signal PER SIDE — a new C1/C2 pair replaces older fresh levels on ITS OWN side; one armed support + one armed resistance stay live together (true)
-  // ② CANDLE 3 TRIGGER
+  // ② CANDLE 3 TRIGGER — WICK-LINE BREAK → RETURN
   sigMode: SignalMode; // Instant (intrabar) | Bar close
-  breakATR: number; // Min break beyond the line (× ATR) (0.02)
-  eqTolATR: number; // Equal-level tolerance (× ATR) (0.05)
-  minWickATR: number; // Min C3 wick through the line (× ATR) (0.10)
-  wickInside: boolean; // C3 wick must stay inside C1/C2 wick extreme (false)
+  breakATR: number; // Min break beyond the dotted wick line (× ATR) (0.02)
+  eqTolATR: number; // Return-to-line tolerance (× ATR) (0.10)
+  minWickATR: number; // DEPRECATED v1.2 — kept for persisted-config compat, ignored
+  wickInside: boolean; // DEPRECATED v1.2 — kept for persisted-config compat, ignored
   // ③ TRADE
-  slMode: SLMode; // Fixed points | C3 wick + buffer | ATR
+  slMode: SLMode; // Fixed points | Break extreme + buffer | ATR
   slPts: number; // Fixed SL (points) (1000)
-  slBufPts: number; // C3 wick buffer (points) (50)
+  slBufPts: number; // Break-extreme SL buffer (points) (50)
   slATRm: number; // ATR SL multiple (1.5)
   rrMult: number; // Take profit (R multiple · 3 = 1:3) (3.0)
   pipMult: number; // Points per pip (10)
@@ -50,8 +56,8 @@ export const DEFAULT_CONFIG: HaloConfig = {
   focusCurrent: true,
   sigMode: "instant",
   breakATR: 0.02,
-  eqTolATR: 0.05,
-  minWickATR: 0.1,
+  eqTolATR: 0.1,
+  minWickATR: 0,
   wickInside: false,
   slMode: "points",
   slPts: 1000,
@@ -86,9 +92,10 @@ export interface TradeSnapshot {
   riskPips: number;
   rewardPips: number;
   entryTime: number;
-  ext: number;
+  ext: number; // C3 break extreme at fire time (wick-mode SL anchor)
   levelTop: number;
   levelBot: number;
+  trigger: number; // the dotted wick line the trade fired at (= entry)
   slModeLabel: string;
 }
 
