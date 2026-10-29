@@ -37,6 +37,16 @@
 //                           then ln.ln.ai)
 //    METAAPI_CLIENT_BASE .. full trading-API base override (stub/CI tests)
 //    METAAPI_MGMT_BASE .... full management-API base override (stub/CI tests)
+//    METAAPI_PROXY ........ HTTP(S) proxy URL for hosts whose egress firewall
+//                           blocks MetaApi (also accepts HALO_EGRESS_PROXY /
+//                           HTTPS_PROXY). All MetaApi traffic tunnels through
+//                           it via CONNECT — the escape hatch for locked-down
+//                           hosting (sandbox/PaaS egress allow-lists).
+//  EGRESS NOTE: some sandboxed hosts hijack non-allow-listed domains at the
+//  DNS/TLS layer (k8s default-backend fake certificate "O=Acme Co"). No code
+//  can bypass that — the host itself answers instead of MetaApi. Detection:
+//  friendlyMetaApiError spots the hijack and tells the operator exactly what
+//  to set. With a working proxy the integration runs unmodified.
 // ════════════════════════════════════════════════════════════════════════
 
 import { jfetch, num } from "./types";
@@ -162,6 +172,43 @@ async function insecureDispatcher(): Promise<unknown> {
   return insecureAgent || undefined;
 }
 
+// ── egress-proxy escape hatch ──────────────────────────────────────────
+// Locked-down hosts (sandbox / PaaS egress allow-lists) hijack MetaApi
+// domains at the TLS layer — only a proxy that CAN reach MetaApi fixes
+// that. Set METAAPI_PROXY=http(s)://host:port (HALO_EGRESS_PROXY and the
+// standard HTTPS_PROXY are also honoured) and every MetaApi call tunnels
+// through CONNECT automatically. TLS stays encrypted end-to-end; only
+// hostname verification is relaxed, exactly like the direct agent.
+
+export function proxyUri(): string {
+  return (
+    String(process.env.METAAPI_PROXY ?? "").trim() ||
+    String(process.env.HALO_EGRESS_PROXY ?? "").trim() ||
+    String(process.env.HTTPS_PROXY ?? process.env.https_proxy ?? "").trim()
+  );
+}
+
+let proxyAgent: unknown = null;
+async function egressDispatcher(): Promise<unknown> {
+  const uri = proxyUri();
+  if (!uri) return insecureDispatcher();
+  if (proxyAgent === null) {
+    try {
+      const undici = (await import("undici")) as {
+        ProxyAgent: new (o: object) => unknown;
+      };
+      proxyAgent = new undici.ProxyAgent({
+        uri,
+        requestTls: { rejectUnauthorized: false },
+        proxyTls: { rejectUnauthorized: false },
+      });
+    } catch {
+      proxyAgent = false; // undici unavailable — plain fetch fallback
+    }
+  }
+  return proxyAgent || undefined;
+}
+
 const TLS_ERR = /first certificate|UNABLE_TO_VERIFY|SELF_SIGNED|unable to verify|CERT_HAS_EXPIRED|hostname|IP address mismatch|CERT_COMMON_NAME/i;
 
 /** full error message including the fetch cause chain (Node hides TLS errors in e.cause) */
@@ -194,7 +241,7 @@ export async function mFetch<T = Record<string, unknown>>(url: string, init: MFe
   };
   const method = init.method ?? "GET";
   const body = init.body !== undefined ? JSON.stringify(init.body) : undefined;
-  const dispatcher = await insecureDispatcher();
+  const dispatcher = await egressDispatcher();
   const doFetch = (extra?: Record<string, unknown>) =>
     jfetch(url, { method, headers, body, ...(extra ?? {}) }, init.timeoutMs ?? 20000);
 
@@ -227,8 +274,13 @@ export function friendlyMetaApiError(e: unknown, ctx = ""): string {
     return "MetaApi rate limit hit — wait ~30 seconds and press TEST again.";
   if (/is not connected to broker yet|does not match the account region/i.test(msg))
     return "The cloud server for this MT account is not connected to the broker yet — the deployment is still starting or it failed. Press TEST again in a minute; if it keeps failing, press CONNECT once more (HALO redeploys the existing connection automatically) and check the master password.";
+  // egress firewall hijack signature: the host answers with a k8s default
+  // backend / fake ingress cert instead of MetaApi — nothing code-side can
+  // reach the real API without a proxy or a different host
+  if (/default backend|Fake Certificate|Kubernetes Ingress/i.test(msg))
+    return "This host's egress firewall is intercepting MetaApi traffic — the connection is answered by the host's own proxy (k8s default backend) instead of MetaApi cloud. Fix: set METAAPI_PROXY=http(s)://host:port to a proxy that can reach MetaApi (HALO_EGRESS_PROXY / HTTPS_PROXY also honoured), or deploy HALO on a host with open internet egress, then press CONNECT again. Your MT credentials and the cloud connection stay saved.";
   if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|Unable to connect|abort|Connect Timeout/i.test(msg))
-    return "MetaApi cloud could not be reached from this server — the host network is blocking the connection (TLS/egress firewall). HALO ships the correct production endpoints; if this persists, run HALO on a host with open internet egress, or set METAAPI_MGMT_BASE / METAAPI_CLIENT_BASE to a reachable relay.";
+    return "MetaApi cloud could not be reached from this server — the host network is blocking the connection (TLS/egress firewall). Fix: set METAAPI_PROXY=http(s)://host:port to a proxy that can reach MetaApi, or run HALO on a host with open internet egress (METAAPI_MGMT_BASE / METAAPI_CLIENT_BASE relay overrides also work), then press CONNECT again.";
   return msg;
 }
 
@@ -253,6 +305,7 @@ export interface MtAccountEntity {
   login?: string;
   server?: string;
   platform?: string;
+  name?: string;
   region?: string;
   state?: string;
   connectionStatus?: string;

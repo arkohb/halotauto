@@ -276,7 +276,7 @@ export async function processTvAlert(
       body: `TradingView EA closed the ${open.direction === -1 ? "SELL" : "BUY"} at ${roundPx(exitPx)}.`,
     });
     await bumpFireCount();
-    return { ok: true, status: 200, mode: open.execMode, tradeId: open.id, detail: "closed" };
+    return { ok: true, status: 200, mode: open.execMode === "LIVE" ? "LIVE" : "PAPER", tradeId: open.id, detail: "closed" };
   }
 
   // ═══ OPEN (buy / sell) ═══

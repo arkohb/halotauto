@@ -168,8 +168,16 @@ class ZoneOverlay {
         const yA = p.series.priceToCoordinate(r.p1);
         const yB = p.series.priceToCoordinate(r.p2);
         if (x1 === null || x2 === null || yA === null || yB === null) continue;
-        const top = Math.min(yA, yB);
-        const bot = Math.max(yA, yB);
+        // razor-thin equal-level bands (0.2 on XAU ≈ 0.3px when zoomed out)
+        // would be invisible — grow to a minimum 3px so the zone always reads
+        const MIN_ZONE_PX = 3;
+        let top = Math.min(yA, yB);
+        let bot = Math.max(yA, yB);
+        if (bot - top < MIN_ZONE_PX) {
+          const grow = (MIN_ZONE_PX - (bot - top)) / 2;
+          top -= grow;
+          bot += grow;
+        }
         if (bot < 0 || top > H || x2 <= 0 || x1 >= W) continue;
         const L = Math.max(x1, 0);
         const R = Math.min(x2, W);
@@ -361,15 +369,21 @@ export default function ChartPanel(props: ChartProps) {
 
     // ── 1. equal-level zones + trigger lines ──
     // Fresh levels extend ~12 bars past the last candle (Pine-style ray) so
-    // the active level reads as a line waiting on the right edge.
+    // the active level reads as a line waiting on the right edge. The CURRENT
+    // signal's horizontal lines span the whole chart (Pine extend-right) —
+    // they must be unmistakable at any zoom; the fired level starts at its
+    // own formation so the trade's origin stays readable.
     const rayEnd = lastT + tfSec(tf) * 1000 * 12;
     const zoneRects: ZoneRectSpec[] = [];
     for (const d of visible) {
       const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.32";
       const col = sideColor(d.side, alpha);
       const end = d.endTime ?? rayEnd;
-      addLevelLine(d.b1Time, end, d.c1Close, col, 2, false);
-      addLevelLine(d.b2Time, end, d.c2Open, col, 1, true);
+      const startT = d.state === "fresh" ? firstT : d.b1Time;
+      addLevelLine(startT, end, d.c1Close, col, 2, false);
+      addLevelLine(startT, end, d.c2Open, col, 1, true);
+      // wick-extension guide on the live signal (dotted, quieter)
+      if (d.state === "fresh") addLevelLine(startT, end, d.ext, sideColor(d.side, "0.45"), 1, true);
       // shaded equal-level zone (C1 close ↔ C2 open band)
       zoneRects.push({
         t1: d.b1Time,
@@ -461,8 +475,8 @@ export default function ChartPanel(props: ChartProps) {
       const alpha = d.state === "fresh" ? "0.95" : "0.6";
       const col = sideColor(d.side, alpha);
       const pos = d.side === -1 ? "aboveBar" : "belowBar";
-      markers.push({ time: (d.b1Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C1", color: col, size: 1 });
-      markers.push({ time: (d.b2Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C2", color: col, size: 1 });
+      markers.push({ time: (d.b1Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C1", color: col, size: 2 });
+      markers.push({ time: (d.b2Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C2", color: col, size: 2 });
     }
 
     // ── 4. C3 FORMING marker on the live bar (visual tracker) ──
@@ -473,7 +487,7 @@ export default function ChartPanel(props: ChartProps) {
         shape: "circle",
         text: bestForm.stage === "through" ? "C3 FORMING · IN RANGE" : "C3 FORMING",
         color: C.gold,
-        size: 1.5,
+        size: 2.5,
       });
     }
 
@@ -487,7 +501,7 @@ export default function ChartPanel(props: ChartProps) {
           shape: f.dir === -1 ? "arrowDown" : "arrowUp",
           text: f.dir === -1 ? "C3 SELL" : "C3 BUY",
           color: C.gold,
-          size: 1.5,
+          size: 2,
         });
       }
     }

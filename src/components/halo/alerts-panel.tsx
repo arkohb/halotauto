@@ -151,7 +151,7 @@ export function AlertsPanel({ notify }: Props) {
       }
       const sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlB64ToUint8(keyJson.publicKey),
+        applicationServerKey: urlB64ToUint8(keyJson.publicKey) as BufferSource,
       });
       await fetch("/api/push", {
         method: "POST",

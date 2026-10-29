@@ -206,7 +206,7 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
         </div>
 
         <Button
-          onClick={() => void save()}
+          onClick={() => void save({})}
           disabled={busy || liveWithoutBroker}
           className="w-full h-10 rounded-lg font-bold text-xs tracking-wider text-[#0B1426] bg-[#D4AF37] hover:bg-[#E3C25A] disabled:opacity-50"
         >
