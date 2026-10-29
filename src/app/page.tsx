@@ -1,21 +1,26 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  HALO 3EL AUTOTRADER · main PWA page
-//  TERMINAL: live chart + full strategy settings + EA bot + dashboard
-//  SCANNER : multi-symbol 3EL watchlist · BROKERS: real CFD order routing
-//  ALERTS  : Telegram / email / browser push
+//  HALO 3EL AUTOTRADER · main PWA page — command-center edition
+//
+//  SHELL    : left nav rail (desktop) / chip bar (mobile) + top bar
+//  DASHBOARD: market pulse · AI core · risk guardian · chart · activity
+//             · strategy explanation · performance · briefing · AI chat rail
+//  VIEWS    : market(scanner) · activity · risk · strategy lab(backtest)
+//             · performance · brokers · alerts · settings
+//
+//  Every card reads the same real BotStateRes / live-account / trade book
+//  feeds as before. Trading behaviour, engine and endpoints untouched.
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
 import { C, statusOf, type BotStateRes, type VoiceState } from "@/lib/halo/ui-helpers";
 import { Header } from "@/components/halo/header";
-import { ControlDeck, type DeckView } from "@/components/halo/control-deck";
+import { ControlDeck } from "@/components/halo/control-deck";
 import { StatusBanner } from "@/components/halo/status-banner";
 import ChartPanel from "@/components/halo/chart-panel";
 import { EaAttachCard } from "@/components/halo/ea-attach";
@@ -38,8 +43,14 @@ import { BootSequence } from "@/components/halo/boot-sequence";
 import { RobotAssistant } from "@/components/halo/robot-assistant";
 import { HaloCore } from "@/components/halo/halo-core";
 import { JarvisConsole } from "@/components/halo/jarvis-console";
-
-type View = DeckView;
+import { MarketPulse } from "@/components/halo/market-pulse";
+import { RiskGuardian } from "@/components/halo/risk-guardian";
+import { TradingActivity } from "@/components/halo/trading-activity";
+import { StrategyExplainer } from "@/components/halo/strategy-explainer";
+import { PerformanceIntel } from "@/components/halo/performance-intel";
+import { DailyBriefing } from "@/components/halo/daily-briefing";
+import { NavRail, NavChips, type HaloView } from "@/components/halo/nav-rail";
+import { useMediaQuery } from "@/hooks/use-media-query";
 
 export default function Page() {
   const [state, setState] = useState<BotStateRes | null>(null);
@@ -47,11 +58,15 @@ export default function Page() {
   const [candleSource, setCandleSource] = useState("—");
   const [busy, setBusy] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [view, setView] = useState<View>("terminal");
+  const [view, setView] = useState<HaloView>("terminal");
   const [voice, setVoice] = useState<VoiceState>("idle");
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
+
+  // dock the AI assistant as a right rail on xl dashboard screens
+  const isXl = useMediaQuery("(min-width: 1280px)");
+  const dockAssistant = view === "terminal" && isXl;
 
   // JARVIS console mirrors its voice activity onto the HALO AI Core orb
   const onVoice = useCallback((v: VoiceState) => setVoice(v), []);
@@ -275,135 +290,177 @@ export default function Page() {
       <FxLayer />
       <BootSequence />
       <PwaRegister />
-      <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
 
-      <main className="mx-auto w-full max-w-[1720px] flex-1 px-3 py-4 lg:px-5">
-        <ControlDeck
-          state={state}
-          busy={busy}
-          view={view}
-          onView={(v) => setView(v)}
-          onControl={control}
-          onExecMode={setExecMode}
-        />
-        <Tabs value={view} onValueChange={(v) => setView(v as View)}>
-          <TabsList className="grid w-full max-w-[700px] grid-cols-5 bg-[#101C33] border border-[#1C2A47] rounded-lg h-10 mb-4">
-            <TabsTrigger value="terminal" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-              TERMINAL
-            </TabsTrigger>
-            <TabsTrigger value="scanner" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-              SCANNER
-            </TabsTrigger>
-            <TabsTrigger value="backtest" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-              BACKTEST
-            </TabsTrigger>
-            <TabsTrigger value="brokers" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-              BROKERS
-            </TabsTrigger>
-            <TabsTrigger value="alerts" className="text-[11px] font-bold tracking-wider data-[state=active]:text-[#D4AF37]">
-              ALERTS
-            </TabsTrigger>
-          </TabsList>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
+        <NavChips view={view} onView={setView} />
 
-          {/* ════════ TERMINAL ════════ */}
-          <TabsContent value="terminal" className="mt-0">
-            <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[330px_minmax(0,1fr)_352px]">
-              {/* left: settings */}
-              <div className="order-3 xl:order-1">
-                <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
+        <div className="flex min-w-0 flex-1 items-start">
+          <NavRail view={view} onView={setView} />
+
+          <main className="min-w-0 flex-1 px-3 py-4 lg:px-4">
+            {/* ════════ DASHBOARD (command center) ════════ */}
+            {view === "terminal" && (
+              <div className="grid grid-cols-12 gap-3">
+                {/* row 1 · market pulse / AI core / risk guardian / assistant rail */}
+                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
+                  <MarketPulse state={state} candles={candles} />
+                </div>
+                <div className="col-span-12 sm:col-span-6 lg:col-span-4 xl:col-span-3">
+                  <HaloCore state={state} voice={voice} />
+                </div>
+                <div className="col-span-12 lg:col-span-4 xl:col-span-3">
+                  <RiskGuardian state={state} />
+                </div>
+                {dockAssistant && (
+                  <div className="col-span-12 min-h-0 xl:col-span-3 xl:row-span-2">
+                    <JarvisConsole variant="docked" onVoice={onVoice} />
+                  </div>
+                )}
+
+                {/* row 2 · chart + trading activity */}
+                <div className="col-span-12 min-w-0 space-y-3 xl:col-span-6">
+                  <StatusBanner state={state} />
+                  <ChartPanel
+                    candles={candles}
+                    drawings={state.engine.drawings}
+                    log={state.engine.log}
+                    trade={state.engine.trade}
+                    mintick={state.mintick}
+                    symbol={state.symbol}
+                    tf={state.tf}
+                    source={candleSource}
+                    statusLine={statusOf(state).text}
+                    routing={
+                      state.exec.executionMode === "live"
+                        ? `LIVE → ${state.exec.broker?.label ?? "broker"}`
+                        : "PAPER"
+                    }
+                    enabled={state.enabled}
+                    autoAttach={state.autoAttach}
+                    busy={busy}
+                    onToggleBot={() => void control(state.enabled ? "stop" : "start")}
+                    onSymbol={(s) => void changeSymbol(s)}
+                    onTf={(t) => void changeTf(t)}
+                    cfg={state.config}
+                    atr={state.engine.atr}
+                    price={state.feed.price}
+                  />
+                </div>
+                <div className="col-span-12 min-h-[320px] md:col-span-6 xl:col-span-3">
+                  <TradingActivity state={state} histKey={histKey} />
+                </div>
+
+                {/* row 3 · explanation / performance / briefing */}
+                <div className="col-span-12 min-h-[300px] xl:col-span-6">
+                  <StrategyExplainer state={state} />
+                </div>
+                <div className="col-span-12 sm:col-span-6 xl:col-span-3">
+                  <PerformanceIntel refreshKey={histKey} />
+                </div>
+                <div className="col-span-12 sm:col-span-6 xl:col-span-3">
+                  <DailyBriefing state={state} />
+                </div>
+
+                {/* row 4 · quick actions deck */}
+                <div className="col-span-12">
+                  <ControlDeck
+                    state={state}
+                    busy={busy}
+                    view={view}
+                    onView={(v) => setView(v)}
+                    onControl={control}
+                    onExecMode={setExecMode}
+                  />
+                </div>
               </div>
+            )}
 
-              {/* center: AI core + banner + chart + trade */}
-              <div className="order-1 min-w-0 space-y-4 xl:order-2">
-                <HaloCore state={state} voice={voice} />
-                <StatusBanner state={state} />
-                <ChartPanel
-                  candles={candles}
-                  drawings={state.engine.drawings}
-                  log={state.engine.log}
-                  trade={state.engine.trade}
-                  mintick={state.mintick}
-                  symbol={state.symbol}
-                  tf={state.tf}
-                  source={candleSource}
-                  statusLine={statusOf(state).text}
-                  routing={
-                    state.exec.executionMode === "live"
-                      ? `LIVE → ${state.exec.broker?.label ?? "broker"}`
-                      : "PAPER"
-                  }
-                  enabled={state.enabled}
-                  autoAttach={state.autoAttach}
-                  busy={busy}
-                  onToggleBot={() => void control(state.enabled ? "stop" : "start")}
-                  onSymbol={(s) => void changeSymbol(s)}
-                  onTf={(t) => void changeTf(t)}
-                  cfg={state.config}
-                  atr={state.engine.atr}
-                  price={state.feed.price}
-                />
-                <EaAttachCard
-                  state={state}
-                  notify={notify}
-                  busy={busy}
-                  onToggleBot={() => void control(state.enabled ? "stop" : "start")}
-                />
+            {/* ════════ MARKET · multi-symbol scanner ════════ */}
+            {view === "scanner" && <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />}
+
+            {/* ════════ TRADING ACTIVITY ════════ */}
+            {view === "activity" && (
+              <div className="space-y-4">
                 <TradeCard state={state} />
-                <LevelsCard state={state} />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Mt5MobileApp notify={notify} />
+                  <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
+                </div>
               </div>
+            )}
 
-              {/* right: bot + execution + dashboard + history */}
-              <div className="order-2 space-y-4 xl:order-3">
-                <BotPanel
-                  state={state}
-                  busy={busy}
-                  onStart={() => control("start")}
-                  onStop={() => control("stop")}
-                  onReset={() => control("reset")}
-                />
-                <ExecutionPanel state={state} onSaved={(m) => notify(m)} onError={(t, d) => notify(t, d, true)} />
+            {/* ════════ RISK GUARDIAN ════════ */}
+            {view === "risk" && (
+              <div className="grid items-start gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <RiskGuardian state={state} />
+                  <LevelsCard state={state} />
+                </div>
+                <div className="space-y-4">
+                  <BotPanel
+                    state={state}
+                    busy={busy}
+                    onStart={() => control("start")}
+                    onStop={() => control("stop")}
+                    onReset={() => control("reset")}
+                  />
+                  <ExecutionPanel state={state} onSaved={(m) => notify(m)} onError={(t, d) => notify(t, d, true)} />
+                </div>
+              </div>
+            )}
+
+            {/* ════════ STRATEGY LAB · real-data backtests ════════ */}
+            {view === "backtest" && (
+              <div className="space-y-6">
+                <BacktestLive symbol={state.symbol} tf={state.tf} config={state.config} />
+                <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
+              </div>
+            )}
+
+            {/* ════════ PERFORMANCE ════════ */}
+            {view === "performance" && (
+              <div className="grid items-start gap-4 lg:grid-cols-3">
                 <DashboardPanel state={state} />
-                <Mt5MobileApp notify={notify} />
+                <PerformanceIntel refreshKey={histKey} />
                 <HistoryPanel mintick={state.mintick} refreshKey={histKey} />
               </div>
-            </div>
-          </TabsContent>
+            )}
 
-          {/* ════════ BACKTEST · real-data profitability dashboard ════════ */}
-          <TabsContent value="backtest" className="mt-0">
-            <div className="space-y-6">
-              <BacktestLive symbol={state.symbol} tf={state.tf} config={state.config} />
-              <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
-            </div>
-          </TabsContent>
+            {/* ════════ BROKERS ════════ */}
+            {view === "brokers" && <BrokersPanel notify={notify} />}
 
-          {/* ════════ SCANNER ════════ */}
-          <TabsContent value="scanner" className="mt-0">
-            <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />
-          </TabsContent>
+            {/* ════════ ALERTS ════════ */}
+            {view === "alerts" && <AlertsPanel notify={notify} />}
 
-          {/* ════════ BROKERS ════════ */}
-          <TabsContent value="brokers" className="mt-0">
-            <BrokersPanel notify={notify} />
-          </TabsContent>
+            {/* ════════ SETTINGS ════════ */}
+            {view === "settings" && (
+              <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+                <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
+                <div className="space-y-4">
+                  <EaAttachCard
+                    state={state}
+                    notify={notify}
+                    busy={busy}
+                    onToggleBot={() => void control(state.enabled ? "stop" : "start")}
+                  />
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+      </div>
 
-          {/* ════════ ALERTS ════════ */}
-          <TabsContent value="alerts" className="mt-0">
-            <AlertsPanel notify={notify} />
-          </TabsContent>
-        </Tabs>
-      </main>
-
-      {/* HALO-B — the robotic face of the EA, present on every tab */}
+      {/* HALO-B — the robotic face of the EA, present on every view */}
       <RobotAssistant state={state} candles={candles} />
 
-      {/* JARVIS console — read-only voice + chat assistant (every tab) */}
-      <JarvisConsole onVoice={onVoice} />
+      {/* JARVIS console — floating on non-dashboard / sub-xl screens */}
+      {!dockAssistant && <JarvisConsole variant="floating" onVoice={onVoice} />}
 
       <footer className="mt-auto border-t border-[#1C2A47] py-3">
-        <div className="mx-auto flex w-full max-w-[1720px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">
+        <div className="mx-auto flex w-full max-w-[1800px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8C98AE] sm:flex-row">
           <span>
-            HALO SUITE · 3EL v1.1 · {state.config.sigMode === "instant" ? "INSTANT" : "BAR CLOSE"} MODE ·{" "}
+            HALO SUITE · 3EL v1.2 · {state.config.sigMode === "instant" ? "INSTANT" : "BAR CLOSE"} MODE ·{" "}
             <span style={{ color: state.exec.executionMode === "live" ? C.red : C.green }}>
               {state.exec.executionMode === "live" ? "LIVE ORDERS" : "PAPER"}
             </span>

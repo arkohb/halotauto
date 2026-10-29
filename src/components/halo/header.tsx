@@ -13,6 +13,36 @@ interface Props {
   onTf: (tf: string) => Promise<void>;
 }
 
+/** UTC clock — client-only, ticks every second. */
+function UtcClock() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    const t = window.setTimeout(() => setNow(new Date()), 0);
+    const id = setInterval(() => setNow(new Date()), 1000);
+    return () => {
+      window.clearTimeout(t);
+      clearInterval(id);
+    };
+  }, []);
+  if (!now) {
+    return (
+      <span className="hidden items-center gap-1.5 font-mono text-[10.5px] tracking-wider text-[#8C98AE] xl:inline-flex">
+        · · UTC
+      </span>
+    );
+  }
+  return (
+    <span className="hidden items-center gap-1.5 font-mono text-[10.5px] tracking-wider text-[#8C98AE] xl:inline-flex" suppressHydrationWarning>
+      <span className="text-[#B8C2D6]">
+        {now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" })}
+      </span>
+      <span className="text-[#4FD8FF]">
+        {now.toLocaleTimeString("en-GB", { hour12: false, timeZone: "UTC" })} UTC
+      </span>
+    </span>
+  );
+}
+
 export function Header({ state, busy, onSymbol, onTf }: Props) {
   const { canInstall, install } = usePwa();
 
@@ -39,23 +69,26 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
     });
   };
 
+  const feedLive = state ? state.feed.source !== "simulator" && !/slow|error|unreachable/i.test(state.feed.note || "") : false;
+
   return (
-    <header className="sticky top-0 z-40 border-b border-[#1C2A47] bg-[#0B1426]/92 backdrop-blur supports-[backdrop-filter]:bg-[#0B1426]/80">
-      {/* copyright strip · gold */}
+    <header className="sticky top-0 z-40 border-b border-[#1E3358] bg-[#0B1426]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B1426]/85">
+      {/* creator strip · gold */}
       <div className="border-b border-[#1C2A47]/70 bg-gradient-to-r from-[#0B1426] via-[#101C33] to-[#0B1426]">
-        <div className="mx-auto flex w-full max-w-[1720px] items-center justify-center gap-2 px-3 py-1.5">
+        <div className="mx-auto flex w-full max-w-[1800px] items-center justify-center gap-2 px-3 py-1">
           <span aria-hidden className="h-px w-8 shrink-0" style={{ background: `linear-gradient(to right, transparent, ${C.gold}66)` }} />
-          <span className="text-[10px] font-bold tracking-[0.24em] whitespace-nowrap" style={{ color: C.gold, textShadow: "0 0 12px rgba(212,175,55,0.35)" }}>
+          <span className="whitespace-nowrap text-[9.5px] font-bold tracking-[0.24em]" style={{ color: C.gold, textShadow: "0 0 12px rgba(212,175,55,0.35)" }}>
             © {new Date().getFullYear()} · CREATED BY BISMARK ARKO-OFORI
           </span>
           <span aria-hidden className="h-px w-8 shrink-0" style={{ background: `linear-gradient(to left, transparent, ${C.gold}66)` }} />
         </div>
       </div>
-      <div className="mx-auto w-full max-w-[1720px] px-3 lg:px-5">
+
+      <div className="mx-auto w-full max-w-[1800px] px-3 lg:px-4">
         <div className="flex h-14 items-center gap-3">
-          {/* logo */}
-          <div className="flex items-center gap-2 shrink-0">
-            <svg width="26" height="26" viewBox="0 0 26 26" aria-hidden>
+          {/* logo + tagline */}
+          <div className="flex shrink-0 items-center gap-2.5">
+            <svg width="28" height="28" viewBox="0 0 26 26" aria-hidden>
               <rect x="1" y="1" width="24" height="24" rx="6" fill="none" stroke={C.gold} strokeWidth="1.4" opacity="0.5" />
               <path d="M13 3.5 L17 7.5 L13 11.5 L9 7.5 Z" fill={C.gold} />
               <line x1="3" y1="16" x2="23" y2="16" stroke={C.gold} strokeWidth="1.2" strokeDasharray="3 2" opacity="0.85" />
@@ -65,27 +98,47 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
               <line x1="18.2" y1="15.5" x2="18.2" y2="24" stroke={C.green} strokeWidth="1.1" />
             </svg>
             <div className="leading-tight">
-              <div className="text-sm font-extrabold tracking-wide" style={{ color: C.gold }}>
+              <div className="text-[15px] font-extrabold tracking-wide" style={{ color: C.gold, textShadow: "0 0 14px rgba(212,175,55,0.25)" }}>
                 HALO 3EL
               </div>
-              <div className="text-[9px] tracking-[0.22em] text-[#8C98AE]">AUTOTRADER · EA BOT</div>
+              <div className="text-[8px] tracking-[0.3em] text-[#8C98AE]">AUTOTRADER</div>
             </div>
+            <span aria-hidden className="mx-1 hidden h-6 w-px bg-[#1E3358] lg:block" />
+            <span className="hidden text-[9px] font-bold tracking-[0.28em] text-[#4FD8FF]/85 lg:inline">TRADE SMARTER · WITH AI</span>
           </div>
 
-          {/* symbol + tf */}
-          <div className="hidden sm:flex items-center gap-2 ml-2">
-            <Select
-              value={state?.symbol ?? "PAXGUSDT"}
-              onValueChange={(v) => void onSymbol(v)}
-              disabled={busy !== null}
+          <div className="flex-1" />
+
+          {/* live feed pill — honest: simulator shows amber */}
+          {state && (
+            <span
+              className="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-[0.14em] md:inline-flex"
+              style={{
+                borderColor: feedLive ? "rgba(8,153,129,0.5)" : "rgba(212,175,55,0.5)",
+                color: feedLive ? C.green : C.gold,
+                background: feedLive ? "rgba(8,153,129,0.08)" : "rgba(212,175,55,0.08)",
+              }}
             >
-              <SelectTrigger className="h-8 w-[150px] text-xs bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: feedLive ? C.green : C.gold }} />
+              Live · {state.feed.source}
+            </span>
+          )}
+
+          <UtcClock />
+
+          {/* symbol selector — gold, like the reference */}
+          <div className="hidden items-center gap-2 sm:flex">
+            <Select value={state?.symbol ?? "PAXGUSDT"} onValueChange={(v) => void onSymbol(v)} disabled={busy !== null}>
+              <SelectTrigger
+                className="h-9 w-[142px] border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.07)] text-[11.5px] font-bold text-[#F5D778] hover:bg-[rgba(212,175,55,0.12)]"
+                aria-label="Trading symbol"
+              >
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4] max-h-[380px]">
+              <SelectContent className="max-h-[380px] border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
                 {SYMBOL_GROUPS.map((g) => (
                   <SelectGroup key={g.key}>
-                    <SelectLabel className="text-[9px] tracking-[0.18em] text-[#D4AF37]/80 pl-2">{g.label}</SelectLabel>
+                    <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#D4AF37]/80">{g.label}</SelectLabel>
                     {symbolsByGroup(g.key).map((s) => (
                       <SelectItem key={s.id} value={s.id} className="text-xs">
                         {s.label}
@@ -96,10 +149,10 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
               </SelectContent>
             </Select>
             <Select value={state?.tf ?? "5m"} onValueChange={(v) => void onTf(v)} disabled={busy !== null}>
-              <SelectTrigger className="h-8 w-[76px] text-xs bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+              <SelectTrigger className="h-9 w-[70px] border-[#2A3A5C] bg-[#101C33] text-[11px] font-bold text-[#E8ECF4]" aria-label="Timeframe">
                 <SelectValue />
               </SelectTrigger>
-              <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+              <SelectContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
                 {TIMEFRAMES.map((t) => (
                   <SelectItem key={t} value={t} className="text-xs">
                     {t}
@@ -109,16 +162,14 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
             </Select>
           </div>
 
-          <div className="flex-1" />
-
-          {/* ambience / animation toggle */}
+          {/* ambience toggle */}
           <button
             type="button"
             onClick={toggleAmbience}
             aria-pressed={!ambience}
             aria-label={ambience ? "Disable ambience and decorative animations" : "Enable ambience and decorative animations"}
             title={ambience ? "Ambience ON — click to strip FX & freeze animations" : "Ambience OFF — click to restore FX & animations"}
-            className="hidden md:inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[9px] font-extrabold tracking-[0.18em] transition-colors"
+            className="hidden items-center gap-1 rounded-lg border px-2 py-1.5 text-[9px] font-extrabold tracking-[0.18em] transition-colors md:inline-flex"
             style={{
               borderColor: ambience ? "rgba(79,216,255,0.45)" : "#2A3A5C",
               color: ambience ? C.cyan : C.muted,
@@ -128,34 +179,20 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
             ✦ FX
           </button>
 
-          {/* feed badge */}
-          {state && (
-            <span
-              className="hidden md:inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider"
-              style={{
-                borderColor: state.feed.source === "simulator" ? "rgba(212,175,55,0.5)" : "rgba(8,153,129,0.5)",
-                color: state.feed.source === "simulator" ? C.gold : C.green,
-              }}
-            >
-              <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: state.feed.source === "simulator" ? C.gold : C.green }} />
-              {state.feed.source}
-            </span>
-          )}
-
           {/* install */}
           {canInstall && (
             <button
               onClick={() => void install()}
-              className="rounded-lg border px-3 py-1.5 text-[11px] font-bold tracking-wide transition-colors"
+              className="hidden rounded-lg border px-3 py-1.5 text-[10px] font-bold tracking-wide transition-colors lg:inline-flex"
               style={{ borderColor: C.gold, color: C.gold }}
             >
-              ⬇ INSTALL APP
+              ⬇ INSTALL
             </button>
           )}
 
           {/* bot pill */}
           <span
-            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold tracking-wider"
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-extrabold tracking-[0.14em]"
             style={{
               background: state?.enabled ? "rgba(8,153,129,0.15)" : "rgba(140,152,174,0.12)",
               color: state?.enabled ? C.green : C.muted,
@@ -167,15 +204,15 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
         </div>
 
         {/* mobile symbol/tf row */}
-        <div className="flex sm:hidden items-center gap-2 pb-2">
+        <div className="flex items-center gap-2 pb-2 sm:hidden">
           <Select value={state?.symbol ?? "PAXGUSDT"} onValueChange={(v) => void onSymbol(v)} disabled={busy !== null}>
-            <SelectTrigger className="h-8 flex-1 text-xs bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+            <SelectTrigger className="h-8 flex-1 border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.07)] text-xs font-bold text-[#F5D778]" aria-label="Trading symbol">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4] max-h-[380px]">
+            <SelectContent className="max-h-[380px] border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
               {SYMBOL_GROUPS.map((g) => (
                 <SelectGroup key={g.key}>
-                  <SelectLabel className="text-[9px] tracking-[0.18em] text-[#D4AF37]/80 pl-2">{g.label}</SelectLabel>
+                  <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#D4AF37]/80">{g.label}</SelectLabel>
                   {symbolsByGroup(g.key).map((s) => (
                     <SelectItem key={s.id} value={s.id} className="text-xs">
                       {s.label}
@@ -186,10 +223,10 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
             </SelectContent>
           </Select>
           <Select value={state?.tf ?? "5m"} onValueChange={(v) => void onTf(v)} disabled={busy !== null}>
-            <SelectTrigger className="h-8 w-[80px] text-xs bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+            <SelectTrigger className="h-8 w-[80px] border-[#2A3A5C] bg-[#101C33] text-xs text-[#E8ECF4]" aria-label="Timeframe">
               <SelectValue />
             </SelectTrigger>
-            <SelectContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+            <SelectContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
               {TIMEFRAMES.map((t) => (
                 <SelectItem key={t} value={t} className="text-xs">
                   {t}

@@ -101,7 +101,15 @@ function fmtClock(at: number): string {
   return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 }
 
-export function JarvisConsole({ onVoice }: { onVoice: (v: VoiceState) => void }) {
+export function JarvisConsole({
+  onVoice,
+  variant = "floating",
+}: {
+  onVoice: (v: VoiceState) => void;
+  /** floating = launcher + popup (default) · docked = inline right-rail panel */
+  variant?: "floating" | "docked";
+}) {
+  const docked = variant === "docked";
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([WELCOME]);
   const [input, setInput] = useState("");
@@ -115,6 +123,7 @@ export function JarvisConsole({ onVoice }: { onVoice: (v: VoiceState) => void })
   const [voiceURI, setVoiceURI] = useState("");
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const recogRef = useRef<HaloSpeechRecognition | null>(null);
   const voiceOnRef = useRef(voiceOn);
   voiceOnRef.current = voiceOn;
@@ -122,7 +131,8 @@ export function JarvisConsole({ onVoice }: { onVoice: (v: VoiceState) => void })
   // ── mount: restore transcript + detect voice capabilities ──
   useEffect(() => {
     const t = window.setTimeout(() => {
-      setMsgs(loadMsgs());
+      const stored = loadMsgs();
+      setMsgs(stored.length > 0 ? stored : [WELCOME]);
       setSttOk(getSTTCtor() !== null);
       setTtsOk("speechSynthesis" in window);
     }, 0);
@@ -175,6 +185,19 @@ export function JarvisConsole({ onVoice }: { onVoice: (v: VoiceState) => void })
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     onVoice("idle");
   }, [open, onVoice]);
+
+  // external open requests (HALO AI core card / voice tiles)
+  useEffect(() => {
+    const handler = () => {
+      if (docked) {
+        window.setTimeout(() => inputRef.current?.focus(), 60);
+      } else {
+        setOpen(true);
+      }
+    };
+    window.addEventListener("halo:assistant-open", handler);
+    return () => window.removeEventListener("halo:assistant-open", handler);
+  }, [docked]);
 
   // ── speak a HALO reply aloud ──
   const speak = useCallback(
@@ -289,48 +312,54 @@ export function JarvisConsole({ onVoice }: { onVoice: (v: VoiceState) => void })
 
   return (
     <>
-      {/* ── launcher (sits left of the HALO-B robot) ── */}
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-label={open ? "Close HALO console" : "Open HALO console — talk or chat with the AI core"}
-        aria-expanded={open}
-        className="fixed bottom-3 right-[84px] z-50 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur transition-transform hover:scale-105 sm:right-[104px]"
-        style={{
-          borderColor: listening ? C.cyan : `${C.cyan}55`,
-          background: "rgba(11,20,38,0.92)",
-          boxShadow: listening ? `0 0 16px 2px ${C.cyan}55` : `0 0 10px 0 ${C.cyan}22`,
-        }}
-      >
-        {open ? (
-          <X size={18} color={C.cyan} />
-        ) : (
-          <span className="flex items-end gap-[2px]" aria-hidden>
-            {[7, 12, 16, 12, 7].map((h, i) => (
-              <span
-                key={i}
-                className="w-[2.5px] rounded-full"
-                style={{
-                  height: h,
-                  background: C.cyan,
-                  ...(listening ? { animation: `halo-eq 0.9s ease-in-out ${i * 0.12}s infinite`, transformBox: "fill-box", transformOrigin: "bottom" } : {}),
-                }}
-              />
-            ))}
+      {/* ── launcher (floating variant only) ── */}
+      {!docked && (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-label={open ? "Close HALO console" : "Open HALO console — talk or chat with the AI core"}
+          aria-expanded={open}
+          className="fixed bottom-3 right-[84px] z-50 flex h-12 w-12 items-center justify-center rounded-full border backdrop-blur transition-transform hover:scale-105 sm:right-[104px]"
+          style={{
+            borderColor: listening ? C.cyan : `${C.cyan}55`,
+            background: "rgba(11,20,38,0.92)",
+            boxShadow: listening ? `0 0 16px 2px ${C.cyan}55` : `0 0 10px 0 ${C.cyan}22`,
+          }}
+        >
+          {open ? (
+            <X size={18} color={C.cyan} />
+          ) : (
+            <span className="flex items-end gap-[2px]" aria-hidden>
+              {[7, 12, 16, 12, 7].map((h, i) => (
+                <span
+                  key={i}
+                  className="w-[2.5px] rounded-full"
+                  style={{
+                    height: h,
+                    background: C.cyan,
+                    ...(listening ? { animation: `halo-eq 0.9s ease-in-out ${i * 0.12}s infinite`, transformBox: "fill-box", transformOrigin: "bottom" } : {}),
+                  }}
+                />
+              ))}
+            </span>
+          )}
+          <span className="pointer-events-none absolute -bottom-0.5 left-1/2 -translate-x-1/2 rounded-full border border-[#1C2A47] bg-[#0F1A30]/95 px-1 text-[6px] font-extrabold tracking-[0.2em] text-[#4FD8FF]">
+            HALO
           </span>
-        )}
-        <span className="pointer-events-none absolute -bottom-0.5 left-1/2 -translate-x-1/2 rounded-full border border-[#1C2A47] bg-[#0F1A30]/95 px-1 text-[6px] font-extrabold tracking-[0.2em] text-[#4FD8FF]">
-          HALO
-        </span>
-      </button>
+        </button>
+      )}
 
       {/* ── console panel ── */}
-      {open && (
+      {(docked || open) && (
         <div
           role="dialog"
           aria-label="HALO JARVIS console"
-          className="fixed bottom-[86px] right-2 z-50 flex h-[min(64vh,520px)] w-[min(94vw,400px)] flex-col overflow-hidden rounded-xl border bg-[#0B1426]/97 shadow-2xl backdrop-blur sm:right-3"
-          style={{ borderColor: `${C.cyan}44`, animation: "halo-pop 0.3s ease-out" }}
+          className={
+            docked
+              ? "flex h-full min-h-0 w-full flex-col overflow-hidden rounded-xl border bg-[#0B1426]/97 backdrop-blur"
+              : "fixed bottom-[86px] right-2 z-50 flex h-[min(64vh,520px)] w-[min(94vw,400px)] flex-col overflow-hidden rounded-xl border bg-[#0B1426]/97 shadow-2xl backdrop-blur sm:right-3"
+          }
+          style={{ borderColor: `${C.cyan}44`, ...(docked ? {} : { animation: "halo-pop 0.3s ease-out" }) }}
         >
           {/* header */}
           <div className="flex items-center gap-2 border-b border-[#1C2A47] px-3 py-2" style={{ background: "linear-gradient(90deg, rgba(79,216,255,0.07), transparent 70%)" }}>
@@ -448,6 +477,7 @@ export function JarvisConsole({ onVoice }: { onVoice: (v: VoiceState) => void })
             }}
           >
             <input
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={sttOk === false ? "Text chat — voice input unavailable here" : "Ask HALO about the market, risk, or the engine…"}
