@@ -133,16 +133,57 @@ export function tvInterval(tf: string): string {
 export function tfSec(tf: string): number {
   const map: Record<string, number> = {
     "1m": 60,
+    "2m": 120,
     "3m": 180,
     "5m": 300,
+    "10m": 600,
     "15m": 900,
     "30m": 1800,
     "1h": 3600,
     "2h": 7200,
+    "3h": 10800,
     "4h": 14400,
+    "6h": 21600,
+    "8h": 28800,
+    "12h": 43200,
     "1d": 86400,
+    "3d": 259200,
+    "1w": 604800,
   };
   return map[tf] ?? 300;
+}
+
+// ── BACKTEST TIMEFRAMES · every standard bar size, M1 → W1 ──
+// The live chart keeps the 9-preset TIMEFRAMES list; the backtest dashboard
+// accepts any of these so one can "back test any bar of choice".
+export interface BtTf {
+  id: string;
+  sec: number;
+  label: string;
+}
+
+export const BT_TIMEFRAMES: BtTf[] = [
+  { id: "1m", sec: 60, label: "M1 · 1 minute" },
+  { id: "2m", sec: 120, label: "M2 · 2 minutes" },
+  { id: "3m", sec: 180, label: "M3 · 3 minutes" },
+  { id: "5m", sec: 300, label: "M5 · 5 minutes" },
+  { id: "10m", sec: 600, label: "M10 · 10 minutes" },
+  { id: "15m", sec: 900, label: "M15 · 15 minutes" },
+  { id: "30m", sec: 1800, label: "M30 · 30 minutes" },
+  { id: "1h", sec: 3600, label: "H1 · 1 hour" },
+  { id: "2h", sec: 7200, label: "H2 · 2 hours" },
+  { id: "3h", sec: 10800, label: "H3 · 3 hours" },
+  { id: "4h", sec: 14400, label: "H4 · 4 hours" },
+  { id: "6h", sec: 21600, label: "H6 · 6 hours" },
+  { id: "8h", sec: 28800, label: "H8 · 8 hours" },
+  { id: "12h", sec: 43200, label: "H12 · 12 hours" },
+  { id: "1d", sec: 86400, label: "D1 · 1 day" },
+  { id: "3d", sec: 259200, label: "D3 · 3 days" },
+  { id: "1w", sec: 604800, label: "W1 · 1 week" },
+];
+
+export function isBtTf(tf: string): boolean {
+  return BT_TIMEFRAMES.some((t) => t.id === tf);
 }
 
 export function decimalsOf(mintick: number): number {

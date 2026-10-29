@@ -1,19 +1,20 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  BACKTEST DASHBOARD · REAL MARKET DATA, NEVER DEMO
-//  Replays the exact live engine (wick-line break → return) over real
-//  OHLC history from the live feeds and reports the strategy's true
-//  profitability: win rate, profit factor, expectancy, max drawdown,
-//  losing streaks, R-multiples and the full trade-by-trade log.
-//  If only the simulator is reachable the run is REFUSED — the dashboard
+//  BACKTEST DASHBOARD · REAL MARKET DATA · ∞ BARS · ANY PAIR · ANY BAR SIZE
+//  Replays the exact live engine (wick-line break → return) over real OHLC
+//  history walked page-by-page from the live feeds. Bar count is UNCAPPED —
+//  type any number or pick ALL to walk back to the feed's very first bar —
+//  with 17 timeframes (M1→W1) and any symbol of preference (typed freely).
+//  If only a simulator were reachable the run is REFUSED — the dashboard
 //  never fabricates demo equity.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { C, fmtPx, fmtPips } from "@/lib/halo/ui-helpers";
+import { BT_TIMEFRAMES, SYMBOLS, SYMBOL_GROUPS } from "@/lib/market-symbols";
 import type { HaloConfig } from "@/lib/halo/types";
 
 interface BtTrade {
@@ -61,17 +62,23 @@ interface BtResult {
   code?: string;
   error?: string;
   symbol: string;
+  symbolLabel?: string;
+  group?: string;
   tf: string;
   bars: number;
-  requestedBars?: number;
+  requestedBars?: number | "all";
+  from?: string | null;
   source: string;
+  complete?: boolean;
   mintick: number;
+  pip?: number;
   spreadPips: number;
   span: { from: number; to: number };
   cfgEcho: { sigMode: string; slMode: string; rrMult: number; breakATR: number; eqTolATR: number };
   stats: BtStats;
   equity: { final: number; maxDrawdown: number };
   curve: Array<{ t: number; pips: number }>;
+  tradesTotal?: number;
   trades: BtTrade[];
 }
 
@@ -81,8 +88,7 @@ interface Props {
   config: HaloConfig;
 }
 
-const day = (t: number) =>
-  new Date(t).toLocaleString("en-GB", { day: "2-digit", month: "short" });
+const day = (t: number) => new Date(t).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
 const dt = (t: number) =>
   new Date(t).toLocaleString("en-GB", {
     day: "2-digit",
@@ -93,13 +99,38 @@ const dt = (t: number) =>
 const num = (v: number | null | undefined, d = 1): string =>
   v === null || v === undefined || !isFinite(v) ? "—" : v.toFixed(d);
 
+const BAR_PRESETS: Array<[string, string]> = [
+  ["2000", "2K"],
+  ["20000", "20K"],
+  ["100000", "100K"],
+  ["all", "ALL ∞"],
+];
+
 export function BacktestPanel({ symbol, tf, config }: Props) {
-  const [bars, setBars] = useState("1000");
+  const known = SYMBOLS.some((s) => s.id === symbol);
+  const [symPick, setSymPick] = useState(known ? symbol : "CUSTOM");
+  const [customSym, setCustomSym] = useState(known ? "BTCUSD" : symbol);
+  const activeSym = (symPick === "CUSTOM" ? customSym : symPick).toUpperCase().trim();
+  const [btTf, setBtTf] = useState(BT_TIMEFRAMES.some((t) => t.id === tf) ? tf : "5m");
+  const [bars, setBars] = useState("20000");
+  const [from, setFrom] = useState("");
   const [spread, setSpread] = useState("0");
   const [res, setRes] = useState<BtResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const seq = useRef(0);
+
+  // elapsed-seconds ticker while a deep walk is running
+  useEffect(() => {
+    if (!busy) return;
+    const t0 = Date.now();
+    setElapsed(0);
+    const iv = setInterval(() => setElapsed(Math.floor((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(iv);
+  }, [busy]);
 
   const run = async () => {
+    const id = ++seq.current;
     setBusy(true);
     setRes(null);
     try {
@@ -107,67 +138,151 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          symbol,
-          tf,
-          bars: Number(bars) || 1000,
+          symbol: activeSym,
+          tf: btTf,
+          bars: bars.trim() === "" ? 20000 : bars,
+          from: from || undefined,
           spreadPips: Number(spread) || 0,
           cfg: config,
         }),
       });
       const j = (await r.json()) as BtResult;
-      setRes(j);
+      if (seq.current === id) setRes(j);
     } catch (e) {
-      setRes({
-        ok: false,
-        error: (e as Error).message,
-        symbol,
-        tf,
-        bars: 0,
-        source: "",
-        mintick: 0.01,
-        spreadPips: 0,
-        span: { from: 0, to: 0 },
-        cfgEcho: { sigMode: "instant", slMode: "points", rrMult: 0, breakATR: 0, eqTolATR: 0 },
-        stats: emptyStats(),
-        equity: { final: 0, maxDrawdown: 0 },
-        curve: [],
-        trades: [],
-      });
+      if (seq.current === id)
+        setRes({
+          ok: false,
+          error: (e as Error).message,
+          symbol: activeSym,
+          tf: btTf,
+          bars: 0,
+          source: "",
+          mintick: 0.01,
+          spreadPips: 0,
+          span: { from: 0, to: 0 },
+          cfgEcho: { sigMode: "instant", slMode: "points", rrMult: 0, breakATR: 0, eqTolATR: 0 },
+          stats: emptyStats(),
+          equity: { final: 0, maxDrawdown: 0 },
+          curve: [],
+          trades: [],
+        });
     } finally {
-      setBusy(false);
+      if (seq.current === id) setBusy(false);
     }
   };
 
   const s = res?.ok ? res.stats : null;
+  const requestedAll = res?.ok && res.requestedBars === "all";
 
   return (
     <div className="space-y-4">
       {/* ── header ── */}
       <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-[#1C2A47]">
-          <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">
-            BACKTEST DASHBOARD · {symbol} · {tf}
-          </span>
+          <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">BACKTEST DASHBOARD</span>
           <span
             className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
             style={{ background: "rgba(8,153,129,0.16)", color: C.green }}
           >
             REAL MARKET DATA ONLY · NO DEMO
           </span>
+          <span
+            className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
+            style={{ background: "rgba(212,175,55,0.14)", color: "#D4AF37" }}
+          >
+            ∞ BARS · ANY PAIR · M1→W1
+          </span>
           <span className="ml-auto text-[10px] text-[#8C98AE]">wick-line break → return · same live engine</span>
         </div>
+
         <div className="flex flex-wrap items-end gap-3 p-3">
+          {/* symbol — known presets or ANY custom ticker */}
           <label className="flex flex-col gap-1">
-            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">BARS (100–2000)</span>
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">PAIR / SYMBOL</span>
+            <select
+              value={symPick}
+              onChange={(e) => setSymPick(e.target.value)}
+              className="h-8 rounded-md border border-[#2A3A5C] bg-[#0B1426] px-2 text-xs font-mono text-[#E8ECF4] outline-none focus:border-[#D4AF37]"
+            >
+              {SYMBOL_GROUPS.map((g) => (
+                <optgroup key={g.key} label={g.label}>
+                  {SYMBOLS.filter((sy) => sy.group === g.key).map((sy) => (
+                    <option key={sy.id} value={sy.id}>
+                      {sy.id}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+              <option value="CUSTOM">CUSTOM — ANY TICKER…</option>
+            </select>
+          </label>
+          {symPick === "CUSTOM" && (
+            <label className="flex flex-col gap-1">
+              <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">ANY TICKER</span>
+              <Input
+                value={customSym}
+                onChange={(e) => setCustomSym(e.target.value.toUpperCase())}
+                placeholder="BTCUSD, EURJPY, AAPL, ^GSPC…"
+                className="w-44 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4] placeholder:text-[#4A5878]"
+              />
+            </label>
+          )}
+
+          {/* timeframe — every standard bar size */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">BAR SIZE (TF)</span>
+            <select
+              value={btTf}
+              onChange={(e) => setBtTf(e.target.value)}
+              className="h-8 rounded-md border border-[#2A3A5C] bg-[#0B1426] px-2 text-xs font-mono text-[#E8ECF4] outline-none focus:border-[#D4AF37]"
+            >
+              {BT_TIMEFRAMES.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* bars — uncapped */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">BARS · NO CAP</span>
             <Input
-              type="number"
               value={bars}
-              min={100}
-              max={2000}
               onChange={(e) => setBars(e.target.value)}
-              className="w-24 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
+              placeholder="any count · or ALL"
+              className="w-32 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4] placeholder:text-[#4A5878]"
             />
           </label>
+          <div className="flex gap-1">
+            {BAR_PRESETS.map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setBars(v)}
+                className="h-8 rounded-md border px-2.5 text-[10px] font-bold tracking-wide transition-colors"
+                style={{
+                  borderColor: bars === v ? "#D4AF37" : "#2A3A5C",
+                  color: bars === v ? "#D4AF37" : "#8C98AE",
+                  background: bars === v ? "rgba(212,175,55,0.10)" : "transparent",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* optional FROM date */}
+          <label className="flex flex-col gap-1">
+            <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">FROM (OPTIONAL)</span>
+            <Input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="w-36 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
+            />
+          </label>
+
           <label className="flex flex-col gap-1">
             <span className="text-[9px] font-bold tracking-[0.14em] text-[#8C98AE]">SPREAD (PIPS / TRADE)</span>
             <Input
@@ -179,21 +294,67 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
               className="w-24 h-8 text-xs font-mono bg-[#0B1426] border-[#2A3A5C] text-[#E8ECF4]"
             />
           </label>
+
           <Button
             onClick={() => void run()}
             disabled={busy}
             className="h-8 px-5 rounded-md text-[11px] font-bold tracking-wider bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]"
           >
-            {busy ? "REPLAYING REAL HISTORY…" : "RUN BACKTEST"}
+            {busy ? `REPLAYING REAL HISTORY… ${elapsed}s` : "RUN BACKTEST"}
           </Button>
-          {res?.ok && (
-            <span className="text-[10px] text-[#8C98AE]">
-              feed <span className="uppercase font-bold text-[#D4AF37]">{res.source}</span> · {res.bars} real bars ·{" "}
-              {day(res.span.from)} → {day(res.span.to)} · spread {res.spreadPips}p
+        </div>
+
+        {busy && elapsed >= 6 && (
+          <div className="px-3 pb-3 text-[10px] text-[#8C98AE]">
+            Deep walk in progress — huge windows (ALL on M1) fetch hundreds of pages and can take up to ~2 minutes.
+            Smaller bar counts and higher timeframes return in seconds.
+          </div>
+        )}
+      </div>
+
+      {/* ── results header strip ── */}
+      {res?.ok && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border border-[#1C2A47] bg-[#0F1A30] px-4 py-2 text-[10px] text-[#8C98AE]">
+          <span className="font-mono text-[11px] font-bold text-[#E8ECF4]">
+            {res.symbol}
+            {res.symbolLabel && res.symbolLabel !== res.symbol ? ` · ${res.symbolLabel}` : ""} · {res.tf.toUpperCase()}
+          </span>
+          <span>
+            feed <span className="font-bold uppercase text-[#D4AF37]">{res.source}</span>
+          </span>
+          <span>
+            <span className="font-mono font-bold text-[#E8ECF4]">{res.bars.toLocaleString()}</span> real bars
+            {res.requestedBars !== undefined ? (
+              <span className="text-[#4A5878]"> / requested {typeof res.requestedBars === "string" ? "ALL" : res.requestedBars.toLocaleString()}</span>
+            ) : null}
+          </span>
+          <span className="font-mono">
+            {day(res.span.from)} → {day(res.span.to)}
+          </span>
+          {requestedAll && (
+            <span
+              className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
+              style={{ background: "rgba(212,175,55,0.14)", color: "#D4AF37" }}
+            >
+              ALL-HISTORY RUN
             </span>
           )}
+          {res.complete && (
+            <span
+              className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
+              style={{ background: "rgba(8,153,129,0.16)", color: C.green }}
+            >
+              FEED GENESIS REACHED · NOTHING OLDER EXISTS
+            </span>
+          )}
+          {res.from && (
+            <span className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]" style={{ background: "rgba(42,58,92,0.5)", color: "#AEB9D6" }}>
+              FROM {res.from}
+            </span>
+          )}
+          <span>spread {res.spreadPips}p</span>
         </div>
-      </div>
+      )}
 
       {/* ── no live data — refuse to show demo results ── */}
       {res && !res.ok && (
@@ -202,7 +363,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           style={{ borderColor: "rgba(242,54,69,0.5)", background: "rgba(242,54,69,0.10)", color: C.red }}
         >
           {res.code === "NO_LIVE_DATA"
-            ? "NO LIVE DATA — the backtest runs on REAL market prices only. Demo/simulator results are never shown. The live feed is unreachable right now; try again shortly."
+            ? `NO LIVE DATA for ${res.symbol} ${res.tf} — the backtest runs on REAL market prices only. Demo/simulator results are never shown. Check the ticker spelling or try again shortly.`
             : `Backtest failed: ${res.error}`}
         </div>
       )}
@@ -213,8 +374,10 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           {/* left: equity + KPIs */}
           <div className="space-y-4 min-w-0">
             <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-3">
-              <div className="flex items-center justify-between px-1 pb-2">
-                <span className="text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">EQUITY CURVE (PIPS, NET OF SPREAD)</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1 pb-2">
+                <span className="text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">
+                  EQUITY CURVE (PIPS, NET OF SPREAD)
+                </span>
                 <span className="font-mono text-sm font-extrabold" style={{ color: res.equity.final >= 0 ? C.green : C.red }}>
                   {fmtPips(res.equity.final)}
                 </span>
@@ -264,7 +427,12 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           {/* right: trade log */}
           <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden min-w-0">
             <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1C2A47]">
-              <span className="text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">TRADE LOG · LATEST {res.trades.length}</span>
+              <span className="text-[10px] font-bold tracking-[0.16em] text-[#8C98AE]">
+                TRADE LOG · LATEST {res.trades.length}
+                {res.tradesTotal !== undefined && res.tradesTotal > res.trades.length
+                  ? ` OF ${res.tradesTotal}`
+                  : ""}
+              </span>
               <span className="text-[10px] text-[#8C98AE]">same-bar SL+TP counted as SL (conservative)</span>
             </div>
             <div className="max-h-[430px] overflow-y-auto halo-scroll">
