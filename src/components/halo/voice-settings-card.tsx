@@ -208,11 +208,30 @@ export function VoiceSettingsCard() {
           </button>
         </Row>
 
-        <Row label="Conversation window" hint="A voice conversation ends after this much silence (or “goodbye HALO / stop listening / go to sleep”).">
+        <Row
+          label="Always live"
+          hint="When ON, HALO keeps listening after every answer and never sleeps on silence — no wake word needed mid-session. “Goodbye HALO” still ends a session."
+        >
+          <Switch
+            checked={v.prefs.liveMode}
+            onCheckedChange={(c) => v.setPrefs({ liveMode: c })}
+            aria-label="Always live mode"
+          />
+        </Row>
+
+        <Row
+          label="Conversation window"
+          hint={
+            v.prefs.liveMode
+              ? "Not used — Always live keeps the session open until you say “goodbye HALO / stop listening / go to sleep”."
+              : "A voice conversation ends after this much silence (or “goodbye HALO / stop listening / go to sleep”)."
+          }
+        >
           <select
             value={String(v.prefs.convoSeconds)}
             onChange={(e) => v.setPrefs({ convoSeconds: Number(e.target.value) })}
-            className="h-8 rounded-lg border border-[#2A3A5C] bg-[#101C33] px-2 text-[10.5px] text-[#E8ECF4] outline-none"
+            disabled={v.prefs.liveMode}
+            className="h-8 rounded-lg border border-[#2A3A5C] bg-[#101C33] px-2 text-[10.5px] text-[#E8ECF4] outline-none disabled:opacity-40"
             aria-label="Conversation silence window"
           >
             {[8, 12, 20, 30].map((s) => (

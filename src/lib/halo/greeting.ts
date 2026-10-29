@@ -183,3 +183,24 @@ export function standbyLine(ctx: GreetCtx): string {
     ? `Going back to standby. Say ${ctx.wakePhrase} when you need me again.`
     : "Going back to standby. Tap the mic when you need me again.";
 }
+
+/**
+ * Short spoken ack when the screen comes back on (phone unlocked / tab returned).
+ * HONESTY: only claims HALO's own state (still on watch / listening) — never
+ * market, broker, or account health. Rotates so repeats don't sound robotic.
+ */
+export function welcomeBackLine(ctx: GreetCtx, v = 0): string {
+  const name = ctx.name || "";
+  const variants = name
+    ? [
+        `Welcome back, ${name}. I kept the watch — what do you need?`,
+        `You're back, ${name}. HALO is still live — go ahead.`,
+        `Good to see you again, ${name}. I'm here and listening.`,
+      ]
+    : [
+        "Welcome back. I kept the watch — what do you need?",
+        "You're back. HALO is still live — go ahead.",
+        "Good to see you again. I'm here and listening.",
+      ];
+  return variants[v % variants.length];
+}

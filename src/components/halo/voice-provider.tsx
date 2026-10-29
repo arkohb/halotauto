@@ -28,7 +28,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { BotStateRes, VoiceState } from "@/lib/halo/ui-helpers";
-import { displayGreeting, standbyLine, wakeAck, welcomeScript, type GreetCtx } from "@/lib/halo/greeting";
+import { displayGreeting, standbyLine, wakeAck, welcomeBackLine, welcomeScript, type GreetCtx } from "@/lib/halo/greeting";
 import { getSTTCtor, isEcho, ttsAvailable, wakeHit, type HaloSpeechRecognition } from "@/lib/halo/speech";
 
 // ── public types ─────────────────────────────────────────────────────────
@@ -47,7 +47,8 @@ export interface VoicePrefs {
   rate: number; // 0.7..1.4
   voiceURI: string;
   muted: boolean;
-  convoSeconds: number; // silence window that ends a conversation
+  convoSeconds: number; // silence window that ends a conversation (liveMode off only)
+  liveMode: boolean; // ALWAYS LIVE — silence never ends a session; only "goodbye HALO" or the close button does
 }
 
 export type MicState = "unsupported" | "denied" | "idle" | "listening";
@@ -78,7 +79,10 @@ const PREFS_KEY = "halo-voice-prefs.v1";
 const TRANSCRIPT_KEY = "halo-jarvis-transcript"; // same key the console always used
 const GREET_KEY = "halo3el.voice.greeted.v1";
 
-const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false, convoSeconds: 12 };
+const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false, convoSeconds: 12, liveMode: true };
+
+const WELCOME_BACK_MIN_HIDDEN_MS = 20_000; // quick tab flips stay silent
+const WELCOME_BACK_THROTTLE_MS = 120_000; // at most one spoken ack per 2 minutes
 
 const EXIT_RE = /(goodbye\s+halo|goodbye,?\s+halo|stop\s+listening|go\s+to\s+sleep)/i;
 const WAKE_COOLDOWN_MS = 4000;
@@ -179,6 +183,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const pendingGreetRef = useRef<string | null>(null);
   const lastGreetRef = useRef<string>("");
   const profileRetryRef = useRef<number | null>(null);
+  const hydratedRef = useRef(false); // prefs hydrate done — persist only after (never clobber stored prefs with defaults)
+  const hiddenAtRef = useRef(0);
+  const lastBackAckRef = useRef(0);
+  const backIdxRef = useRef(0);
 
   // ── helpers ──
   const greetCtx = useCallback((): GreetCtx => {
@@ -199,6 +207,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
 
   const armSilence = useCallback(() => {
     clearSilence();
+    // ALWAYS LIVE: silence never ends the session — the mic simply keeps
+    // listening (its onend loop already recovers from browser cutoffs).
+    // Only an exit phrase / manual close / liveMode=off ends a conversation.
+    if (prefsRef.current.liveMode) return;
     silenceTimerRef.current = window.setTimeout(() => closeConvo(true), Math.max(6, prefsRef.current.convoSeconds) * 1000);
      
   }, [clearSilence]);
@@ -292,13 +304,15 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         setMic((m) => (m === "listening" ? "idle" : m));
         setWakeActive(false);
         if (mode === "convo") setVoice((v) => (v === "listening" ? "idle" : v));
-        // auto-restart (Chrome ends continuous sessions periodically)
+        // auto-restart (Chrome ends continuous sessions periodically) —
+        // this loop is what keeps the assistant alive indefinitely
         const delay = errStreakRef.current === 0 ? 500 : Math.min(10_000, 900 * errStreakRef.current);
         if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
         restartTimerRef.current = window.setTimeout(() => {
           if (gen !== recGenRef.current) return;
           if (mode === "wake" && shouldWake()) startRec("wake");
           else if (mode === "convo" && convoRef.current && voiceRef.current === "idle" && !busyRef.current) startRec("convo");
+          else if (mode === "barge" && convoRef.current && voiceRef.current === "speaking") startRec("barge");
         }, delay);
       };
 
@@ -506,6 +520,12 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     async (raw: string) => {
       const text = raw.trim().slice(0, 800);
       if (!text || busyRef.current) return;
+      // typed exit phrase ends the session too — same contract as the voice path
+      if (convoRef.current && EXIT_RE.test(text)) {
+        addMsg({ role: "user", text, at: Date.now() });
+        closeConvo(true);
+        return;
+      }
       busyRef.current = true;
       clearSilence();
       stopSpeaking();
@@ -705,12 +725,15 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         // ignore
       }
       if (getSTTCtor() === null) setMic("unsupported");
+      hydratedRef.current = true; // hydration complete — future pref changes may persist
     }, 0);
     return () => window.clearTimeout(t);
   }, []);
 
-  // persist prefs + transcript
+  // persist prefs + transcript — ONLY after hydration completed, otherwise the
+  // first mount render would overwrite the trader's stored prefs with defaults
   useEffect(() => {
+    if (!hydratedRef.current) return;
     try {
       window.localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
     } catch {
@@ -812,23 +835,87 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     return () => evs.forEach((ev) => window.removeEventListener(ev, retry));
   }, [blocked, speak]);
 
-  // ── tab visibility: pause mic standby in background tabs ──
+  // ── screen wake / phone-on recognition ──────────────────────────────
+  //  • screen off / tab hidden / OS idle  → mic stops (never secret recording)
+  //  • screen on / tab visible again      → mic resumes INSTANTLY (convo or
+  //    wake standby, whichever was active) and, if the device was away long
+  //    enough, HALO briefly acknowledges the return out loud (throttled —
+  //    quick tab flips stay silent, full welcome never repeats here)
+  //  • network restored                   → listening resumes automatically
   useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        if (shouldWake() && recModeRef.current === "off") {
-          if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
-          restartTimerRef.current = window.setTimeout(() => {
-            if (shouldWake()) startRec("wake");
-          }, 600);
-        }
+    const resumeListening = () => {
+      if (convoRef.current && !busyRef.current && voiceRef.current === "idle") {
+        startRec("convo"); // live session survives screen idle — pick up mid-conversation
+      } else if (shouldWake() && recModeRef.current === "off") {
+        if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = window.setTimeout(() => {
+          if (shouldWake()) startRec("wake");
+        }, 600);
+      }
+    };
+
+    const onVisible = () => {
+      const hiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      hiddenAtRef.current = 0;
+      const p = profileRef.current;
+      const canAck =
+        p.loaded &&
+        p.voiceEnabled &&
+        p.autoGreeting &&
+        ttsAvailable() &&
+        !prefsRef.current.muted &&
+        !busyRef.current &&
+        voiceRef.current !== "speaking" &&
+        hiddenFor >= WELCOME_BACK_MIN_HIDDEN_MS &&
+        Date.now() - lastBackAckRef.current > WELCOME_BACK_THROTTLE_MS;
+      if (canAck) {
+        // throttled spoken welcome-back (mic hand-back happens in speak())
+        lastBackAckRef.current = Date.now();
+        const line = welcomeBackLine(greetCtx(), backIdxRef.current++);
+        lastSpokenRef.current = line;
+        addMsg({ role: "halo", text: line, at: Date.now(), kind: "system" });
+        speak(line);
       } else {
+        resumeListening();
+      }
+    };
+
+    const onVis = () => {
+      if (document.visibilityState === "visible") onVisible();
+      else {
+        hiddenAtRef.current = Date.now();
         stopRec();
       }
     };
+
+    // Page Lifecycle (Android Chrome): page froze while the phone slept
+    const onResume = () => {
+      if (document.visibilityState === "visible") onVisible();
+    };
+    const onFreeze = () => {
+      hiddenAtRef.current = hiddenAtRef.current || Date.now();
+      stopRec();
+    };
+
+    // connectivity: wake the mic back up once the network returns
+    const onOnline = () => {
+      if (document.visibilityState === "visible") {
+        if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+        resumeListening();
+      }
+    };
+
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [shouldWake, startRec, stopRec]);
+    document.addEventListener("resume", onResume as EventListener);
+    document.addEventListener("freeze", onFreeze as EventListener);
+    window.addEventListener("online", onOnline);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("resume", onResume as EventListener);
+      document.removeEventListener("freeze", onFreeze as EventListener);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [shouldWake, startRec, stopRec, speak, addMsg, greetCtx]);
 
   // ── unmount: full teardown (no orphan mic or audio) ──
   useEffect(() => {

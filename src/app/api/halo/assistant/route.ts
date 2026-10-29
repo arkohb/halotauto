@@ -18,10 +18,10 @@ export const dynamic = "force-dynamic";
 //    close, config) stays in the existing trusted endpoints the user
 //    already controls from the dashboard.
 //  • Server-side only: the LLM credentials never reach the browser.
-//  • Light in-memory rate limiting (12 req/min per IP) + payload caps.
+//  • Light in-memory rate limiting (20 req/min per IP) + payload caps.
 // ════════════════════════════════════════════════════════════════════════
 
-const RATE_LIMIT = 12;
+const RATE_LIMIT = 20;
 const RATE_WINDOW_MS = 60_000;
 
 const gStore = globalThis as unknown as { __haloAssistantHits?: Map<string, number[]> };
