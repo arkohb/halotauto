@@ -334,7 +334,7 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
         className="rounded border px-1.5 py-0.5 text-[7.5px] font-bold tracking-[0.14em]"
         style={{
           position: "absolute",
-          right: 6,
+          right: 132, // clear of the candle-timer badge (bottom-right, 118px wide)
           bottom: 6,
           borderColor: "rgba(28,42,71,0.9)",
           background: "rgba(7,13,27,0.8)",

@@ -48,6 +48,7 @@ import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-s
 import { TvChart } from "./tv-chart";
 import { TvSignalOverlay } from "./tv-signal-overlay";
 import { IndicatorRail } from "./indicator-rail";
+import { CandleTimer } from "./candle-timer";
 import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
 
 interface ChartProps {
@@ -697,7 +698,7 @@ export default function ChartPanel(props: ChartProps) {
           {/* EA attach HUD — EA state drawn over the TradingView chart */}
           <div
             aria-label="EA attach status"
-            className="pointer-events-none absolute bottom-2.5 left-3 z-10 max-w-[78%] rounded-lg border border-[#1C2A47] bg-[#0F1A30]/92 px-3 py-2 backdrop-blur-sm"
+            className="pointer-events-none absolute bottom-2.5 left-3 z-10 max-w-[calc(100%-160px)] rounded-lg border border-[#1C2A47] bg-[#0F1A30]/92 px-3 py-2 backdrop-blur-sm sm:max-w-[78%]"
           >
             <div className="flex items-center gap-1.5 text-[9px] font-extrabold tracking-[0.16em]">
               <span
@@ -732,6 +733,10 @@ export default function ChartPanel(props: ChartProps) {
               FREE EMBED · 3EL LINES OVERLAID APPROXIMATELY (DRAG TO ALIGN) · FULL PRECISION ON “TRADINGVIEW · 3EL”
             </div>
           </div>
+          {/* CANDLE TIMER — countdown to the current candle's close. The free
+              TV embed is cross-origin (its own countdown can't be switched
+              on from outside), so the timer rides on top as a HALO badge. */}
+          <CandleTimer tf={tf} barOpenTime={liveCandle ? liveCandle.time : null} />
         </div>
       ) : (
         <div className="relative">
@@ -748,6 +753,8 @@ export default function ChartPanel(props: ChartProps) {
             cfg={cfg}
             mintick={mintick}
           />
+          {/* CANDLE TIMER — same countdown badge as the TV WEB view */}
+          <CandleTimer tf={tf} barOpenTime={liveCandle ? liveCandle.time : null} />
         </div>
       )}
     </div>
