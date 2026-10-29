@@ -107,3 +107,24 @@ Stage Summary:
 - Deliverable: voice-enabled HALO at dev server (port 3000) — greet by name → auto spoken welcome on return visits → say "HALO" to converse hands-free → grounded read-only answers, all states honest
 - Key files: docs/VOICE-ASSISTANT.md (full docs + test matrix), src/components/halo/{voice-provider,welcome-greeting,voice-settings-card,jarvis-console}.tsx, src/lib/halo/{greeting,speech}.ts, src/app/api/halo/{profile,assistant}/route.ts, prisma/schema.prisma
 - Trading engine, execution, risk controls, broker integration: unchanged (voice layer talks only to read-only assistant + profile APIs)
+
+---
+Task ID: voice-2
+Agent: main (Z.ai)
+Task: Always-awake voice operator — HALO permanently listening, wakes on "HALO" when idle, never shuts itself down
+
+Work Log:
+- Audited voice-provider lifecycle end-to-end; found 3 real "goes to sleep / goes deaf" defects beyond the old silence timer
+- REMOVED the silence auto-standby entirely: VoicePrefs.liveMode + convoSeconds deleted (old stored prefs sanitized on hydrate, dropped on next persist); settings card's "Always live" toggle + "Conversation window" selector replaced by a locked ALWAYS-ON "Listening mode" indicator — sessions end only via exit phrase ("goodbye HALO / stop listening / go to sleep"), console close button, mute, or voice off
+- FIX 1 (dead mic on failed turns): send()/sendConfirm() error + network-loss paths previously left the mic off (session open but deaf until manual reopen) — new resumeAfterTurn() re-arms convo listening or wake standby exactly as speak()'s finish() does
+- FIX 2 (hung requests): 30 s AbortController ceiling on both /api/halo/brain calls with honest timeout message — a wedged request can no longer leave HALO stuck "processing" with busy=true (which blocked wake re-arming forever)
+- FIX 3 (echo self-wake): echo guard now also applies in wake mode within the 3 s speech tail — the spoken standby line ("…say HALO when you need me again") can never re-wake HALO on loud speakers
+- ALWAYS-AWAKE enhancement: wake+command in one breath — "HALO, what's the gold price?" wakes AND carries the request (bare interim "halo" wakes instantly; longer sentences wait for the final transcript so nothing is cut off; 6 s failsafe delivers the command even if autoplay blocks the ack)
+- Manual controls preserved: mute, voice off, wake off, exit phrases, close button — all unchanged
+- Verification: eslint clean; tsc 0 errors in touched files (pre-existing unrelated errors elsewhere untouched); bun run build OK; full E2E 8/8 PASS (scripts/voice-e2e.ts under Xvfb): wake armed, 16 s silence never closes session, screen-wake welcome-back, live session survives screen idle, exit phrase closes, wake re-arms by itself < 12 s after session end, silence prefs removed from storage, zero page errors; /api/bot/state + strategy config verified untouched
+- NOT executed (headless, no real mic/audio): live "HALO" detection latency on real hardware — flagged for manual device test; nothing deployed to production
+
+Stage Summary:
+- Deliverable: HALO is permanently ready — wake standby never times out, re-arms itself after every answer/error/session close, survives tab switches, and accepts wake+request in a single utterance
+- Key files: src/components/halo/voice-provider.tsx (core lifecycle), src/components/halo/voice-settings-card.tsx (ALWAYS-ON indicator), scripts/voice-e2e.ts (updated regression), docs/VOICE-ASSISTANT.md
+- Trading engine, execution, risk controls, broker integration: unchanged (verified via /api/bot/state + git diff scope)

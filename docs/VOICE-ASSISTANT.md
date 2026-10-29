@@ -23,9 +23,9 @@ only and talks exclusively to the pre-existing read-only assistant core.
 - `src/app/api/halo/profile/route.ts` — GET/PUT profile, strict name/phrase sanitization
 - `src/lib/halo/greeting.ts` — pure greeting engine: time bands, 3 rotating variants, honest status clauses, wake ack + standby lines
 - `src/lib/halo/speech.ts` — Web Speech typings, wake-phrase matcher (with "halo" mishear table), echo guard
-- `src/components/halo/voice-provider.tsx` — app-wide voice brain: TTS with autoplay watchdog, once-per-session greeting, wake-word standby loop, conversation turn-taking, silence timeout, exit phrases, barge-in interruption, transcript persistence
+- `src/components/halo/voice-provider.tsx` — app-wide voice brain: TTS with autoplay watchdog, once-per-session greeting, **always-on wake-word standby loop** (never auto-sleeps; re-arms after every answer, error or closed session), conversation turn-taking, exit phrases, barge-in interruption, 30 s brain-call timeout, wake+command single-utterance handling ("HALO, what's the gold price?"), transcript persistence
 - `src/components/halo/welcome-greeting.tsx` — personalized welcome banner (full once per session → slim strip), Enable-voice onboarding, tap-to-retry chip, status chips, waveform
-- `src/components/halo/voice-settings-card.tsx` — Settings card: name, voice/auto-welcome toggles, volume/speed/voice, test + replay, wake word + phrase, conversation window, mic permission
+- `src/components/halo/voice-settings-card.tsx` — Settings card: name, voice/auto-welcome toggles, volume/speed/voice, test + replay, wake word + phrase, locked ALWAYS-ON listening mode indicator, mic permission
 - `docs/VOICE-ASSISTANT.md` — this document
 
 **Modified**
@@ -39,7 +39,7 @@ only and talks exclusively to the pre-existing read-only assistant core.
 1. **First visit** — banner greets by stored name (or "Trader" + PERSONALIZE button), shows `ENABLE HALO VOICE`. No mic is touched.
 2. **Enable** — one click saves consent server-side and speaks the welcome immediately (user gesture ⇒ autoplay permitted).
 3. **Return visits** — greeting is spoken automatically ~2.8 s after load (after the boot sequence). If the browser blocks autoplay, a `TAP ONCE TO ENABLE VOICE` chip retries on the next interaction. No hidden repeat audio; mute/consent always respected; once per browser session (refresh-safe).
-4. **Wake word** — enable in Settings → mic permission requested → standby loop listens for "HALO" (configurable phrase; "hey HALO" also works). Detection acknowledges by name and opens a voice conversation; follow-ups need no wake word; ends after configurable silence or "goodbye HALO / stop listening / go to sleep", then returns to standby.
+4. **Wake word — always listening** — once enabled, the standby loop runs permanently: say "HALO" any time (configurable phrase; "hey HALO" also works) and HALO wakes instantly. "HALO, what's the gold price?" in one breath wakes AND carries the request. After every answer, error or closed session the mic re-arms by itself — ready for the next wake word. A session ends only via "goodbye HALO / stop listening / go to sleep", the console close button, mute or voice off — **never** a silence timeout (the old 12 s auto-standby was removed entirely).
 5. **Conversation** — grounded read-only answers, spoken (short voice-mode replies) and transcribed with timestamps + `grounded · verified` stamps. Speaking stops automatically when the trader talks over it (echo-filtered barge-in) or when any control is used.
 
 ## 4. Safety boundaries (unchanged, enforced)
@@ -79,7 +79,7 @@ only and talks exclusively to the pre-existing read-only assistant core.
 
 ## 7. Remaining limitations
 
-- Wake-word recognition runs on the browser's speech service (Chrome/Edge/Android recommended; Firefox has no SpeechRecognition → push-to-talk unavailable there too, text chat always works). It requires the tab to be visible and permitted; background tabs pause standby.
+- Wake-word recognition runs on the browser's speech service (Chrome/Edge/Android recommended; Firefox has no SpeechRecognition → push-to-talk unavailable there too, text chat always works). It requires the tab to be visible and permitted; background tabs pause standby and resume instantly on return.
 - Wake detection needs a real microphone test in your environment; if "HALO" misfires in noisy rooms, set a custom wake phrase in Settings.
 - Voice quality depends on OS-installed voices (pick a different voice in Settings → Voice).
 - Chrome may auto-end continuous recognition sessions; the loop restarts automatically (backoff on repeated errors).

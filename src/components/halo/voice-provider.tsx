@@ -8,14 +8,17 @@
 //  exactly ONE speech engine — no double audio, no mic fights:
 //
 //   • Trader profile  — server-backed name + consents (/api/halo/profile)
-//   • Device prefs    — volume / rate / voice / mute / convo timeout (local)
+//   • Device prefs    — volume / rate / voice / mute (local)
 //   • TTS engine      — speechSynthesis with autoplay watchdog; speaks the
 //                       personalized welcome automatically on return visits
-//   • Wake word       — continuous SpeechRecognition standby for the
-//                       configurable wake phrase ("HALO" by default),
-//                       with echo guard, activation cooldown, backoff
+//   • Wake word       — ALWAYS LISTENING: a continuous SpeechRecognition
+//                       standby for the configurable wake phrase ("HALO" by
+//                       default) that never shuts itself down. After every
+//                       answer, error or closed session the mic re-arms by
+//                       itself — HALO is ready for the next "HALO" instantly
 //   • Conversation    — wake ack → listen → operator brain → speak →
-//                       listen … until an exit phrase or the close button
+//                       listen … forever, until an exit phrase, the close
+//                       button, mute or voice off — never a silence timer
 //   • Interruptions   — while HALO speaks inside a conversation a barge-in
 //                       listener stops the speech when the trader talks
 //                       (transcripts that merely echo HALO are ignored)
@@ -55,8 +58,9 @@ export interface VoicePrefs {
   rate: number; // 0.7..1.4
   voiceURI: string;
   muted: boolean;
-  convoSeconds: number; // silence window that ends a conversation (liveMode off only)
-  liveMode: boolean; // ALWAYS LIVE — silence never ends a session; only "goodbye HALO" or the close button does
+  // NOTE: the old liveMode/convoSeconds (silence auto-standby) settings were
+  // removed — HALO now listens permanently. Old stored prefs carrying those
+  // keys are sanitized on hydrate and dropped on the next persist.
 }
 
 export type MicState = "unsupported" | "denied" | "idle" | "listening";
@@ -103,7 +107,14 @@ const PREFS_KEY = "halo-voice-prefs.v1";
 const TRANSCRIPT_KEY = "halo-jarvis-transcript"; // same key the console always used
 const GREET_KEY = "halo3el.voice.greeted.v1";
 
-const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false, convoSeconds: 12, liveMode: true };
+// ALWAYS LISTENING: silence never ends a session or the wake standby — HALO
+// only stops listening via an exit phrase ("goodbye HALO / stop listening /
+// go to sleep"), the console close button, mute, or voice off.
+const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false };
+
+// a hung operator-core request must never wedge the assistant (mic off +
+// busy forever) — every brain call gets this hard ceiling
+const BRAIN_TIMEOUT_MS = 30_000;
 
 const WELCOME_BACK_MIN_HIDDEN_MS = 20_000; // quick tab flips stay silent
 const WELCOME_BACK_THROTTLE_MS = 120_000; // at most one spoken ack per 2 minutes
@@ -115,6 +126,15 @@ const ECHO_TAIL_MS = 3000;
 // spoken confirmation of a consequential action — deterministic, no LLM
 const AFFIRM_RE = /^(yes|yeah|yep|yup|confirm|confirmed|do it|go ahead|proceed|approve|approved|affirmative|sure|ok|okay)\b/i;
 const NEGATE_RE = /^(no|nope|nah|cancel|cancelled|canceled|stop|abort|don't|do not|dont|negative|nevermind|never mind)\b/i;
+
+// strip a leading wake phrase (+ optional "hey/ok/hi/yo") —
+// "HALO, what's the gold price?" → "what's the gold price?"
+const stripWakePhrase = (text: string, phrase: string): string => {
+  const esc = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text
+    .replace(new RegExp(`^\\s*(hey|ok|hi|yo)?[,.!?\\s]*${esc}\\b[,.!?\\s]*`, "i"), "")
+    .trim();
+};
 
 // ── context ──────────────────────────────────────────────────────────────
 interface HaloVoiceCtx {
@@ -133,7 +153,7 @@ interface HaloVoiceCtx {
   msgs: Msg[];
   clearMsgs: () => void;
   send: (text: string) => Promise<void>;
-  startConvo: () => void;
+  startConvo: (fromWake?: boolean, command?: string) => void;
   closeConvo: (spoken?: boolean) => void;
   speak: (text: string, opts?: SpeakOpts) => boolean;
   stopSpeaking: () => void;
@@ -208,9 +228,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const recModeRef = useRef<RecMode>("off");
   const errStreakRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
-  const silenceTimerRef = useRef<number | null>(null);
   const lastActRef = useRef(0);
   const ackIdxRef = useRef(0);
+  // (silence-timer refs removed — HALO never auto-stands-by on silence)
   const greetedAttemptRef = useRef(false);
   const spokenGreetRef = useRef(false);
   const pendingGreetRef = useRef<string | null>(null);
@@ -233,23 +253,6 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const addMsg = useCallback((m: Msg) => {
     setMsgs((prev) => [...prev, m].slice(-40));
   }, []);
-
-  const clearSilence = useCallback(() => {
-    if (silenceTimerRef.current) {
-      window.clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-  }, []);
-
-  const armSilence = useCallback(() => {
-    clearSilence();
-    // ALWAYS LIVE: silence never ends the session — the mic simply keeps
-    // listening (its onend loop already recovers from browser cutoffs).
-    // Only an exit phrase / manual close / liveMode=off ends a conversation.
-    if (prefsRef.current.liveMode) return;
-    silenceTimerRef.current = window.setTimeout(() => closeConvo(true), Math.max(6, prefsRef.current.convoSeconds) * 1000);
-     
-  }, [clearSilence]);
 
   // ── profile persistence ──
   const saveProfile = useCallback(async (patch: Partial<Omit<ProfileState, "loaded" | "hasName">>): Promise<boolean> => {
@@ -391,22 +394,37 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         }
 
         if (mode === "wake") {
+          // echo guard FIRST — on loud speakers our own spoken lines (e.g. the
+          // standby line "…say HALO when you need me again") must never
+          // re-wake the assistant
+          const echo = (t: string) => isEcho(t, lastSpokenRef.current) && Date.now() - speechEndedAtRef.current < ECHO_TAIL_MS;
           const phrase = profileRef.current.wakePhrase;
-          const hit =
-            (finalText && wakeHit(finalText, phrase)) || (interimText && wakeHit(interimText, phrase)) || false;
-          if (hit && Date.now() - lastActRef.current > WAKE_COOLDOWN_MS) {
-            lastActRef.current = Date.now();
-            stopRec();
-            startConvo(true);
+          if (finalText && wakeHit(finalText, phrase) && !echo(finalText)) {
+            if (Date.now() - lastActRef.current > WAKE_COOLDOWN_MS) {
+              lastActRef.current = Date.now();
+              // "HALO, what's the gold price?" — wake AND carry the request
+              const cmd = stripWakePhrase(finalText, phrase);
+              stopRec();
+              startConvo(true, cmd || undefined);
+            }
+            return;
+          }
+          if (interimText && wakeHit(interimText, phrase) && !echo(interimText)) {
+            // bare call ("halo" / "hey halo") → wake instantly; a longer
+            // sentence ("halo what's the gold price") waits for the final
+            // result so the command is not cut off mid-utterance
+            if (!stripWakePhrase(interimText, phrase) && Date.now() - lastActRef.current > WAKE_COOLDOWN_MS) {
+              lastActRef.current = Date.now();
+              stopRec();
+              startConvo(true);
+            }
+            return;
           }
           return;
         }
 
         // convo / barge
-        if (interimText.trim()) {
-          armSilence();
-          if (mode === "convo") setVoice("listening");
-        }
+        if (interimText.trim() && mode === "convo") setVoice("listening");
         const text = finalText.trim();
         if (!text) return;
         // echo guard — ignore our own voice bouncing back
@@ -430,8 +448,20 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       }
     },
      
-    [stopRec, shouldWake, armSilence, addMsg]
+    [stopRec, shouldWake, addMsg]
   );
+
+  // A failed turn (network loss, brain 5xx, 30 s timeout) must never leave
+  // HALO deaf: re-arm the mic exactly as speak()'s finish() would —
+  // conversation listening if a session is open, wake-word standby otherwise.
+  const resumeAfterTurn = useCallback(() => {
+    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = window.setTimeout(() => {
+      if (busyRef.current) return;
+      if (convoRef.current && voiceRef.current === "idle") startRec("convo");
+      else if (!convoRef.current && shouldWake()) startRec("wake");
+    }, 500);
+  }, [startRec, shouldWake]);
 
   // ── TTS engine ──
   const clearWatchdog = () => {
@@ -563,11 +593,14 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       busyRef.current = true;
       stopRec();
       setVoice("processing");
+      const ctrl = new AbortController();
+      const kill = window.setTimeout(() => ctrl.abort(), BRAIN_TIMEOUT_MS);
       try {
         const r = await fetch("/api/halo/brain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ confirmToken: token, approve }),
+          signal: ctrl.signal,
         });
         const j = (await r.json()) as { ok: boolean; say?: string; error?: string; declined?: boolean };
         if (j.ok && j.say) {
@@ -582,13 +615,19 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           speak(line);
         }
       } catch (e) {
-        addMsg({ role: "halo", text: `⚠ Connection lost during confirmation: ${(e as Error).message}`, at: Date.now(), err: true });
+        const line =
+          (e as Error).name === "AbortError"
+            ? "The operator core did not respond in 30 s — nothing was changed. Try again shortly."
+            : `Connection lost during confirmation: ${(e as Error).message}`;
+        addMsg({ role: "halo", text: `⚠ ${line}`, at: Date.now(), err: true });
         setVoice("idle");
+        resumeAfterTurn(); // never go deaf after a failed confirmation
       } finally {
+        window.clearTimeout(kill);
         busyRef.current = false;
       }
     },
-    [addMsg, speak, stopRec]
+    [addMsg, speak, stopRec, resumeAfterTurn]
   );
 
   const approvePending = useCallback(() => {
@@ -608,7 +647,6 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     (raw: string) => {
       const text = raw.trim().slice(0, 800);
       if (!text) return;
-      armSilence();
       if (EXIT_RE.test(text)) {
         addMsg({ role: "user", text, at: Date.now() });
         closeConvo(true);
@@ -632,11 +670,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         setPending(null);
       }
       // strip a leading wake phrase — "HALO, what's the gold price?"
-      const p = profileRef.current.wakePhrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const stripped = text.replace(new RegExp(`^${p}[,.!?\\s]*`, "i"), "").trim();
+      const stripped = stripWakePhrase(text, profileRef.current.wakePhrase);
       void send(stripped || text, "voice");
     },
-    [armSilence, addMsg, approvePending, cancelPending, setPending]
+    [addMsg, approvePending, cancelPending, setPending]
   );
 
   const send = useCallback(
@@ -665,18 +702,20 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         setPending(null);
       }
       busyRef.current = true;
-      clearSilence();
       stopSpeaking();
       stopRec();
       addMsg({ role: "user", text, at: Date.now() });
       setVoice("processing");
 
       const history = msgsRef.current.slice(-8).map((m) => ({ role: m.role, text: m.text }));
+      const ctrl = new AbortController();
+      const kill = window.setTimeout(() => ctrl.abort(), BRAIN_TIMEOUT_MS);
       try {
         const r = await fetch("/api/halo/brain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ message: text, history, mode: "voice", source: origin }),
+          signal: ctrl.signal,
         });
         const j = (await r.json()) as {
           ok: boolean;
@@ -692,7 +731,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         if (!j.ok || !j.say) {
           addMsg({ role: "halo", text: `⚠ ${j.error ?? "Operator core unavailable — try again shortly."}`, at: Date.now(), err: true });
           setVoice("idle");
-          if (convoRef.current) armSilence();
+          resumeAfterTurn(); // the session stays open — never go deaf on an error
           return;
         }
 
@@ -752,35 +791,53 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         setVoice("idle");
         speak(j.say);
       } catch (e) {
-        addMsg({ role: "halo", text: `⚠ Connection lost: ${(e as Error).message}`, at: Date.now(), err: true });
+        const line =
+          (e as Error).name === "AbortError"
+            ? "The operator core did not respond in 30 s — try again shortly."
+            : `Connection lost: ${(e as Error).message}`;
+        addMsg({ role: "halo", text: `⚠ ${line}`, at: Date.now(), err: true });
         setVoice("idle");
-        if (convoRef.current) armSilence();
+        resumeAfterTurn(); // the session stays open — never go deaf on an error
       } finally {
+        window.clearTimeout(kill);
         busyRef.current = false;
       }
     },
-    [addMsg, speak, stopRec, stopSpeaking, clearSilence, armSilence, approvePending, cancelPending, setPending]
+    [addMsg, speak, stopRec, stopSpeaking, resumeAfterTurn, approvePending, cancelPending, setPending]
   );
 
   const startConvo = useCallback(
-    (fromWake = false) => {
+    (fromWake = false, command?: string) => {
       convoRef.current = true;
       setConvoOpen(true);
-      armSilence();
       if (fromWake) {
         const ctx = greetCtx();
         const ack = wakeAck(ctx, ackIdxRef.current++);
         addMsg({ role: "user", text: `“${profileRef.current.wakePhrase.toUpperCase()}”`, at: Date.now(), kind: "wake" });
         lastSpokenRef.current = ack;
-        speak(ack);
+        if (command) {
+          // wake + request in one breath ("HALO, what's the gold price?") —
+          // acknowledge first, then run the carried request; if the ack can't
+          // finish (autoplay blocked), a failsafe still delivers the command
+          let sent = false;
+          const go = () => {
+            if (sent) return;
+            sent = true;
+            void send(command, "voice");
+          };
+          speak(ack, { onend: go });
+          window.setTimeout(go, 6000);
+        } else {
+          speak(ack);
+        }
       } else {
         // manual open — user gesture; go straight to listening
         stopSpeaking();
         startRec("convo");
       }
     },
-     
-    [addMsg, speak, startRec, stopSpeaking, armSilence, greetCtx]
+
+    [addMsg, speak, send, startRec, stopSpeaking, greetCtx]
   );
 
   const closeConvo = useCallback(
@@ -788,7 +845,6 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       const wasOpen = convoRef.current;
       convoRef.current = false;
       setConvoOpen(false);
-      clearSilence();
       stopRec();
       if (!wasOpen) return;
       if (spoken && profileRef.current.voiceEnabled) {
@@ -803,7 +859,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       }
     },
      
-    [clearSilence, stopRec, speak, shouldWake, startRec, greetCtx]
+    [stopRec, speak, shouldWake, startRec, greetCtx]
   );
 
   // ── personalized greeting ──
@@ -913,7 +969,17 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     const t = window.setTimeout(() => {
       try {
         const raw = window.localStorage.getItem(PREFS_KEY);
-        if (raw) setPrefsState({ ...DEFAULT_PREFS, ...(JSON.parse(raw) as Partial<VoicePrefs>) });
+        if (raw) {
+          const p = JSON.parse(raw) as Partial<VoicePrefs>;
+          // pick known keys only — older stores may carry removed settings
+          // (liveMode / convoSeconds), which must never resurrect
+          setPrefsState({
+            volume: typeof p.volume === "number" ? p.volume : DEFAULT_PREFS.volume,
+            rate: typeof p.rate === "number" ? p.rate : DEFAULT_PREFS.rate,
+            voiceURI: typeof p.voiceURI === "string" ? p.voiceURI : "",
+            muted: p.muted === true,
+          });
+        }
       } catch {
         // ignore
       }
@@ -1122,10 +1188,8 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     return () => {
       stopRec();
       stopSpeaking();
-      clearSilence();
       if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     };
-     
   }, []);
 
   // ── derived ──

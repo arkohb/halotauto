@@ -1,5 +1,5 @@
 /**
- * HALO voice E2E · always-live + screen-wake recognition (final v2)
+ * HALO voice E2E · always-listening + wake re-arm + screen-wake recognition
  * Run: Xvfb :99 then DISPLAY=:99 bun scripts/voice-e2e.ts
  *
  * Honest scope notes:
@@ -11,7 +11,8 @@
  *    visibilitychange events (handler-level verification of the exact code
  *    that real phone screen-on events trigger).
  *  • The floating JARVIS console panel is bound 1:1 to `convoOpen`, giving a
- *    mic-independent observable of the session lifecycle.
+ *    mic-independent observable of the session lifecycle; the welcome banner's
+ *    `“HALO” ARMED` chip is the mic-independent observable of wake standby.
  */
 import { chromium } from "/home/z/.npm-global/lib/node_modules/playwright/index.mjs";
 
@@ -63,14 +64,7 @@ const ok = (name: string, pass: boolean, detail = "") =>
   ok("MIC + WAKE: permission granted and wake word armed", settingsVisible && wakeArmed && chip === "READY", `settings=${settingsVisible} wake=${wakeArmed} chip=${chip}`);
   await page.screenshot({ path: `${SHOT}/voice-e2e-1-wake-armed.png` });
 
-  // ── 2. ALWAYS-LIVE: session stays open past the 12s silence window ──
-  await page.evaluate(() => {
-    const p = JSON.parse(localStorage.getItem("halo-voice-prefs.v1") || "{}");
-    p.liveMode = true;
-    localStorage.setItem("halo-voice-prefs.v1", JSON.stringify(p));
-  });
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(8000);
+  // ── 2. ALWAYS-ON: session stays open past the old 12s silence window ──
   await page.evaluate(() => {
     const b = [...document.querySelectorAll("button")].find((x) => x.getAttribute("aria-label")?.startsWith("Open HALO console"));
     (b as HTMLElement)?.click();
@@ -79,8 +73,8 @@ const ok = (name: string, pass: boolean, detail = "") =>
   const opened = await panelOpen();
   await page.waitForTimeout(16000); // > 12s old silence window
   const stillOpen = await panelOpen();
-  ok("ALWAYS-LIVE: session still open after 16s silence (liveMode ON)", opened && stillOpen, `opened=${opened} stillOpen=${stillOpen}`);
-  await page.screenshot({ path: `${SHOT}/voice-e2e-2-always-live.png` });
+  ok("ALWAYS-ON: session still open after 16s silence (never sleeps)", opened && stillOpen, `opened=${opened} stillOpen=${stillOpen}`);
+  await page.screenshot({ path: `${SHOT}/voice-e2e-2-always-on.png` });
 
   // ── 3. SCREEN-WAKE: synthetic visibility cycle (handler-level) ──
   await page.evaluate(() => {
@@ -123,26 +117,34 @@ const ok = (name: string, pass: boolean, detail = "") =>
   ok("EXIT PHRASE: “goodbye HALO” ends the live session", closedByExit);
   await page.screenshot({ path: `${SHOT}/voice-e2e-4-exit.png` });
 
-  // ── 5. REGRESSION: liveMode OFF → silence window closes session again ──
+  // ── 5. WAKE RE-ARM: after a session ends, wake standby re-arms itself ──
+  // (the silence-timeout regression test was retired — the timer no longer
+  //  exists; HALO is permanently listening. This now verifies the other half
+  //  of the always-awake contract: idle → ready for the next wake word.)
   await page.evaluate(() => {
-    const p = JSON.parse(localStorage.getItem("halo-voice-prefs.v1") || "{}");
-    p.liveMode = false;
-    localStorage.setItem("halo-voice-prefs.v1", JSON.stringify(p));
+    const nav = [...document.querySelectorAll("button")].find((x) => x.textContent?.trim() === "Dashboard");
+    (nav as HTMLElement)?.click(); // the ARMED chip lives in the welcome banner on the Dashboard view
   });
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(8000);
-  await page.evaluate(() => {
-    const b = [...document.querySelectorAll("button")].find((x) => x.getAttribute("aria-label")?.startsWith("Open HALO console"));
-    (b as HTMLElement)?.click();
+  await page.waitForTimeout(1500);
+  let rearmed = false;
+  for (let i = 0; i < 20; i++) {
+    rearmed = await page.evaluate(() => document.body.innerText.includes("” ARMED"));
+    if (rearmed) break;
+    await page.waitForTimeout(600);
+  }
+  ok("WAKE RE-ARM: after exit phrase, wake-word standby re-arms by itself (< 12s)", rearmed);
+  await page.screenshot({ path: `${SHOT}/voice-e2e-5-wake-rearm.png` });
+
+  // ── 6. REGRESSION: prefs no longer carry the removed silence settings ──
+  const prefsSanitized = await page.evaluate(() => {
+    try {
+      const p = JSON.parse(localStorage.getItem("halo-voice-prefs.v1") || "{}");
+      return !("liveMode" in p) && !("convoSeconds" in p);
+    } catch {
+      return false;
+    }
   });
-  await page.waitForTimeout(2000);
-  const opened2 = await panelOpen();
-  await page.waitForTimeout(15000); // > 12s window
-  const closed2 = await page.evaluate(() => {
-    const launcher = [...document.querySelectorAll("button")].find((x) => x.getAttribute("aria-label")?.startsWith("Open HALO console"));
-    return !document.querySelector('[aria-label="HALO JARVIS console"]') && !!launcher;
-  });
-  ok("REGRESSION: liveMode OFF → 12s silence still ends the session", opened2 && closed2, `opened=${opened2} closed=${closed2}`);
+  ok("REGRESSION: silence-timeout prefs removed from storage (sanitize on hydrate)", prefsSanitized);
 
   ok("NO PAGE ERRORS: zero uncaught exceptions across all scenarios", errors.length === 0, errors.join(" | ").slice(0, 160));
 

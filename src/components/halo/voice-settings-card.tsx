@@ -209,37 +209,16 @@ export function VoiceSettingsCard() {
         </Row>
 
         <Row
-          label="Always live"
-          hint="When ON, HALO keeps listening after every answer and never sleeps on silence — no wake word needed mid-session. “Goodbye HALO” still ends a session."
+          label="Listening mode"
+          hint="Always on — HALO never sleeps on silence. Say the wake phrase any time; after every answer it returns to standby by itself. A session ends only with “goodbye HALO / stop listening / go to sleep”, the console close button, or by turning HALO voice off."
         >
-          <Switch
-            checked={v.prefs.liveMode}
-            onCheckedChange={(c) => v.setPrefs({ liveMode: c })}
-            aria-label="Always live mode"
-          />
-        </Row>
-
-        <Row
-          label="Conversation window"
-          hint={
-            v.prefs.liveMode
-              ? "Not used — Always live keeps the session open until you say “goodbye HALO / stop listening / go to sleep”."
-              : "A voice conversation ends after this much silence (or “goodbye HALO / stop listening / go to sleep”)."
-          }
-        >
-          <select
-            value={String(v.prefs.convoSeconds)}
-            onChange={(e) => v.setPrefs({ convoSeconds: Number(e.target.value) })}
-            disabled={v.prefs.liveMode}
-            className="h-8 rounded-lg border border-[#2A3A5C] bg-[#101C33] px-2 text-[10.5px] text-[#E8ECF4] outline-none disabled:opacity-40"
-            aria-label="Conversation silence window"
+          <span
+            className="rounded-full px-2 py-0.5 text-[8px] font-extrabold tracking-[0.14em]"
+            style={{ background: "rgba(79,216,255,0.12)", color: C.cyan }}
+            title="HALO is permanently ready for the wake word — no silence timeout exists anymore"
           >
-            {[8, 12, 20, 30].map((s) => (
-              <option key={s} value={String(s)}>
-                {s}s silence
-              </option>
-            ))}
-          </select>
+            ALWAYS ON
+          </span>
         </Row>
 
         <Row label="Microphone" hint="Grant or re-check mic access for wake-word + push-to-talk. Nothing is recorded.">
