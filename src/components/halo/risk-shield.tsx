@@ -16,14 +16,15 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useFx } from "@/lib/halo/fx";
+import { C } from "@/lib/halo/ui-helpers";
 
 export type ShieldLevel = "pass" | "warn" | "breach";
 
 export function RiskShield({ level, size = 96 }: { level: ShieldLevel; size?: number }) {
   const { mode } = useFx();
   const animate = mode !== "off";
-  const main = level === "pass" ? "#089981" : level === "warn" ? "#D4AF37" : "#F23645";
-  const accent = level === "pass" ? "#4FD8FF" : main;
+  const main = level === "pass" ? C.green : level === "warn" ? C.gold : C.red;
+  const accent = level === "pass" ? C.cyan : main;
 
   const shieldPath = "M60 8 L104 24 V64 C104 92 84 112 60 122 C36 112 16 92 16 64 V24 Z";
 
@@ -39,7 +40,7 @@ export function RiskShield({ level, size = 96 }: { level: ShieldLevel; size?: nu
       <defs>
         <linearGradient id={`shieldFill-${level}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={main} stopOpacity="0.16" />
-          <stop offset="100%" stopColor="#0B1426" stopOpacity="0.55" />
+          <stop offset="100%" stopColor={C.navy} stopOpacity="0.55" />
         </linearGradient>
         <clipPath id={`shieldClip-${level}`}>
           <path d={shieldPath} />
@@ -72,7 +73,7 @@ export function RiskShield({ level, size = 96 }: { level: ShieldLevel; size?: nu
       <path
         d="M44 64 L55 76 L78 50"
         fill="none"
-        stroke={level === "breach" ? "#F23645" : level === "warn" ? "#D4AF37" : "#08D9A9"}
+        stroke={level === "breach" ? C.red : level === "warn" ? C.gold : "#08D9A9"}
         strokeWidth="4.2"
         strokeLinecap="round"
         strokeLinejoin="round"

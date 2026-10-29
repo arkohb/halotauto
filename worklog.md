@@ -128,3 +128,24 @@ Stage Summary:
 - Deliverable: HALO is permanently ready — wake standby never times out, re-arms itself after every answer/error/session close, survives tab switches, and accepts wake+request in a single utterance
 - Key files: src/components/halo/voice-provider.tsx (core lifecycle), src/components/halo/voice-settings-card.tsx (ALWAYS-ON indicator), scripts/voice-e2e.ts (updated regression), docs/VOICE-ASSISTANT.md
 - Trading engine, execution, risk controls, broker integration: unchanged (verified via /api/bot/state + git diff scope)
+
+---
+Task ID: ui-redesign-1
+Agent: main (Z.ai) + 4 parallel full-stack agents (UI-a..UI-d)
+Task: COMPLETE FUTURISTIC UI REDESIGN — premium AI trading command centre across every view, preserving all functionality
+
+Work Log:
+- Full UI audit (47 components, ~17.6k lines, ~1,390 hardcoded hex / ~40 distinct values, 3 competing card chromes, 6+ pill recipes, missing states, dead tailwind.config.ts)
+- NOTE: the referenced concept image never arrived in the workspace — designed from the written spec (deep navy/near-black, cyan/teal accents, restrained gold, glass hierarchy)
+- DESIGN SYSTEM CORE: globals.css --hx-* token layer (18 tokens) + shadcn :root vars rebranded navy/gold (buttons/inputs/selects/dialogs/skeletons now inherit the theme); ui-helpers.ts C extended to 27 tokens + A() rgba helpers + pillStyle(); panel.tsx v2: PanelCard glass chrome (accent edge + gradient), PageHeader, StateFrame (loading/empty/error/offline + compact), Pill, restyled StatCell/TelemetryRow/CheckRow
+- VIEW AGENTS (parallel, disjoint files, all eslint+tsc clean): UI-a dashboard cards + scanner + control deck (honest states added: scanner error/loading, deck badge error); UI-b strategy lab + performance (native selects → shadcn Select, Pine mirror harmonized, backtest-live minimal-touch); UI-c activity + risk (mt5-mobile Binance palette eliminated, positions/history offline states, 4 cards migrated); UI-d settings/alerts/brokers (brokers 177 hexes → tokens, PanelCard everywhere, + BUG FIX: /api/alerts/test was 404 → new route reusing src/lib/alerts.testAlert with honest per-channel results — verified: telegram HTTP 401 (placeholder dev token), email not configured, push no devices)
+- AI CORE STATES: orb gained executing (teal, mirrors REAL ActionBridge runs only) + error (red, 2.8s after verified failure) + cssTone fallbacks; voice-energy bus extended (setExecuting/errorPulse); halo-core badge "EXECUTING"/"ACTION FAILED"; never shows success animation — success returns to idle
+- SHELL: nav-rail tokenized + active glow; PageHeaders with purpose lines on all 9 non-dashboard views (col-span-full in grids); risk header shows LIVE/PAPER ROUTING pill
+- Reduced-motion + FX kill-switches respected (no new ambient animations; orb states reuse existing perf-governed shader)
+- Verification: eslint clean (35 files), tsc 0 errors in src/, bun run build OK, ui-e2e 27/27 PASS (all 10 routes + PageHeaders + active-tab treatment + controls + theme tokens + intel sections + bot state intact XAUUSD 1h + alerts test + zero page errors), voice-e2e 8/8 PASS, engine tests ALL PASSED, brain regression PASS (confirm-gating, external-link decline, real calendar read)
+- Not implemented (do not exist in app): Learning Missions, Pending Orders dedicated view
+
+Stage Summary:
+- Deliverable: consistent premium command-centre UI across all 10 views with a single-token design system, honest states everywhere, 8-state AI core, zero behavior change
+- Key files: src/app/globals.css, src/lib/halo/ui-helpers.ts, src/components/halo/panel.tsx (system core); 35 view files migrated; src/app/api/alerts/test/route.ts (bug fix)
+- Trading engine, strategy v1.2, MT5/MetaApi, risk controls: verified unchanged (bot state, engine tests, brain regression)

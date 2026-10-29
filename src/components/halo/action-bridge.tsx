@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useHaloVoice, type ActionRunner, type ClientAction } from "./voice-provider";
+import { voiceEnergy } from "@/lib/halo/voice-energy";
 import { VIEWS, type HistoryPeriod, type ViewId } from "@/lib/halo/actions";
 
 export interface BridgeHandlers {
@@ -80,53 +81,80 @@ export function ActionBridge({ handlers }: { handlers: BridgeHandlers }) {
   const run = useCallback<ActionRunner>(async (a: ClientAction) => {
     const h = handlersRef.current;
     const params = a.params ?? {};
-    switch (a.id) {
-      case "navigate_to_view": {
-        const view = String(params.view ?? "");
-        const label = VIEW_LABEL[view];
-        if (!label) return { ok: false, detail: `"${view}" is not a section of this app` };
-        h.gotoView(view as ViewId);
-        return { ok: true, detail: `${label} is open` };
+    // the AI core's EXECUTING animation mirrors this real execution window —
+    // it starts only when work actually starts and stops when it stops
+    voiceEnergy.setExecuting(true);
+    let res: { ok: boolean; detail: string } | null = null;
+    try {
+      switch (a.id) {
+        case "navigate_to_view": {
+          const view = String(params.view ?? "");
+          const label = VIEW_LABEL[view];
+          if (!label) {
+            res = { ok: false, detail: `"${view}" is not a section of this app` };
+            return res;
+          }
+          h.gotoView(view as ViewId);
+          res = { ok: true, detail: `${label} is open` };
+          return res;
+        }
+        case "go_back": {
+          const prev = h.previousView();
+          if (!prev) {
+            res = { ok: false, detail: "no previous section to return to" };
+            return res;
+          }
+          h.gotoView(prev);
+          res = { ok: true, detail: `back to ${VIEW_LABEL[prev] ?? prev}` };
+          return res;
+        }
+        case "select_symbol": {
+          const sym = String(params.symbol ?? "");
+          const r = await h.changeSymbol(sym);
+          res = r.ok ? { ok: true, detail: `chart and engine switched to ${r.symbol ?? sym}` } : { ok: false, detail: r.error ?? `could not switch to ${sym}` };
+          return res;
+        }
+        case "set_chart_timeframe": {
+          const tf = String(params.tf ?? "");
+          const r = await h.changeTf(tf);
+          res = r.ok ? { ok: true, detail: `timeframe set to ${r.tf ?? tf}` } : { ok: false, detail: r.error ?? `could not set ${tf}` };
+          return res;
+        }
+        case "refresh_market_data": {
+          const r = await h.refreshData();
+          res = r.ok ? { ok: true, detail: "market data refreshed" } : { ok: false, detail: r.error ?? "refresh failed" };
+          return res;
+        }
+        case "open_trade_details": {
+          h.gotoView("activity");
+          res = { ok: true, detail: "Trading Activity is open" };
+          return res;
+        }
+        case "filter_trade_history": {
+          const period = String(params.period ?? "all") as HistoryPeriod;
+          h.setHistFilter(period);
+          res = { ok: true, detail: `trade history filtered to ${FILTER_LABEL[period] ?? period}` };
+          return res;
+        }
+        case "export_trade_history": {
+          res = await downloadTradeCsv();
+          return res;
+        }
+        case "set_voice_muted": {
+          const muted = params.muted === true || params.muted === "true";
+          setPrefs({ muted });
+          res = { ok: true, detail: muted ? "spoken replies muted" : "spoken replies unmuted" };
+          return res;
+        }
+        default:
+          res = { ok: false, detail: `"${a.id}" has no client executor` };
+          return res;
       }
-      case "go_back": {
-        const prev = h.previousView();
-        if (!prev) return { ok: false, detail: "no previous section to return to" };
-        h.gotoView(prev);
-        return { ok: true, detail: `back to ${VIEW_LABEL[prev] ?? prev}` };
-      }
-      case "select_symbol": {
-        const sym = String(params.symbol ?? "");
-        const res = await h.changeSymbol(sym);
-        return res.ok ? { ok: true, detail: `chart and engine switched to ${res.symbol ?? sym}` } : { ok: false, detail: res.error ?? `could not switch to ${sym}` };
-      }
-      case "set_chart_timeframe": {
-        const tf = String(params.tf ?? "");
-        const res = await h.changeTf(tf);
-        return res.ok ? { ok: true, detail: `timeframe set to ${res.tf ?? tf}` } : { ok: false, detail: res.error ?? `could not set ${tf}` };
-      }
-      case "refresh_market_data": {
-        const res = await h.refreshData();
-        return res.ok ? { ok: true, detail: "market data refreshed" } : { ok: false, detail: res.error ?? "refresh failed" };
-      }
-      case "open_trade_details": {
-        h.gotoView("activity");
-        return { ok: true, detail: "Trading Activity is open" };
-      }
-      case "filter_trade_history": {
-        const period = String(params.period ?? "all") as HistoryPeriod;
-        h.setHistFilter(period);
-        return { ok: true, detail: `trade history filtered to ${FILTER_LABEL[period] ?? period}` };
-      }
-      case "export_trade_history": {
-        return downloadTradeCsv();
-      }
-      case "set_voice_muted": {
-        const muted = params.muted === true || params.muted === "true";
-        setPrefs({ muted });
-        return { ok: true, detail: muted ? "spoken replies muted" : "spoken replies unmuted" };
-      }
-      default:
-        return { ok: false, detail: `"${a.id}" has no client executor` };
+    } finally {
+      voiceEnergy.setExecuting(false);
+      // a verified failure flashes the honest ERROR state on the AI core;
+      // success simply returns to idle — the console reports the results
+      if (res && res.ok === false) voiceEnergy.errorPulse();
     }
   }, [setPrefs]);
 

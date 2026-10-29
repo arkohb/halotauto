@@ -6,6 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useState, type ReactNode } from "react";
+import { Zap } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,7 +18,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { PanelCard, StateFrame, StatCell } from "./panel";
 import { usePwa } from "./pwa";
 
 export type DeckView = "terminal" | "scanner" | "backtest" | "brokers" | "alerts";
@@ -65,6 +67,7 @@ interface TileSpec {
 export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }: Props) {
   const { canInstall, installed, install } = usePwa();
   const [scanBadge, setScanBadge] = useState<ScannerBadge | null>(null);
+  const [scanErr, setScanErr] = useState(false);
   const [alertBadge, setAlertBadge] = useState<AlertBadge | null>(null);
   const disabled = busy !== null;
   const running = state.enabled;
@@ -78,6 +81,7 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
       fetch("/api/scanner", { cache: "no-store" })
         .then((r) => r.json())
         .then((j: Partial<ScannerBadge> & { ok?: boolean }) => {
+          if (alive) setScanErr(false);
           if (alive && typeof j.enabledCount === "number") {
             setScanBadge({
               enabledCount: j.enabledCount ?? 0,
@@ -86,7 +90,9 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
             });
           }
         })
-        .catch(() => {});
+        .catch(() => {
+          setScanErr(true); // badge is unavailable — surfaced as a tiny honest note, tiles stay live
+        });
     };
     load();
     const id = setInterval(load, 15000);
@@ -131,20 +137,29 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
     : "telegram·email";
 
   return (
-    <section aria-label="Dashboard control deck" className="mb-4 rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
-      {/* deck header + mini stats */}
-      <div className="flex items-center justify-between gap-3 border-b border-[#1C2A47] px-3 py-2">
-        <span className="text-[10px] font-bold tracking-[0.22em] text-[#8C98AE]">⌁ CONTROL DECK</span>
-        <div className="hidden items-center gap-4 font-mono text-[11px] md:flex">
-          <Stat label="NET" value={fmtPips(net)} color={net >= 0 ? C.green : C.red} />
-          <Stat label="WIN" value={wr !== null ? `${wr.toFixed(0)}%` : "—"} color={wr !== null && wr >= 25 ? C.green : wr !== null ? C.red : C.muted} />
-          <Stat label="RUN" value={rp !== null ? fmtPips(rp) : "—"} color={rp !== null ? (rp >= 0 ? C.green : C.red) : C.muted} />
-          <Stat label="MODE" value={live ? "LIVE" : "PAPER"} color={live ? C.red : C.gold} />
-        </div>
-      </div>
+    <section aria-label="Dashboard control deck" className="mb-4">
+      <PanelCard
+        title="CONTROL DECK"
+        icon={Zap}
+        accent="gold"
+        right={
+          <div className="hidden items-center gap-2 md:flex">
+            <StatCell label="NET" value={fmtPips(net)} color={net >= 0 ? C.green : C.red} />
+            <StatCell label="WIN" value={wr !== null ? `${wr.toFixed(0)}%` : "—"} color={wr !== null && wr >= 25 ? C.green : wr !== null ? C.red : C.muted} />
+            <StatCell label="RUN" value={rp !== null ? fmtPips(rp) : "—"} color={rp !== null ? (rp >= 0 ? C.green : C.red) : C.muted} />
+            <StatCell label="MODE" value={live ? "LIVE" : "PAPER"} color={live ? C.red : C.gold} />
+          </div>
+        }
+      >
+        {/* scanner badge unavailable — honest note, tiles stay fully live */}
+        {scanErr && (
+          <div className="px-3 pt-3">
+            <StateFrame state="offline" title="Scanner badge unavailable" compact />
+          </div>
+        )}
 
-      {/* button grid */}
-      <div className="grid grid-cols-4 gap-2 p-3 sm:grid-cols-8">
+        {/* button grid */}
+        <div className="grid grid-cols-4 gap-2 p-3 sm:grid-cols-8">
         {/* 1 · POWER — start / stop the EA bot */}
         <Tile
           icon={running ? "■" : "▶"}
@@ -358,11 +373,12 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
       {live && (
         <div
           className="border-t px-3 py-1.5 text-center text-[10px] font-bold tracking-[0.18em]"
-          style={{ borderColor: "rgba(242,54,69,0.4)", background: "rgba(242,54,69,0.10)", color: C.red }}
+          style={{ borderColor: A.red(0.4), background: A.red(0.1), color: C.red }}
         >
           LIVE ORDER ROUTING ACTIVE — EVERY C3 FIRE IS SENT TO THE BROKER
         </div>
       )}
+      </PanelCard>
     </section>
   );
 }
@@ -385,13 +401,13 @@ function tileStyle(p: { danger?: boolean; gold?: boolean; selected?: boolean; ac
     };
   }
   const border = p.danger
-    ? "rgba(242,54,69,0.55)"
+    ? A.red(0.55)
     : p.gold
-      ? "rgba(212,175,55,0.55)"
+      ? A.gold(0.55)
       : p.selected
-        ? "rgba(212,175,55,0.7)"
-        : "#1C2A47";
-  const bg = p.selected ? "#16233D" : p.danger ? "rgba(242,54,69,0.07)" : "#101C33";
+        ? A.gold(0.7)
+        : C.line;
+  const bg = p.selected ? C.navy3 : p.danger ? A.red(0.07) : C.navy2;
   return { borderColor: border, background: bg };
 }
 
@@ -426,7 +442,7 @@ function TileFace(p: { icon: string; label: string; sub?: string; danger?: boole
         <span
           className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full"
           style={{
-            background: p.dot === "ok" ? C.green : p.dot === "err" ? C.red : "#5D606B",
+            background: p.dot === "ok" ? C.green : p.dot === "err" ? C.red : C.dim,
             boxShadow: p.dot === "ok" ? `0 0 6px ${C.green}` : undefined,
           }}
         />
@@ -461,16 +477,7 @@ function Tile(p: TileSpec) {
   );
 }
 
-function Stat({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <span className="flex items-baseline gap-1.5">
-      <span className="text-[9px] tracking-[0.18em] text-[#8C98AE]">{label}</span>
-      <span className="font-bold" style={{ color }}>
-        {value}
-      </span>
-    </span>
-  );
-}
+// StatCell (panel.tsx) renders the deck's NET/WIN/RUN/MODE mini-stats
 
 // ReactNode is re-exported for potential tile extensions
 export type { ReactNode as TileNode };

@@ -39,7 +39,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HaloEngine } from "@/lib/halo/engine";
 import type { Candle, EngineEvent, HaloConfig, LevelSnapshot } from "@/lib/halo/types";
-import { C, fmtPips, fmtPx } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPips, fmtPx } from "@/lib/halo/ui-helpers";
+import { Pill } from "@/components/halo/panel";
 import { BT_TIMEFRAMES, SYMBOLS, SYMBOL_GROUPS, tfSec } from "@/lib/market-symbols";
 import { ZoneOverlay, type ZoneRectSpec } from "./lwc-zone";
 
@@ -154,15 +155,15 @@ function speedText(s: number): string {
 function bannerStyle(tone: BannerTone): { bg: string; border: string; fg: string } {
   switch (tone) {
     case "fire":
-      return { bg: "rgba(212,175,55,0.14)", border: "rgba(212,175,55,0.55)", fg: "#D4AF37" };
+      return { bg: A.gold(0.14), border: A.gold(0.55), fg: C.gold };
     case "win":
-      return { bg: "rgba(8,153,129,0.16)", border: "rgba(8,153,129,0.55)", fg: C.green };
+      return { bg: A.green(0.16), border: A.green(0.55), fg: C.green };
     case "loss":
-      return { bg: "rgba(242,54,69,0.14)", border: "rgba(242,54,69,0.55)", fg: C.red };
+      return { bg: A.red(0.14), border: A.red(0.55), fg: C.red };
     case "done":
-      return { bg: "rgba(212,175,55,0.18)", border: "rgba(212,175,55,0.7)", fg: "#E9CB5B" };
+      return { bg: A.gold(0.18), border: A.gold(0.7), fg: "#E9CB5B" };
     default:
-      return { bg: "rgba(15,26,48,0.9)", border: "#2A3A5C", fg: C.txt };
+      return { bg: "rgba(15,26,48,0.9)", border: C.line2, fg: C.txt };
   }
 }
 const TAPE_STYLE: Record<TapeKind, { col: string; mark: string }> = {
@@ -505,7 +506,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
     const chart = createChart(el, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: C.navy }, textColor: C.muted, fontSize: 11, attributionLogo: false },
-      grid: { vertLines: { color: "#121D35" }, horzLines: { color: "#121D35" } },
+      grid: { vertLines: { color: C.divider }, horzLines: { color: C.divider } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: C.line },
       timeScale: { borderColor: C.line, timeVisible: true, secondsVisible: false, rightOffset: 3 },
@@ -516,7 +517,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
       wickUpColor: C.green,
       wickDownColor: C.red,
       borderVisible: false,
-      priceLineColor: "#5D606B",
+      priceLineColor: C.dim,
     });
     cs.priceScale().applyOptions({ scaleMargins: { top: 0.12, bottom: 0.12 } });
     const mk = createSeriesMarkers(cs, []);
@@ -843,18 +844,8 @@ export function BacktestLive({ symbol, tf, config }: Props) {
       <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
         <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-[#1C2A47]">
           <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">LIVE BACKTEST REPLAY</span>
-          <span
-            className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
-            style={{ background: "rgba(8,153,129,0.16)", color: C.green }}
-          >
-            REAL MARKET DATA ONLY · NO DEMO
-          </span>
-          <span
-            className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
-            style={{ background: "rgba(212,175,55,0.14)", color: "#D4AF37" }}
-          >
-            ∞ BARS · ANY PAIR · M1→W1
-          </span>
+          <Pill tone="ok">REAL MARKET DATA ONLY · NO DEMO</Pill>
+          <Pill tone="gold">∞ BARS · ANY PAIR · M1→W1</Pill>
           <span className="ml-auto text-[10px] text-[#8C98AE]">watch the 3EL bot form levels, fire, and close — bar by bar</span>
         </div>
 
@@ -922,9 +913,9 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                 onClick={() => setBars(v)}
                 className="h-8 rounded-md border px-2.5 text-[10px] font-bold tracking-wide transition-colors"
                 style={{
-                  borderColor: bars === v ? "#D4AF37" : "#2A3A5C",
-                  color: bars === v ? "#D4AF37" : "#8C98AE",
-                  background: bars === v ? "rgba(212,175,55,0.10)" : "transparent",
+                  borderColor: bars === v ? C.gold : C.line2,
+                  color: bars === v ? C.gold : C.muted,
+                  background: bars === v ? A.gold(0.1) : "transparent",
                 }}
               >
                 {label}
@@ -971,7 +962,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
         {error && (
           <div
             className="mx-3 mb-3 rounded-lg border px-3 py-2 text-xs font-bold tracking-wide"
-            style={{ borderColor: "rgba(242,54,69,0.5)", background: "rgba(242,54,69,0.10)", color: C.red }}
+            style={{ borderColor: A.red(0.5), background: A.red(0.1), color: C.red }}
           >
             {error}
           </div>
@@ -995,21 +986,9 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           <span className="font-mono">
             {day(meta.span.from)} → {day(meta.span.to)}
           </span>
-          {meta.requestedBars === "all" && (
-            <span className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]" style={{ background: "rgba(212,175,55,0.14)", color: "#D4AF37" }}>
-              ALL-HISTORY RUN
-            </span>
-          )}
-          {meta.complete && (
-            <span className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]" style={{ background: "rgba(8,153,129,0.16)", color: C.green }}>
-              FEED GENESIS REACHED
-            </span>
-          )}
-          {meta.from && (
-            <span className="rounded px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]" style={{ background: "rgba(42,58,92,0.5)", color: "#AEB9D6" }}>
-              FROM {meta.from}
-            </span>
-          )}
+          {meta.requestedBars === "all" && <Pill tone="gold">ALL-HISTORY RUN</Pill>}
+          {meta.complete && <Pill tone="ok">FEED GENESIS REACHED</Pill>}
+          {meta.from && <Pill tone="muted">FROM {meta.from}</Pill>}
           <span>spread {spreadRef.current}p</span>
         </div>
       )}
@@ -1052,11 +1031,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
               >
                 ⤓ SKIP TO END
               </button>
-              {done && (
-                <span className="rounded px-2 py-1 text-[9px] font-extrabold tracking-[0.14em]" style={{ background: "rgba(212,175,55,0.18)", color: "#E9CB5B" }}>
-                  BACKTEST COMPLETE
-                </span>
-              )}
+              {done && <Pill tone="gold">BACKTEST COMPLETE</Pill>}
               <span className="ml-auto font-mono text-[10px] font-bold text-[#D4AF37]">{speedText(speedRef.current)}</span>
             </div>
 
@@ -1072,9 +1047,9 @@ export function BacktestLive({ symbol, tf, config }: Props) {
                     onClick={() => setSpeedBoth(v)}
                     className="h-7 rounded-md border px-2.5 text-[10px] font-bold tracking-wide transition-colors"
                     style={{
-                      borderColor: active ? "#D4AF37" : "#2A3A5C",
-                      color: active ? "#D4AF37" : "#8C98AE",
-                      background: active ? "rgba(212,175,55,0.10)" : "transparent",
+                      borderColor: active ? C.gold : C.line2,
+                      color: active ? C.gold : C.muted,
+                      background: active ? A.gold(0.1) : "transparent",
                     }}
                   >
                     {label}
@@ -1107,7 +1082,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
               >
                 <div
                   className="absolute inset-y-0 left-0 rounded-full"
-                  style={{ width: `${pct}%`, background: done ? C.gold : "linear-gradient(90deg,#8A7423,#D4AF37)" }}
+                  style={{ width: `${pct}%`, background: done ? C.gold : `linear-gradient(90deg,${C.goldDim},${C.gold})` }}
                 />
                 <div
                   className="absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full border-2 border-[#0B1426]"
@@ -1249,7 +1224,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
 
           {/* open trade */}
           {trade && (
-            <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: trade.dir === -1 ? "rgba(242,54,69,0.45)" : "rgba(8,153,129,0.45)", background: "rgba(15,26,48,0.9)" }}>
+            <div className="rounded-xl border px-3 py-2.5" style={{ borderColor: trade.dir === -1 ? A.red(0.45) : A.green(0.45), background: "rgba(15,26,48,0.9)" }}>
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-extrabold tracking-wide" style={{ color: trade.dir === -1 ? C.red : C.green }}>
                   {trade.dir === -1 ? "▼ SELL IN PROGRESS" : "▲ BUY IN PROGRESS"}

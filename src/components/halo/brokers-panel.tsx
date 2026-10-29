@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Building2, KeyRound, Landmark, LayoutGrid, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -21,7 +22,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { C } from "@/lib/halo/ui-helpers";
+import { A, C } from "@/lib/halo/ui-helpers";
+import { PanelCard, Pill, StateFrame } from "./panel";
 import { BROKERS, brokerMeta, MT_SERVERS, type CredField } from "@/lib/brokers/broker-meta";
 import {
   BROKER_DIRECTORY,
@@ -50,6 +52,11 @@ interface Props {
 
 // platform tiles of the always-on catalog (metaapi has the featured card; paper is built-in)
 const CATALOG_KINDS = ["oanda", "ig", "binance", "fxcm", "ctrader", "deriv", "webhook"] as const;
+
+// shared token class strings — CSS consumes the --hx-* mirror of C
+const IN_CLS = "h-9 bg-[var(--hx-bg)] border-[var(--hx-line)] text-sm text-[var(--hx-txt)]";
+const BTN_TEST_CLS = "h-8 px-3 text-[11px] border-[var(--hx-line2)] text-[var(--hx-txt)] hover:border-[var(--hx-gold)] hover:text-[var(--hx-gold)] bg-transparent";
+const BTN_GOLD_CLS = "bg-primary text-primary-foreground hover:bg-[var(--hx-gold-hi)] font-bold";
 
 export function BrokersPanel({ notify }: Props) {
   const [rows, setRows] = useState<BrokerRow[]>([]);
@@ -210,27 +217,29 @@ export function BrokersPanel({ notify }: Props) {
   return (
     <div className="space-y-4">
       {/* ── header strip ── */}
-      <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-bold tracking-wider text-[#E8ECF4]">BROKER CONNECTIONS · ALL PLATFORMS LIVE</div>
-            <div className="text-[11px] text-[#8C98AE] mt-0.5">
-              Real market orders with SL/TP. Credentials stay on this server — only masked hints reach the browser.
-            </div>
-          </div>
+      <PanelCard
+        title="BROKER CONNECTIONS · ALL PLATFORMS LIVE"
+        icon={Landmark}
+        accent="cyan"
+        bodyClassName="p-3"
+        right={
           <div
             className="flex items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-bold tracking-wider"
             style={{
-              borderColor: execMode === "live" ? "rgba(242,54,69,0.5)" : "rgba(8,153,129,0.5)",
+              borderColor: execMode === "live" ? A.red(0.5) : A.green(0.5),
               color: execMode === "live" ? C.red : C.green,
-              background: execMode === "live" ? "rgba(242,54,69,0.07)" : "rgba(8,153,129,0.07)",
+              background: execMode === "live" ? A.red(0.07) : A.green(0.07),
             }}
           >
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: execMode === "live" ? C.red : C.green }} />
             {execMode === "live" ? `LIVE · ${execBroker ?? "broker"}` : "PAPER EXECUTION"}
           </div>
+        }
+      >
+        <div className="text-[11px] text-[var(--hx-muted)]">
+          Real market orders with SL/TP. Credentials stay on this server — only masked hints reach the browser.
         </div>
-      </div>
+      </PanelCard>
 
       {/* ── featured: MT4/MT5 direct login ── */}
       <div ref={mtCardRef} className="scroll-mt-4">
@@ -254,10 +263,7 @@ export function BrokersPanel({ notify }: Props) {
 
       {/* ── connected accounts ── */}
       {rows.length > 0 && (
-        <div className="space-y-2">
-          <div className="text-[11px] font-bold tracking-wider text-[#8C98AE]">
-            CONNECTED ACCOUNTS ({rows.length})
-          </div>
+        <PanelCard title={`CONNECTED ACCOUNTS (${rows.length})`} icon={Wallet} accent="green" bodyClassName="p-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {rows.map((b) => {
               const meta = brokerMeta(b.kind);
@@ -266,14 +272,17 @@ export function BrokersPanel({ notify }: Props) {
               return (
                 <div
                   key={b.id}
-                  className="rounded-xl border bg-[#0F1A30] p-4"
-                  style={{ borderColor: isExecTarget ? C.red : b.active ? C.gold : "#1C2A47" }}
+                  className="rounded-xl border p-4"
+                  style={{
+                    borderColor: isExecTarget ? C.red : b.active ? C.gold : C.line,
+                    background: C.navy4,
+                  }}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-sm text-[#E8ECF4] truncate">{b.label}</span>
-                        <Badge variant="outline" className="text-[9px] border-[#2A3A5C] text-[#8C98AE] uppercase">
+                        <span className="font-bold text-sm text-[var(--hx-txt)] truncate">{b.label}</span>
+                        <Badge variant="outline" className="text-[9px] border-[var(--hx-line2)] text-[var(--hx-muted)] uppercase">
                           {meta?.name ?? b.kind}
                         </Badge>
                         {b.env && b.env !== "—" && (
@@ -281,7 +290,7 @@ export function BrokersPanel({ notify }: Props) {
                             variant="outline"
                             className="text-[9px] uppercase"
                             style={{
-                              borderColor: /live|real/i.test(b.env) ? "rgba(242,54,69,0.6)" : "rgba(8,153,129,0.6)",
+                              borderColor: /live|real/i.test(b.env) ? A.red(0.6) : A.green(0.6),
                               color: /live|real/i.test(b.env) ? C.red : C.green,
                             }}
                           >
@@ -289,7 +298,7 @@ export function BrokersPanel({ notify }: Props) {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[11px] text-[#8C98AE] mt-1 truncate">{meta?.tagline}</div>
+                      <div className="text-[11px] text-[var(--hx-muted)] mt-1 truncate">{meta?.tagline}</div>
                     </div>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <span className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider" style={{ color: statusColor }}>
@@ -306,7 +315,7 @@ export function BrokersPanel({ notify }: Props) {
                     <div
                       className="mt-2 text-[11px] font-mono rounded-md px-2 py-1.5 leading-relaxed break-words"
                       style={{
-                        background: b.status === "ok" ? "rgba(8,153,129,0.08)" : "rgba(242,54,69,0.08)",
+                        background: b.status === "ok" ? A.green(0.08) : A.red(0.08),
                         color: b.status === "ok" ? C.green : C.red,
                       }}
                     >
@@ -314,10 +323,10 @@ export function BrokersPanel({ notify }: Props) {
                     </div>
                   )}
 
-                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[#5D606B] font-mono">
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--hx-dim)] font-mono">
                     {Object.entries(b.masked).slice(0, 4).map(([k, v]) => (
                       <span key={k}>
-                        {k}: <span className="text-[#8C98AE]">{v}</span>
+                        {k}: <span className="text-[var(--hx-muted)]">{v}</span>
                       </span>
                     ))}
                   </div>
@@ -328,7 +337,7 @@ export function BrokersPanel({ notify }: Props) {
                       size="sm"
                       disabled={busyId !== null}
                       onClick={() => void test(b.id)}
-                      className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#D4AF37] hover:text-[#D4AF37] bg-transparent"
+                      className={BTN_TEST_CLS}
                     >
                       {busyId === `${b.id}:test` ? "TESTING…" : "TEST"}
                     </Button>
@@ -338,7 +347,7 @@ export function BrokersPanel({ notify }: Props) {
                         size="sm"
                         disabled={busyId !== null}
                         onClick={() => void setActive(b.id)}
-                        className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#089981] hover:text-[#089981] bg-transparent"
+                        className="h-8 px-3 text-[11px] border-[var(--hx-line2)] text-[var(--hx-txt)] hover:border-[var(--hx-green)] hover:text-[var(--hx-green)] bg-transparent"
                       >
                         SET ACTIVE
                       </Button>
@@ -349,23 +358,23 @@ export function BrokersPanel({ notify }: Props) {
                           <Button
                             size="sm"
                             disabled={busyId !== null}
-                            className="h-8 px-3 text-[11px] bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold"
+                            className={`${BTN_GOLD_CLS} h-8 px-3 text-[11px]`}
                           >
                             {busyId === `${b.id}:live` ? "ARMING…" : "⚡ GO LIVE"}
                           </Button>
                         </AlertDialogTrigger>
-                        <AlertDialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+                        <AlertDialogContent className="bg-[var(--hx-card2)] border-[var(--hx-line2)] text-[var(--hx-txt)]">
                           <AlertDialogHeader>
-                            <AlertDialogTitle className="text-[#D4AF37]">Route EA orders to {b.label}?</AlertDialogTitle>
-                            <AlertDialogDescription className="text-[#8C98AE]">
+                            <AlertDialogTitle className="text-[var(--hx-gold)]">Route EA orders to {b.label}?</AlertDialogTitle>
+                            <AlertDialogDescription className="text-[var(--hx-muted)]">
                               REAL MONEY. Every C3 fire becomes a live market order on this account with SL/TP
                               attached — using the current sizing settings. Make sure the EA is started and the
                               symbol exists on this broker. Paper fallback stays one tap away.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE]">Cancel</AlertDialogCancel>
-                            <AlertDialogAction className="bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A]" onClick={() => void goLive(b.id, b.label)}>
+                            <AlertDialogCancel className="bg-transparent border-[var(--hx-line2)] text-[var(--hx-muted)]">Cancel</AlertDialogCancel>
+                            <AlertDialogAction className="bg-primary text-primary-foreground hover:bg-[var(--hx-gold-hi)]" onClick={() => void goLive(b.id, b.label)}>
                               ARM LIVE ROUTING
                             </AlertDialogAction>
                           </AlertDialogFooter>
@@ -378,21 +387,21 @@ export function BrokersPanel({ notify }: Props) {
                           variant="outline"
                           size="sm"
                           disabled={busyId !== null}
-                          className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#8C98AE] hover:border-[#F23645] hover:text-[#F23645] bg-transparent ml-auto"
+                          className="h-8 px-3 text-[11px] border-[var(--hx-line2)] text-[var(--hx-muted)] hover:border-[var(--hx-red)] hover:text-[var(--hx-red)] bg-transparent ml-auto"
                         >
                           REMOVE
                         </Button>
                       </AlertDialogTrigger>
-                      <AlertDialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4]">
+                      <AlertDialogContent className="bg-[var(--hx-card2)] border-[var(--hx-line2)] text-[var(--hx-txt)]">
                         <AlertDialogHeader>
-                          <AlertDialogTitle className="text-[#D4AF37]">Remove {b.label}?</AlertDialogTitle>
-                          <AlertDialogDescription className="text-[#8C98AE]">
+                          <AlertDialogTitle className="text-[var(--hx-gold)]">Remove {b.label}?</AlertDialogTitle>
+                          <AlertDialogDescription className="text-[var(--hx-muted)]">
                             Credentials are wiped. If it was the active live account, execution falls back to paper.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel className="bg-transparent border-[#2A3A5C] text-[#8C98AE]">Cancel</AlertDialogCancel>
-                          <AlertDialogAction className="bg-[#F23645] text-white hover:bg-[#FF4D5B]" onClick={() => void remove(b.id)}>
+                          <AlertDialogCancel className="bg-transparent border-[var(--hx-line2)] text-[var(--hx-muted)]">Cancel</AlertDialogCancel>
+                          <AlertDialogAction className="bg-[var(--hx-red)] text-white hover:brightness-110" onClick={() => void remove(b.id)}>
                             Remove
                           </AlertDialogAction>
                         </AlertDialogFooter>
@@ -403,25 +412,26 @@ export function BrokersPanel({ notify }: Props) {
               );
             })}
           </div>
-        </div>
+        </PanelCard>
       )}
 
       {/* ── all platforms · auto catalog ── */}
-      <div className="space-y-2">
-        <div className="text-[11px] font-bold tracking-wider text-[#8C98AE]">
-          ALL PLATFORMS · READY TO CONNECT
-        </div>
+      <PanelCard title="ALL PLATFORMS · READY TO CONNECT" icon={LayoutGrid} accent="cyan" bodyClassName="p-3">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {/* paper built-in tile */}
-          <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4 flex flex-col justify-between gap-3">
+          <div className="rounded-xl border border-[var(--hx-line)] p-4 flex flex-col justify-between gap-3" style={{ background: C.navy4 }}>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-sm text-[#E8ECF4]">Paper (simulated)</span>
-                <Badge variant="outline" className="text-[9px] border-[rgba(8,153,129,0.6)] text-[#089981] uppercase">
+                <span className="font-bold text-sm text-[var(--hx-txt)]">Paper (simulated)</span>
+                <Badge
+                  variant="outline"
+                  className="text-[9px] uppercase"
+                  style={{ borderColor: A.green(0.6), color: C.green }}
+                >
                   built-in · always on
                 </Badge>
               </div>
-              <div className="text-[11px] text-[#8C98AE] mt-1 leading-snug">
+              <div className="text-[11px] text-[var(--hx-muted)] mt-1 leading-snug">
                 Instant simulated fills, no credentials. The default execution for every new session.
               </div>
             </div>
@@ -430,7 +440,7 @@ export function BrokersPanel({ notify }: Props) {
               size="sm"
               disabled={busyId !== null || execMode === "paper"}
               onClick={() => void switchToPaper()}
-              className="h-8 px-3 text-[11px] border-[rgba(8,153,129,0.5)] text-[#089981] hover:bg-[rgba(8,153,129,0.08)] bg-transparent w-fit"
+              className="h-8 px-3 text-[11px] bg-transparent w-fit border-[var(--hx-green)] text-[var(--hx-green)] hover:bg-[var(--hx-green)]/8"
             >
               {execMode === "paper" ? "CURRENT MODE" : "USE PAPER"}
             </Button>
@@ -442,17 +452,21 @@ export function BrokersPanel({ notify }: Props) {
             if (!meta) return null;
             const count = rows.filter((r) => r.kind === kind).length;
             return (
-              <div key={kind} className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4 flex flex-col justify-between gap-3">
+              <div key={kind} className="rounded-xl border border-[var(--hx-line)] p-4 flex flex-col justify-between gap-3" style={{ background: C.navy4 }}>
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm text-[#E8ECF4]">{meta.name}</span>
+                    <span className="font-bold text-sm text-[var(--hx-txt)]">{meta.name}</span>
                     {count > 0 && (
-                      <Badge variant="outline" className="text-[9px] border-[rgba(212,175,55,0.5)] text-[#D4AF37] uppercase">
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] uppercase"
+                        style={{ borderColor: A.gold(0.5), color: C.gold }}
+                      >
                         {count} connected
                       </Badge>
                     )}
                   </div>
-                  <div className="text-[11px] text-[#8C98AE] mt-1 leading-snug">{meta.tagline}</div>
+                  <div className="text-[11px] text-[var(--hx-muted)] mt-1 leading-snug">{meta.tagline}</div>
                 </div>
                 <Button
                   variant="outline"
@@ -461,7 +475,7 @@ export function BrokersPanel({ notify }: Props) {
                     setPresetKind(kind);
                     setAddOpen(true);
                   }}
-                  className="h-8 px-3 text-[11px] border-[#2A3A5C] text-[#E8ECF4] hover:border-[#D4AF37] hover:text-[#D4AF37] bg-transparent w-fit"
+                  className={`${BTN_TEST_CLS} w-fit`}
                 >
                   {count > 0 ? "ADD ANOTHER" : "CONNECT"}
                 </Button>
@@ -470,24 +484,22 @@ export function BrokersPanel({ notify }: Props) {
           })}
 
           {/* metaapi pointer tile — the featured card handles it */}
-          <div className="rounded-xl border border-[rgba(212,175,55,0.4)] bg-[rgba(212,175,55,0.05)] p-4 flex flex-col justify-between gap-3">
+          <div className="rounded-xl border p-4 flex flex-col justify-between gap-3" style={{ borderColor: A.gold(0.4), background: A.gold(0.05) }}>
             <div>
-              <div className="font-bold text-sm text-[#E8ECF4]">MT4 / MT5 · MetaApi</div>
-              <div className="text-[11px] text-[#8C98AE] mt-1 leading-snug">
+              <div className="font-bold text-sm text-[var(--hx-txt)]">MT4 / MT5 · MetaApi</div>
+              <div className="text-[11px] text-[var(--hx-muted)] mt-1 leading-snug">
                 Your broker&apos;s MT login works here — use the gold MT4/MT5 LOGIN card at the top of this page.
               </div>
             </div>
-            <Badge variant="outline" className="text-[9px] border-[rgba(212,175,55,0.5)] text-[#D4AF37] uppercase w-fit">
+            <Badge variant="outline" className="text-[9px] uppercase w-fit" style={{ borderColor: A.gold(0.5), color: C.gold }}>
               direct login above
             </Badge>
           </div>
         </div>
-      </div>
+      </PanelCard>
 
       {rows.length === 0 && loading && (
-        <div className="rounded-xl border border-dashed border-[#2A3A5C] bg-[#0F1A30] p-8 text-center text-[#8C98AE] text-sm">
-          Loading broker connections…
-        </div>
+        <StateFrame state="loading" title="Loading broker connections…" />
       )}
 
       {/* connect dialog for the other platforms */}
@@ -624,27 +636,17 @@ function MtLoginCard({
     }
   };
 
+  const cloudHealthy = platKey === "active" && cloud === "live";
+
   return (
-    <div className="rounded-xl border border-[#D4AF37] bg-[rgba(212,175,55,0.04)] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-bold tracking-wider text-[#D4AF37]">MT4 / MT5 LOGIN · JUST YOUR BROKER LOGIN DETAILS</div>
-          <div className="text-[11px] text-[#8C98AE] mt-0.5 max-w-2xl leading-relaxed">
-            Works with virtually any MT4/MT5 broker — IC Markets, Pepperstone, XM, Exness, FTMO, Vantage, Deriv, Axi, FxPro…
-            Every broker API is already built into HALO — nothing to install, no keys to wire up. Paste your MT login
-            details and the system provisions everything automatically, then the built-in EA autotrades the account live.
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-1.5 shrink-0">
-          <span
-            className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-extrabold tracking-[0.12em] border"
-            style={
-              platKey === "active" && cloud === "live"
-                ? { borderColor: "rgba(8,153,129,0.6)", color: C.green, background: "rgba(8,153,129,0.08)" }
-                : { borderColor: "rgba(212,175,55,0.6)", color: C.gold, background: "rgba(212,175,55,0.08)" }
-            }
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ background: platKey === "active" && cloud === "live" ? C.green : C.gold }} />
+    <PanelCard
+      title="MT4 / MT5 LOGIN · JUST YOUR BROKER LOGIN DETAILS"
+      icon={KeyRound}
+      accent="gold"
+      bodyClassName="p-4"
+      right={
+        <>
+          <Pill tone={cloudHealthy ? "ok" : "gold"} pulse={cloudHealthy}>
             {platKey === null
               ? "CHECKING PLATFORM…"
               : platKey === "active"
@@ -654,11 +656,17 @@ function MtLoginCard({
                 : platKey === "expired"
                   ? "PLATFORM KEY · EXPIRED — OVERRIDE BELOW"
                   : "PLATFORM KEY · MISSING"}
-          </span>
-          <Badge variant="outline" className="text-[9px] border-[#D4AF37] text-[#D4AF37] uppercase">
+          </Pill>
+          <Badge variant="outline" className="text-[9px] border-[var(--hx-gold)] text-[var(--hx-gold)] uppercase">
             recommended
           </Badge>
-        </div>
+        </>
+      }
+    >
+      <div className="text-[11px] text-[var(--hx-muted)] max-w-2xl leading-relaxed">
+        Works with virtually any MT4/MT5 broker — IC Markets, Pepperstone, XM, Exness, FTMO, Vantage, Deriv, Axi, FxPro…
+        Every broker API is already built into HALO — nothing to install, no keys to wire up. Paste your MT login
+        details and the system provisions everything automatically, then the built-in EA autotrades the account live.
       </div>
 
       {/* ── how-to steps ── */}
@@ -669,26 +677,26 @@ function MtLoginCard({
             this app. No manual API adding, ever.
           </>,
           <>
-            Enter your MT <span className="text-[#E8ECF4]">login</span> (account number),{" "}
-            <span className="text-[#E8ECF4]">master password</span> and <span className="text-[#E8ECF4]">server</span> —
+            Enter your MT <span className="text-[var(--hx-txt)]">login</span> (account number),{" "}
+            <span className="text-[var(--hx-txt)]">master password</span> and <span className="text-[var(--hx-txt)]">server</span> —
             exactly as they appear in your MT4/MT5 terminal&apos;s login window.
           </>,
           <>
-            Press <span className="text-[#D4AF37]">CONNECT MT ACCOUNT</span> — HALO provisions + deploys the cloud
+            Press <span className="text-[var(--hx-gold)]">CONNECT MT ACCOUNT</span> — HALO provisions + deploys the cloud
             connection from your login details automatically, auto-tests it, shows your balance and sets the account
-            <span className="text-[#E8ECF4]"> ACTIVE</span> for live routing.
+            <span className="text-[var(--hx-txt)]"> ACTIVE</span> for live routing.
           </>,
           <>
-            Press <span className="text-[#D4AF37]">GO LIVE</span> on the account card (or flip the switch below),{" "}
-            <span className="text-[#E8ECF4]">START</span> the EA — every C3 fire is sent to your MT account as a real
+            Press <span className="text-[var(--hx-gold)]">GO LIVE</span> on the account card (or flip the switch below),{" "}
+            <span className="text-[var(--hx-txt)]">START</span> the EA — every C3 fire is sent to your MT account as a real
             market order with SL/TP.
           </>,
         ].map((step, i) => (
-          <li key={i} className="flex gap-2 rounded-lg border border-[#1C2A47] bg-[#0F1A30] px-3 py-2">
-            <span className="shrink-0 h-5 w-5 rounded-full bg-[#D4AF37] text-[#0B1426] text-[10px] font-bold flex items-center justify-center">
+          <li key={i} className="flex gap-2 rounded-lg border border-[var(--hx-line)] px-3 py-2" style={{ background: C.navy4 }}>
+            <span className="shrink-0 h-5 w-5 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
               {i + 1}
             </span>
-            <span className="text-[#8C98AE]">{step}</span>
+            <span className="text-[var(--hx-muted)]">{step}</span>
           </li>
         ))}
       </ol>
@@ -703,7 +711,7 @@ function MtLoginCard({
                 type="button"
                 onClick={() => setPlatform(p)}
                 className={`h-9 rounded-lg text-[11px] font-bold uppercase tracking-wider border ${
-                  platform === p ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#1C2A47] text-[#8C98AE]"
+                  platform === p ? "border-[var(--hx-gold)] text-[var(--hx-gold)]" : "border-[var(--hx-line)] text-[var(--hx-muted)]"
                 }`}
               >
                 {p}
@@ -718,7 +726,7 @@ function MtLoginCard({
             placeholder="e.g. 51234567"
             aria-label="MT login"
             autoComplete="off"
-            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+            className={IN_CLS}
           />
         </Field>
         <Field label="MT PASSWORD (MASTER)">
@@ -729,7 +737,7 @@ function MtLoginCard({
             placeholder="your trading password — not the investor/read-only one"
             aria-label="MT password"
             autoComplete="new-password"
-            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+            className={IN_CLS}
           />
         </Field>
         <Field label="SERVER" hint="Copy it from the MT4/MT5 login window — suggestions appear as you type.">
@@ -740,7 +748,7 @@ function MtLoginCard({
             list="mt-server-suggestions"
             aria-label="MT server"
             autoComplete="off"
-            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+            className={IN_CLS}
           />
           <datalist id="mt-server-suggestions">
             {(serverOptions && serverOptions.length > 0 ? serverOptions : MT_SERVERS).map((s) => (
@@ -754,7 +762,7 @@ function MtLoginCard({
             onChange={(e) => setLabel(e.target.value)}
             placeholder="IC Markets gold · live"
             aria-label="MT account label"
-            className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+            className={IN_CLS}
           />
         </Field>
       </div>
@@ -763,7 +771,7 @@ function MtLoginCard({
       <button
         type="button"
         onClick={() => setAdvanced((v) => !v)}
-        className="mt-3 text-[11px] text-[#8C98AE] hover:text-[#D4AF37] tracking-wider"
+        className="mt-3 text-[11px] text-[var(--hx-muted)] hover:text-[var(--hx-gold)] tracking-wider"
       >
         {advanced ? "▾" : "▸"} ADVANCED — EXISTING METAAPI ACCOUNT / TOKEN OVERRIDE
       </button>
@@ -778,7 +786,7 @@ function MtLoginCard({
               onChange={(e) => setAccountId(e.target.value)}
               placeholder="uuid of the account in app.metaapi.cloud"
               aria-label="MetaApi account id"
-              className="h-9 bg-[#0B1426] border-[#1C2A47] text-xs font-mono text-[#E8ECF4]"
+              className="h-9 bg-[var(--hx-bg)] border-[var(--hx-line)] text-xs font-mono text-[var(--hx-txt)]"
             />
           </Field>
           <Field
@@ -796,7 +804,7 @@ function MtLoginCard({
               placeholder="eyJhbGciOi… (only if the platform key is missing)"
               aria-label="MetaApi token override"
               autoComplete="off"
-              className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+              className={IN_CLS}
             />
           </Field>
         </div>
@@ -806,32 +814,32 @@ function MtLoginCard({
       <div className="mt-4 flex flex-col md:flex-row md:items-center gap-3">
         <div className="flex items-center gap-2 flex-1">
           <Switch checked={goLive} onCheckedChange={setGoLive} aria-label="go live after connect" />
-          <span className="text-[11px] text-[#E8ECF4]">
+          <span className="text-[11px] text-[var(--hx-txt)]">
             Route EA live orders here immediately after connect
-            <span className="text-[#8C98AE]"> — real money, every C3 fire executes on this account.</span>
+            <span className="text-[var(--hx-muted)]"> — real money, every C3 fire executes on this account.</span>
           </span>
         </div>
         <Button
           onClick={() => void submit()}
           disabled={busy}
-          className="h-10 px-5 rounded-lg bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold text-xs tracking-wider shrink-0"
+          className="h-10 px-5 rounded-lg bg-primary text-primary-foreground hover:bg-[var(--hx-gold-hi)] font-bold text-xs tracking-wider shrink-0"
         >
           {busy ? "PROVISIONING · DEPLOYING · TESTING (up to 1 min)" : "CONNECT MT ACCOUNT"}
         </Button>
       </div>
 
       {error && (
-        <div className="mt-3 text-[11px] font-mono rounded-md px-2 py-1.5 leading-relaxed bg-[rgba(242,54,69,0.08)] text-[#F23645] break-words">
+        <div className="mt-3 text-[11px] font-mono rounded-md px-2 py-1.5 leading-relaxed break-words" style={{ background: A.red(0.08), color: C.red }}>
           {error}
         </div>
       )}
 
-      <div className="mt-3 text-[10px] text-[#5D606B] leading-relaxed">
+      <div className="mt-3 text-[10px] text-[var(--hx-dim)] leading-relaxed">
         Broker APIs are part of the system — your MT login details are the only input. Autotrading checklist: account TEST
         passes · GO LIVE armed · EA started on the dashboard · a scanned symbol fires C3 → market order with SL/TP hits your
         MT terminal instantly. Telegram/email/push alerts fire on every fill.
       </div>
-    </div>
+    </PanelCard>
   );
 }
 
@@ -865,33 +873,34 @@ function DirectorySection({
       type="button"
       onClick={() => onPick(f)}
       aria-label={`Connect ${f.name}`}
-      className="text-left rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-3 transition-colors hover:border-[#D4AF37] group"
+      className="text-left rounded-xl border border-[var(--hx-line)] p-3 transition-colors hover:border-[var(--hx-gold)] group"
+      style={{ background: C.navy4 }}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="font-bold text-sm text-[#E8ECF4] group-hover:text-[#D4AF37]">{f.name}</span>
+        <span className="font-bold text-sm text-[var(--hx-txt)] group-hover:text-[var(--hx-gold)]">{f.name}</span>
         <Badge
           variant="outline"
           className="text-[8px] uppercase shrink-0"
           style={{
-            borderColor: f.category === "prop" ? "rgba(212,175,55,0.55)" : "rgba(140,152,174,0.4)",
-            color: f.category === "prop" ? C.gold : "#8C98AE",
+            borderColor: f.category === "prop" ? A.gold(0.55) : `${C.muted}66`,
+            color: f.category === "prop" ? C.gold : C.muted,
           }}
         >
           {f.category === "prop" ? "PROP" : "CFD"}
         </Badge>
       </div>
-      <div className="text-[10px] text-[#8C98AE] mt-1 leading-snug">{f.assets}</div>
+      <div className="text-[10px] text-[var(--hx-muted)] mt-1 leading-snug">{f.assets}</div>
       {f.servers[0] ? (
-        <div className="mt-2 text-[9px] font-mono text-[#5D606B] truncate">
-          <span className="text-[#8C98AE]">server:</span> {f.servers[0]}
-          {f.servers.length > 1 && <span className="text-[#5D606B]"> +{f.servers.length - 1}</span>}
+        <div className="mt-2 text-[9px] font-mono text-[var(--hx-dim)] truncate">
+          <span className="text-[var(--hx-muted)]">server:</span> {f.servers[0]}
+          {f.servers.length > 1 && <span className="text-[var(--hx-dim)]"> +{f.servers.length - 1}</span>}
         </div>
       ) : (
-        <div className="mt-2 text-[9px] font-mono text-[#5D606B] truncate">{viaLabel(f.kind)}</div>
+        <div className="mt-2 text-[9px] font-mono text-[var(--hx-dim)] truncate">{viaLabel(f.kind)}</div>
       )}
-      {f.note && <div className="mt-1.5 text-[9px] text-[#5D606B] leading-snug line-clamp-2">{f.note}</div>}
+      {f.note && <div className="mt-1.5 text-[9px] text-[var(--hx-dim)] leading-snug line-clamp-2">{f.note}</div>}
       <div
-        className="mt-2 text-[10px] font-bold tracking-wider text-[#D4AF37] opacity-0 group-hover:opacity-100 transition-opacity"
+        className="mt-2 text-[10px] font-bold tracking-wider text-[var(--hx-gold)] opacity-0 group-hover:opacity-100 transition-opacity"
       >
         CONNECT →
       </div>
@@ -899,20 +908,21 @@ function DirectorySection({
   );
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="text-[11px] font-bold tracking-wider text-[#8C98AE]">
-          BROKER DIRECTORY · {BROKER_DIRECTORY.length} PROP FIRMS & CFD BROKERS · PICK YOURS
-        </div>
+    <PanelCard
+      title={`BROKER DIRECTORY · ${BROKER_DIRECTORY.length} PROP FIRMS & CFD BROKERS · PICK YOURS`}
+      icon={Building2}
+      accent="cyan"
+      bodyClassName="p-3 space-y-2"
+      right={
         <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search firm, broker or server…"
           aria-label="Search broker directory"
-          className="h-8 w-56 bg-[#0B1426] border-[#1C2A47] text-[11px] text-[#E8ECF4] placeholder:text-[#5D606B]"
+          className="h-8 w-36 min-w-0 bg-[var(--hx-bg)] border-[var(--hx-line)] text-[11px] text-[var(--hx-txt)] placeholder:text-[var(--hx-dim)] sm:w-56"
         />
-      </div>
-
+      }
+    >
       <div className="flex flex-wrap gap-2">
         {([
           ["all", `ALL (${BROKER_DIRECTORY.length})`],
@@ -924,7 +934,7 @@ function DirectorySection({
             type="button"
             onClick={() => setCat(key)}
             className={`h-8 px-3 rounded-lg text-[10px] font-bold tracking-wider border transition-colors ${
-              cat === key ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#1C2A47] text-[#8C98AE] hover:border-[#2A3A5C]"
+              cat === key ? "border-[var(--hx-gold)] text-[var(--hx-gold)]" : "border-[var(--hx-line)] text-[var(--hx-muted)] hover:border-[var(--hx-line2)]"
             }`}
           >
             {label}
@@ -933,8 +943,8 @@ function DirectorySection({
       </div>
 
       {firms.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[#2A3A5C] bg-[#0F1A30] p-6 text-center text-[11px] text-[#8C98AE]">
-          No firm matches &ldquo;{query}&rdquo; — the MT4/MT5 LOGIN card above accepts <span className="text-[#E8ECF4]">any</span> MT
+        <div className="rounded-xl border border-dashed border-[var(--hx-line2)] p-6 text-center text-[11px] text-[var(--hx-muted)]" style={{ background: C.navy4 }}>
+          No firm matches &ldquo;{query}&rdquo; — the MT4/MT5 LOGIN card above accepts <span className="text-[var(--hx-txt)]">any</span> MT
           broker on earth: paste your login · password · server.
         </div>
       ) : (
@@ -942,7 +952,7 @@ function DirectorySection({
           {(cat === "all" || cat === "prop") && props.length > 0 && (
             <div className="space-y-2">
               {cat === "all" && (
-                <div className="text-[10px] font-bold tracking-wider text-[#D4AF37]">
+                <div className="text-[10px] font-bold tracking-wider text-[var(--hx-gold)]">
                   PROP FIRMS — FUNDED ACCOUNTS ({props.length})
                 </div>
               )}
@@ -952,7 +962,7 @@ function DirectorySection({
           {(cat === "all" || cat === "cfd") && cfds.length > 0 && (
             <div className="space-y-2">
               {cat === "all" && (
-                <div className="text-[10px] font-bold tracking-wider text-[#8C98AE]">CFD BROKERS ({cfds.length})</div>
+                <div className="text-[10px] font-bold tracking-wider text-[var(--hx-muted)]">CFD BROKERS ({cfds.length})</div>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">{cfds.map(tile)}</div>
             </div>
@@ -960,12 +970,12 @@ function DirectorySection({
         </>
       )}
 
-      <div className="text-[10px] text-[#5D606B] leading-relaxed">
+      <div className="text-[10px] text-[var(--hx-dim)] leading-relaxed">
         MT4/MT5 firms connect with your broker login (login · master password · server — pre-filled from this directory).
         Futures desks (Topstep, Apex…) and platform-native props route through the webhook bridge. Every adapter is part
         of the system — nothing to install, no API keys to add.
       </div>
-    </div>
+    </PanelCard>
   );
 }
 
@@ -1053,10 +1063,10 @@ function AddBrokerDialog({
   };
 
   return (
-    <DialogContent className="bg-[#101C33] border-[#2A3A5C] text-[#E8ECF4] max-w-lg max-h-[85vh] overflow-y-auto">
+    <DialogContent className="bg-[var(--hx-card2)] border-[var(--hx-line2)] text-[var(--hx-txt)] max-w-lg max-h-[85vh] overflow-y-auto">
       <DialogHeader>
-        <DialogTitle className="text-[#D4AF37] text-base">Connect a CFD broker</DialogTitle>
-        <DialogDescription className="text-[#8C98AE] text-xs">
+        <DialogTitle className="text-[var(--hx-gold)] text-base">Connect a CFD broker</DialogTitle>
+        <DialogDescription className="text-[var(--hx-muted)] text-xs">
           Pick a platform, paste its API credentials, then TEST. GO LIVE afterwards routes the EA&apos;s real orders there.
         </DialogDescription>
       </DialogHeader>
@@ -1067,11 +1077,12 @@ function AddBrokerDialog({
             key={b.kind}
             onClick={() => pickKind(b.kind)}
             className={`text-left rounded-lg border px-3 py-2 transition-colors ${
-              kind === b.kind ? "border-[#D4AF37] bg-[rgba(212,175,55,0.08)]" : "border-[#1C2A47] hover:border-[#2A3A5C]"
+              kind === b.kind ? "border-[var(--hx-gold)]" : "border-[var(--hx-line)] hover:border-[var(--hx-line2)]"
             }`}
+            style={kind === b.kind ? { background: A.gold(0.08) } : undefined}
           >
-            <div className="text-xs font-bold text-[#E8ECF4]">{b.name}</div>
-            <div className="text-[10px] text-[#8C98AE] leading-snug mt-0.5 line-clamp-2">{b.tagline}</div>
+            <div className="text-xs font-bold text-[var(--hx-txt)]">{b.name}</div>
+            <div className="text-[10px] text-[var(--hx-muted)] leading-snug mt-0.5 line-clamp-2">{b.tagline}</div>
           </button>
         ))}
       </div>
@@ -1083,7 +1094,7 @@ function AddBrokerDialog({
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               placeholder={meta.name}
-              className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+              className={IN_CLS}
             />
           </Field>
           {meta.fields.map((f) => (
@@ -1099,11 +1110,11 @@ function AddBrokerDialog({
               value={symbolMap}
               onChange={(e) => setSymbolMap(e.target.value)}
               placeholder='{"PAXGUSDT":"XAU_USD"}'
-              className="h-9 bg-[#0B1426] border-[#1C2A47] text-xs font-mono text-[#E8ECF4]"
+              className="h-9 bg-[var(--hx-bg)] border-[var(--hx-line)] text-xs font-mono text-[var(--hx-txt)]"
             />
           </Field>
           {meta.notes.length > 0 && (
-            <ul className="text-[10px] text-[#8C98AE] leading-relaxed list-disc pl-4 space-y-0.5">
+            <ul className="text-[10px] text-[var(--hx-muted)] leading-relaxed list-disc pl-4 space-y-0.5">
               {meta.notes.map((n, i) => (
                 <li key={i}>{n}</li>
               ))}
@@ -1116,7 +1127,7 @@ function AddBrokerDialog({
         <Button
           onClick={() => void save()}
           disabled={busy || !meta}
-          className="w-full h-10 rounded-lg bg-[#D4AF37] text-[#0B1426] hover:bg-[#E3C25A] font-bold text-xs tracking-wider"
+          className="w-full h-10 rounded-lg bg-primary text-primary-foreground hover:bg-[var(--hx-gold-hi)] font-bold text-xs tracking-wider"
         >
           {busy ? "CONNECTING…" : "CONNECT + TEST"}
         </Button>
@@ -1128,9 +1139,9 @@ function AddBrokerDialog({
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1">
-      <label className="text-[10px] tracking-wider text-[#8C98AE]">{label}</label>
+      <label className="text-[10px] tracking-wider text-[var(--hx-muted)]">{label}</label>
       {children}
-      {hint && <div className="text-[10px] text-[#5D606B] leading-snug">{hint}</div>}
+      {hint && <div className="text-[10px] text-[var(--hx-dim)] leading-snug">{hint}</div>}
     </div>
   );
 }
@@ -1140,7 +1151,7 @@ function CredInput({ field, value, onChange }: { field: CredField; value: string
     return (
       <div className="flex items-center gap-2 h-9">
         <Switch checked={value === "yes"} onCheckedChange={(c) => onChange(c ? "yes" : "")} />
-        <span className="text-xs text-[#8C98AE]">{value === "yes" ? "enabled" : "disabled"}</span>
+        <span className="text-xs text-[var(--hx-muted)]">{value === "yes" ? "enabled" : "disabled"}</span>
       </div>
     );
   }
@@ -1152,7 +1163,7 @@ function CredInput({ field, value, onChange }: { field: CredField; value: string
             key={o}
             onClick={() => onChange(o)}
             className={`h-9 rounded-lg text-[11px] font-bold uppercase tracking-wider border ${
-              value === o ? "border-[#D4AF37] text-[#D4AF37]" : "border-[#1C2A47] text-[#8C98AE]"
+              value === o ? "border-[var(--hx-gold)] text-[var(--hx-gold)]" : "border-[var(--hx-line)] text-[var(--hx-muted)]"
             }`}
           >
             {o}
@@ -1168,7 +1179,7 @@ function CredInput({ field, value, onChange }: { field: CredField; value: string
       onChange={(e) => onChange(e.target.value)}
       placeholder={field.placeholder}
       autoComplete="off"
-      className="h-9 bg-[#0B1426] border-[#1C2A47] text-sm text-[#E8ECF4]"
+      className={IN_CLS}
     />
   );
 }

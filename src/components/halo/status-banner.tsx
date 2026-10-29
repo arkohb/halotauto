@@ -11,8 +11,8 @@ export function StatusBanner({ state }: { state: BotStateRes }) {
 
   return (
     <div
-      className="flex items-center justify-between gap-3 rounded-xl border border-[#1C2A47] px-4 py-3"
-      style={{ background: bg }}
+      className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3"
+      style={{ background: bg, borderColor: C.line }}
     >
       <div className="flex items-center gap-3 min-w-0">
         {pulse && <span className="relative flex h-2.5 w-2.5 shrink-0">

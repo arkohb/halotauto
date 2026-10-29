@@ -23,7 +23,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
-import { C } from "@/lib/halo/ui-helpers";
+import { C, A } from "@/lib/halo/ui-helpers";
 
 export type HaloView =
   | "terminal"
@@ -83,7 +83,7 @@ export function NavRail({ view, onView }: { view: HaloView; onView: (v: HaloView
       <div className="flex-1 space-y-4 px-2.5 py-4">
         {GROUPS.map((g) => (
           <div key={g.title}>
-            <div className="px-2 pb-1.5 text-[8.5px] font-extrabold tracking-[0.26em] text-[#5D6B85]">{g.title}</div>
+            <div className="px-2 pb-1.5 text-[8.5px] font-extrabold tracking-[0.26em]" style={{ color: C.label }}>{g.title}</div>
             <ul className="space-y-0.5">
               {g.items.map((it) => {
                 const active = view === it.id;
@@ -96,19 +96,19 @@ export function NavRail({ view, onView }: { view: HaloView; onView: (v: HaloView
                       aria-current={active ? "page" : undefined}
                       className="group relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors"
                       style={{
-                        background: active ? "rgba(212,175,55,0.10)" : "transparent",
-                        boxShadow: active ? `inset 2.5px 0 0 ${C.gold}` : undefined,
+                        background: active ? A.gold(0.1) : "transparent",
+                        boxShadow: active ? `inset 2.5px 0 0 ${C.gold}, 0 0 14px 0 ${A.gold(0.07)}` : undefined,
                       }}
                     >
                       <Icon
                         size={15}
                         strokeWidth={2}
-                        style={{ color: active ? C.gold : "#8C98AE" }}
+                        style={{ color: active ? C.gold : C.muted }}
                         className="shrink-0 transition-colors group-hover:text-[#D4AF37]"
                       />
                       <span
                         className="truncate text-[11.5px] font-semibold tracking-wide transition-colors"
-                        style={{ color: active ? C.gold : "#B8C2D6" }}
+                        style={{ color: active ? C.gold : C.txt2 }}
                       >
                         {it.label}
                       </span>
@@ -148,9 +148,9 @@ export function NavChips({ view, onView }: { view: HaloView; onView: (v: HaloVie
               aria-current={active ? "page" : undefined}
               className="flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10.5px] font-bold tracking-wide transition-colors"
               style={{
-                borderColor: active ? `${C.gold}88` : "#1C2A47",
-                background: active ? "rgba(212,175,55,0.12)" : "#101C33",
-                color: active ? C.gold : "#8C98AE",
+                borderColor: active ? `${C.gold}88` : C.line,
+                background: active ? A.gold(0.12) : C.navy2,
+                color: active ? C.gold : C.muted,
               }}
             >
               <Icon size={12} />

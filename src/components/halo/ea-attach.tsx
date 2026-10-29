@@ -10,6 +10,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useState } from "react";
+import { Puzzle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,8 +22,9 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { C } from "@/lib/halo/ui-helpers";
+import { A, C } from "@/lib/halo/ui-helpers";
 import type { BotStateRes } from "@/lib/halo/ui-helpers";
+import { PanelCard } from "./panel";
 import { buildPineEa } from "@/lib/pine-ea";
 
 interface WebhookInfo {
@@ -150,20 +152,18 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
   const toggling = busy === "start" || busy === "stop";
 
   return (
-    <section
-      aria-label="Attach EA to TradingView chart"
-      className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] p-4"
-    >
-      {/* header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-extrabold tracking-[0.18em] text-[#D4AF37]">
-            EA · TRADINGVIEW AUTO-ATTACH
-          </span>
+    <section aria-label="Attach EA to TradingView chart" className="min-w-0">
+    <PanelCard
+      title="EA · TRADINGVIEW AUTO-ATTACH"
+      icon={Puzzle}
+      accent="gold"
+      bodyClassName="p-4"
+      right={
+        <>
           {live ? (
             <span
               className="flex items-center gap-1 rounded-full px-2 py-0.5 text-[9px] font-extrabold tracking-[0.12em]"
-              style={{ background: "rgba(212,175,55,0.14)", color: C.gold, border: "1px solid rgba(212,175,55,0.45)" }}
+              style={{ background: A.gold(0.14), color: C.gold, border: `1px solid ${A.gold(0.45)}` }}
             >
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-60" style={{ background: C.gold }} />
@@ -174,23 +174,23 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
           ) : (
             <span
               className="rounded-full border px-2 py-0.5 text-[9px] font-extrabold tracking-[0.12em]"
-              style={{ borderColor: "#1C2A47", color: C.muted }}
+              style={{ borderColor: C.line, color: C.muted }}
             >
               SIM ROUTING · PAPER
             </span>
           )}
-        </div>
-        <span className="text-[9px] tracking-[0.14em] text-[#8C98AE]">
-          WEBHOOK FIRES {info ? info.fireCount : "—"}
-        </span>
-      </div>
-
+          <span className="text-[9px] tracking-[0.14em] text-[var(--hx-muted)]">
+            WEBHOOK FIRES {info ? info.fireCount : "—"}
+          </span>
+        </>
+      }
+    >
       {/* ── PRIMARY · auto-attach panel ── */}
       <div
-        className="mt-3 rounded-lg border p-3"
+        className="rounded-lg border p-3"
         style={{
-          borderColor: attached ? "rgba(8,153,129,0.45)" : "#1C2A47",
-          background: attached ? "rgba(8,153,129,0.06)" : "#0B1426",
+          borderColor: attached ? A.green(0.45) : C.line,
+          background: attached ? A.green(0.06) : C.navy,
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -198,16 +198,16 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
             <div className="flex items-center gap-2 text-[12px] font-extrabold tracking-wide">
               <span
                 className={`h-2 w-2 shrink-0 rounded-full ${attached ? "animate-pulse" : ""}`}
-                style={{ background: attached ? C.green : "#5D606B" }}
+                style={{ background: attached ? C.green : C.dim }}
               />
               <span style={{ color: attached ? C.txt : C.muted }}>
                 {attached ? "ATTACHED — EA IS WATCHING THIS CHART" : "DETACHED — EA NOT WATCHING"}
               </span>
             </div>
-            <div className="mt-1 text-[10.5px] leading-relaxed text-[#8C98AE]">
+            <div className="mt-1 text-[10.5px] leading-relaxed text-[var(--hx-muted)]">
               {attached ? (
                 <>
-                  Built-in EA locked to <span className="font-bold text-[#E8ECF4]">{state.symbol} · {state.tf}</span> — every C3
+                  Built-in EA locked to <span className="font-bold text-[var(--hx-txt)]">{state.symbol} · {state.tf}</span> — every C3
                   fire auto-executes on <span style={{ color: live ? C.gold : C.green }}>{routing}</span>. Zero manual steps.
                 </>
               ) : (
@@ -221,23 +221,23 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
             disabled={busy !== null}
             aria-label={attached ? "Detach EA from chart" : "Attach EA to chart"}
             className="rounded-lg px-4 py-2.5 text-[10px] font-extrabold tracking-[0.14em] transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={attached ? { border: "1px solid #1C2A47", background: "#101C33", color: C.txt } : { background: C.gold, color: C.navy }}
+            style={attached ? { border: `1px solid ${C.line}`, background: C.navy2, color: C.txt } : { background: C.gold, color: C.navy }}
           >
             {toggling ? "WORKING…" : attached ? "DETACH EA" : "ATTACH EA"}
           </button>
         </div>
 
         {/* status mini-row */}
-        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 border-t border-[#1C2A47] pt-2.5 text-[9px] font-bold tracking-[0.12em] text-[#8C98AE]">
+        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 border-t border-[var(--hx-line)] pt-2.5 text-[9px] font-bold tracking-[0.12em] text-[var(--hx-muted)]">
           <span>
-            WATCHING <span className="text-[#E8ECF4]">{state.symbol} · {state.tf}</span>
+            WATCHING <span className="text-[var(--hx-txt)]">{state.symbol} · {state.tf}</span>
           </span>
           <span>
             MODE <span style={{ color: live ? C.gold : C.green }}>{live ? "LIVE ORDERS" : "PAPER"}</span>
           </span>
           <span>
             ROUTING{" "}
-            <span className="text-[#E8ECF4]">
+            <span className="text-[var(--hx-txt)]">
               {live ? brokerLabel || "broker account" : "simulated fills"}
             </span>
           </span>
@@ -247,18 +247,18 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
         </div>
       </div>
 
-      <p className="mt-2 text-[11px] leading-relaxed text-[#8C98AE]">
+      <p className="mt-2 text-[11px] leading-relaxed text-[var(--hx-muted)]">
         The EA attaches itself to the TradingView chart above — switch the symbol or timeframe on the
         chart and the EA follows automatically, scanning for C1/C2 equal levels and sending every C3
         fire to your linked account (MT4/MT5 via MetaApi, OANDA, IG, Binance or any bridge). The Pine
-        webhook bridge below is <span className="font-bold text-[#E8ECF4]">optional</span> — only for
+        webhook bridge below is <span className="font-bold text-[var(--hx-txt)]">optional</span> — only for
         forwarding alerts from external TradingView charts into the same engine.
       </p>
 
       {/* ── OPTIONAL · manual Pine webhook bridge (collapsed) ── */}
-      <details className="group mt-3 rounded-lg border border-[#1C2A47] bg-[#0B1426]">
+      <details className="group mt-3 rounded-lg border border-[var(--hx-line)] bg-[var(--hx-bg)]">
         <summary
-          className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#8C98AE] transition-colors hover:text-[#E8ECF4]"
+          className="flex cursor-pointer list-none items-center justify-between px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[var(--hx-muted)] transition-colors hover:text-[var(--hx-txt)]"
           aria-label="Toggle optional Pine webhook bridge"
         >
           <span>
@@ -267,7 +267,7 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
           <span className="text-[9px] transition-transform group-open:rotate-180" aria-hidden>▼</span>
         </summary>
 
-        <div className="border-t border-[#1C2A47] p-3">
+        <div className="border-t border-[var(--hx-line)] p-3">
           {/* actions */}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <button
@@ -284,7 +284,7 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
               type="button"
               onClick={() => void copy(webhookUrl, "WEBHOOK URL")}
               aria-label="Copy webhook URL"
-              className="rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#E8ECF4] transition-colors hover:bg-[#16233D]"
+              className="rounded-lg border border-[var(--hx-line)] bg-[var(--hx-card2)] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[var(--hx-txt)] transition-colors hover:bg-[var(--hx-card3)]"
             >
               COPY WEBHOOK URL
             </button>
@@ -293,7 +293,7 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
               onClick={() => void testFire()}
               disabled={pineBusy !== null}
               aria-label="Send test fire through webhook pipeline"
-              className="rounded-lg border border-[#1C2A47] bg-[#101C33] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[#E8ECF4] transition-colors hover:bg-[#16233D] disabled:opacity-50"
+              className="rounded-lg border border-[var(--hx-line)] bg-[var(--hx-card2)] px-3 py-2.5 text-[10px] font-extrabold tracking-[0.14em] text-[var(--hx-txt)] transition-colors hover:bg-[var(--hx-card3)] disabled:opacity-50"
             >
               {pineBusy === "test" ? "FIRING…" : "SEND TEST FIRE"}
             </button>
@@ -301,15 +301,15 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
 
           {/* secret + url readouts */}
           <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="rounded-lg border border-[#1C2A47] bg-[#0B1426] px-3 py-2">
-              <div className="text-[8px] font-bold tracking-[0.2em] text-[#8C98AE]">WEBHOOK URL</div>
-              <div className="truncate font-mono text-[11px] text-[#E8ECF4]" title={webhookUrl}>
+            <div className="rounded-lg border border-[var(--hx-line)] bg-[var(--hx-bg)] px-3 py-2">
+              <div className="text-[8px] font-bold tracking-[0.2em] text-[var(--hx-muted)]">WEBHOOK URL</div>
+              <div className="truncate font-mono text-[11px] text-[var(--hx-txt)]" title={webhookUrl}>
                 {webhookUrl || "…"}
               </div>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-[#1C2A47] bg-[#0B1426] px-3 py-2">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--hx-line)] bg-[var(--hx-bg)] px-3 py-2">
               <div className="min-w-0">
-                <div className="text-[8px] font-bold tracking-[0.2em] text-[#8C98AE]">SECRET</div>
+                <div className="text-[8px] font-bold tracking-[0.2em] text-[var(--hx-muted)]">SECRET</div>
                 <div className="truncate font-mono text-[11px]" style={{ color: C.gold }}>
                   {info ? info.secret : "…"}
                 </div>
@@ -318,7 +318,7 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
                 type="button"
                 onClick={() => info && void copy(info.secret, "SECRET")}
                 aria-label="Copy webhook secret"
-                className="rounded border border-[#1C2A47] px-2 py-1 text-[9px] font-bold tracking-wider text-[#8C98AE] hover:text-[#E8ECF4]"
+                className="rounded border border-[var(--hx-line)] px-2 py-1 text-[9px] font-bold tracking-wider text-[var(--hx-muted)] hover:text-[var(--hx-txt)]"
               >
                 COPY
               </button>
@@ -328,26 +328,26 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
                     type="button"
                     aria-label="Regenerate webhook secret"
                     disabled={pineBusy !== null}
-                    className="rounded border border-[#1C2A47] px-2 py-1 text-[9px] font-bold tracking-wider text-[#8C98AE] hover:text-[#F23645] disabled:opacity-50"
+                    className="rounded border border-[var(--hx-line)] px-2 py-1 text-[9px] font-bold tracking-wider text-[var(--hx-muted)] hover:text-[var(--hx-red)] disabled:opacity-50"
                   >
                     REGEN
                   </button>
                 </AlertDialogTrigger>
-                <AlertDialogContent className="border-[#1C2A47] bg-[#0F1A30] text-[#E8ECF4]">
+                <AlertDialogContent className="border-[var(--hx-line)] bg-[var(--hx-card)] text-[var(--hx-txt)]">
                   <AlertDialogHeader>
                     <AlertDialogTitle>Regenerate webhook secret?</AlertDialogTitle>
-                    <AlertDialogDescription className="text-[#8C98AE]">
+                    <AlertDialogDescription className="text-[var(--hx-muted)]">
                       Alerts signed with the old secret are rejected immediately. After regenerating,
                       re-copy the Pine EA into TradingView so the new secret is embedded.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel className="border-[#1C2A47] bg-transparent text-[#E8ECF4] hover:bg-[#16233D]">
+                    <AlertDialogCancel className="border-[var(--hx-line)] bg-transparent text-[var(--hx-txt)] hover:bg-[var(--hx-card3)]">
                       Cancel
                     </AlertDialogCancel>
                     <AlertDialogAction
                       onClick={() => void regenerate()}
-                      className="bg-[#F23645] text-white hover:bg-[#d92c3a]"
+                      className="bg-[var(--hx-red)] text-white hover:brightness-90"
                     >
                       Regenerate
                     </AlertDialogAction>
@@ -358,7 +358,7 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
           </div>
 
           {/* steps */}
-          <ol className="mt-3 space-y-1.5 rounded-lg border border-[#1C2A47] bg-[#0B1426] p-3 text-[10.5px] text-[#8C98AE]">
+          <ol className="mt-3 space-y-1.5 rounded-lg border border-[var(--hx-line)] bg-[var(--hx-bg)] p-3 text-[10.5px] text-[var(--hx-muted)]">
             <Step n={1}>
               Press <span style={{ color: C.gold }}>COPY PINE EA</span> → TradingView Pine Editor → paste →
               {" "}“Add to chart”. The webhook secret is already embedded.
@@ -378,6 +378,7 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
           </ol>
         </div>
       </details>
+    </PanelCard>
     </section>
   );
 }

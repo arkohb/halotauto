@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { C, fmtPx } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPx } from "@/lib/halo/ui-helpers";
+import { StateFrame } from "./panel";
 import type { HistoryPeriod } from "@/lib/halo/actions";
 
 interface TradeRow {
@@ -39,6 +40,8 @@ const FILTER_LABEL: Record<HistoryPeriod, string> = {
 export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
   const [trades, setTrades] = useState<TradeRow[]>([]);
   const [loading, setLoading] = useState(true);
+  // honest-state: set only by the existing fetch catch, cleared when data arrives
+  const [err, setErr] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -46,9 +49,10 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
       if (r.ok) {
         const j = (await r.json()) as { trades: TradeRow[] };
         setTrades(j.trades ?? []);
+        setErr(false);
       }
     } catch {
-      // ignore
+      setErr(true);
     } finally {
       setLoading(false);
     }
@@ -83,30 +87,38 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
   const filtered = filter === "all" ? trades : trades.filter((t) => new Date(t.openedAt).getTime() >= (startOf(filter) ?? 0));
 
   return (
-    <div className="rounded-xl border border-[#1C2A47] bg-[#0F1A30] overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#1C2A47]">
-        <span className="text-xs font-bold tracking-wider text-[#E8ECF4]">
-          TRADE HISTORY · BOT{FILTER_LABEL[filter] ? <span className="ml-2 rounded px-1.5 py-0.5 text-[9px]" style={{ background: "rgba(212,175,55,0.12)", color: C.gold }}>FILTER · {FILTER_LABEL[filter]}</span> : null}
+    <div className="rounded-xl border overflow-hidden" style={{ borderColor: C.line, background: C.navy4 }}>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: C.line }}>
+        <span className="text-xs font-bold tracking-wider" style={{ color: C.txt }}>
+          TRADE HISTORY · BOT{FILTER_LABEL[filter] ? <span className="ml-2 rounded px-1.5 py-0.5 text-[9px]" style={{ background: A.gold(0.12), color: C.gold }}>FILTER · {FILTER_LABEL[filter]}</span> : null}
         </span>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] text-[#8C98AE] hover:text-[#E8ECF4]" onClick={() => void load()}>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] hover:text-[#E8ECF4]" style={{ color: C.muted }} onClick={() => void load()}>
           refresh
         </Button>
       </div>
       {loading ? (
-        <div className="px-4 py-4 text-xs text-[#8C98AE]">Loading trades…</div>
+        <StateFrame state="loading" title="Loading trades…" compact className="m-3" />
+      ) : err && trades.length === 0 ? (
+        <StateFrame state="error" title="Could not load trade history" onRetry={() => void load()} compact className="m-3" />
       ) : trades.length === 0 ? (
-        <div className="px-4 py-4 text-xs text-[#8C98AE]">
-          No bot trades yet. Start the EA — every C3 fire will be logged here with its SL/TP result.
-        </div>
+        <StateFrame
+          state="empty"
+          title="No bot trades yet"
+          hint="Start the EA — every C3 fire will be logged here with its SL/TP result."
+          className="m-3"
+        />
       ) : filtered.length === 0 ? (
-        <div className="px-4 py-4 text-xs text-[#8C98AE]">
-          No trades in the selected period — clear the filter to see the full book.
-        </div>
+        <StateFrame
+          state="empty"
+          title="No trades in the selected period"
+          hint="Clear the filter to see the full book."
+          className="m-3"
+        />
       ) : (
         <ScrollArea className="max-h-72">
           <table className="w-full text-[11px]">
-            <thead className="sticky top-0 bg-[#101C33]">
-              <tr className="text-[10px] tracking-wider text-[#8C98AE]">
+            <thead className="sticky top-0" style={{ background: C.navy2 }}>
+              <tr className="text-[10px] tracking-wider" style={{ color: C.muted }}>
                 <th className="text-left font-medium px-3 py-1.5">TIME</th>
                 <th className="text-left font-medium px-2 py-1.5">DIR</th>
                 <th className="text-right font-medium px-2 py-1.5">ENTRY</th>
@@ -117,8 +129,8 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
             </thead>
             <tbody>
               {filtered.map((t) => (
-                <tr key={t.id} className="border-t border-[#121D35]">
-                  <td className="px-3 py-1.5 font-mono text-[#8C98AE]">
+                <tr key={t.id} className="border-t" style={{ borderColor: C.divider }}>
+                  <td className="px-3 py-1.5 font-mono" style={{ color: C.muted }}>
                     {new Date(t.openedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-2 py-1.5">
@@ -126,13 +138,13 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
                       {t.direction === -1 ? "SELL" : "BUY"}
                     </span>
                   </td>
-                  <td className="px-2 py-1.5 text-right font-mono text-[#E8ECF4]">{fmtPx(t.entry, mintick)}</td>
-                  <td className="px-2 py-1.5 text-right font-mono text-[#8C98AE]">1:{t.rewardPips > 0 && t.riskPips > 0 ? (t.rewardPips / t.riskPips).toFixed(1) : "—"}</td>
+                  <td className="px-2 py-1.5 text-right font-mono" style={{ color: C.txt }}>{fmtPx(t.entry, mintick)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono" style={{ color: C.muted }}>1:{t.rewardPips > 0 && t.riskPips > 0 ? (t.rewardPips / t.riskPips).toFixed(1) : "—"}</td>
                   <td className="px-2 py-1.5 text-right font-mono font-bold" style={{ color: t.status === "WIN" ? C.green : t.status === "LOSS" ? C.red : C.muted }}>
                     {t.resultPips === null ? "—" : `${t.resultPips >= 0 ? "+" : "−"}${Math.abs(t.resultPips).toFixed(1)}p`}
                   </td>
                   <td className="px-3 py-1.5 text-right">
-                    <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ background: t.status === "WIN" ? "rgba(8,153,129,0.15)" : t.status === "LOSS" ? "rgba(242,54,69,0.15)" : "rgba(140,152,174,0.15)", color: t.status === "WIN" ? C.green : t.status === "LOSS" ? C.red : C.muted }}>
+                    <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ background: t.status === "WIN" ? A.green(0.15) : t.status === "LOSS" ? A.red(0.15) : "rgba(140,152,174,0.15)", color: t.status === "WIN" ? C.green : t.status === "LOSS" ? C.red : C.muted }}>
                       {t.status}
                     </span>
                   </td>

@@ -10,8 +10,8 @@
 
 import { useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
-import { C, fmtPx, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
-import { PanelCard } from "./panel";
+import { A, C, fmtPx, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { PanelCard, Pill } from "./panel";
 
 function activeSessions(now: Date): string[] {
   const h = now.getUTCHours() + now.getUTCMinutes() / 60;
@@ -75,11 +75,11 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
       {/* outlook — the real engine status */}
       <div>
         <div className="mb-1 flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: t ? (t.dir === -1 ? C.red : C.green) : "#4FD8FF" }} />
-          <span className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Market outlook · engine</span>
+          <span className="h-1.5 w-1.5 rounded-full" style={{ background: t ? (t.dir === -1 ? C.red : C.green) : C.cyan }} />
+          <span className="text-[9px] font-extrabold uppercase tracking-[0.16em]" style={{ color: C.label }}>Market outlook · engine</span>
         </div>
-        <p className="text-[10.5px] font-semibold leading-snug text-[#E8ECF4]">{text}</p>
-        <p className="mt-0.5 text-[9.5px] leading-snug text-[#6B7A94]">
+        <p className="text-[10.5px] font-semibold leading-snug" style={{ color: C.txt }}>{text}</p>
+        <p className="mt-0.5 text-[9.5px] leading-snug" style={{ color: C.label }}>
           {t
             ? `Position bias ${bullish ? "bullish" : "bearish"} while the trade runs — SL/TP attached at fire time.`
             : levels.length > 0
@@ -90,9 +90,9 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
 
       {/* key levels — real armed triggers */}
       <div>
-        <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Key levels (dotted triggers)</div>
+        <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em]" style={{ color: C.label }}>Key levels (dotted triggers)</div>
         {levels.length === 0 ? (
-          <p className="text-[10px] text-[#6B7A94]">None armed — scanning for the next C1/C2 zone.</p>
+          <p className="text-[10px]" style={{ color: C.label }}>None armed — scanning for the next C1/C2 zone.</p>
         ) : (
           <div className="flex flex-wrap gap-1">
             {levels.map((l) => (
@@ -100,9 +100,9 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
                 key={l.id}
                 className="rounded-md border px-1.5 py-0.5 font-mono text-[9.5px] font-bold"
                 style={{
-                  borderColor: l.side === -1 ? "rgba(242,54,69,0.4)" : "rgba(8,153,129,0.4)",
+                  borderColor: l.side === -1 ? A.red(0.4) : A.green(0.4),
                   color: l.side === -1 ? C.red : C.green,
-                  background: l.side === -1 ? "rgba(242,54,69,0.07)" : "rgba(8,153,129,0.07)",
+                  background: l.side === -1 ? A.red(0.07) : A.green(0.07),
                 }}
               >
                 {l.side === -1 ? "RES" : "SUP"} {fmtPx(l.ext, state.mintick)}
@@ -114,18 +114,18 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
 
       {/* sessions — factual clock */}
       <div>
-        <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Sessions open</div>
-        <p className="font-mono text-[10.5px] font-bold text-[#B8C2D6]">{sessions.length > 0 ? sessions.join(" · ") : "Interbank closed · crypto continues"}</p>
+        <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em]" style={{ color: C.label }}>Sessions open</div>
+        <p className="font-mono text-[10.5px] font-bold" style={{ color: C.txt2 }}>{sessions.length > 0 ? sessions.join(" · ") : "Interbank closed · crypto continues"}</p>
       </div>
 
       {/* next high-impact event — REAL ForexFactory feed, hidden when down */}
       {nextEvent !== "unavailable" && nextEvent && (
         <div>
-          <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Next high-impact release · ForexFactory</div>
+          <div className="mb-1 text-[9px] font-extrabold uppercase tracking-[0.16em]" style={{ color: C.label }}>Next high-impact release · ForexFactory</div>
           <p className="text-[10.5px] font-semibold leading-snug text-[#F5D778]">
             {nextEvent.currency} · {nextEvent.title}
           </p>
-          <p className="text-[9.5px] font-mono text-[#8C98AE]">
+          <p className="text-[9.5px] font-mono" style={{ color: C.muted }}>
             {new Date(nextEvent.date).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC
             {nextEvent.forecast ? ` · forecast ${nextEvent.forecast}` : ""}
           </p>
@@ -133,20 +133,17 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
       )}
 
       {/* account posture — real */}
-      <div className="mt-auto flex items-center justify-between border-t border-[#16263F]/70 pt-2">
-        <span className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#6B7A94]">Account status</span>
-        <span
-          className="rounded-full px-2 py-0.5 text-[8.5px] font-extrabold tracking-[0.12em]"
-          style={{
-            background: state.exec.executionMode === "live" ? "rgba(242,54,69,0.12)" : "rgba(8,153,129,0.12)",
-            color: state.exec.executionMode === "live" ? C.red : C.green,
-          }}
-        >
+      <div className="mt-auto flex items-center justify-between border-t pt-2" style={{ borderColor: `${C.lineInner}B3` }}>
+        <span className="text-[9px] font-extrabold uppercase tracking-[0.16em]" style={{ color: C.label }}>Account status</span>
+        <Pill tone={state.exec.executionMode === "live" ? "err" : "ok"}>
           {state.exec.executionMode === "live" ? "LIVE ROUTING" : "HEALTHY · PAPER"}
-        </span>
+        </Pill>
       </div>
 
-      <p className="rounded-lg border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.06)] px-2.5 py-1.5 text-[9.5px] italic leading-snug text-[#F5D778]">
+      <p
+        className="rounded-lg border px-2.5 py-1.5 text-[9.5px] italic leading-snug text-[#F5D778]"
+        style={{ borderColor: A.gold(0.3), background: A.gold(0.06) }}
+      >
         &ldquo;Patience is a position. Let the setup come to you.&rdquo; — HALO
       </p>
     </PanelCard>

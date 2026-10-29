@@ -8,7 +8,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { Lightbulb } from "lucide-react";
-import { C, fmtPx, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPx, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { PanelCard } from "./panel";
 
 export function StrategyExplainer({ state }: { state: BotStateRes }) {
@@ -56,8 +56,8 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
   return (
     <PanelCard title="STRATEGY EXPLANATION" icon={Lightbulb} accent="gold" className="h-full" bodyClassName="p-3">
       <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#F5D778]/90">{headline}</p>
-      <p className="mt-1 text-[10.5px] leading-relaxed text-[#B8C2D6]">
-        Bullish/bearish structure is only traded when it ends in an <span className="text-[#E8ECF4]">equal-level rejection</span>: the wick line is frozen, broken, and retested — the engine never repaints and never anticipates.
+      <p className="mt-1 text-[10.5px] leading-relaxed" style={{ color: C.txt2 }}>
+        Bullish/bearish structure is only traded when it ends in an <span style={{ color: C.txt }}>equal-level rejection</span>: the wick line is frozen, broken, and retested — the engine never repaints and never anticipates.
       </p>
 
       <div className="mt-2.5 grid gap-2.5 sm:grid-cols-3">
@@ -66,7 +66,7 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
         <CheckList title="Invalidates setup" tone="invalid" items={invalidators} />
       </div>
 
-      <div className="mt-2.5 flex flex-wrap gap-1 border-t border-[#16263F]/70 pt-2">
+      <div className="mt-2.5 flex flex-wrap gap-1 border-t pt-2" style={{ borderColor: `${C.lineInner}B3` }}>
         <Chip label={`MODE ${cfg.sigMode.toUpperCase()}`} />
         <Chip label={`SL ${cfg.slMode.toUpperCase()}`} />
         <Chip label={`RR 1:${cfg.rrMult.toFixed(1)}`} />
@@ -79,7 +79,7 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
 }
 
 function CheckList({ title, tone, items }: { title: string; tone: "met" | "missing" | "invalid"; items: string[] }) {
-  const color = tone === "met" ? C.green : tone === "missing" ? "#4FD8FF" : C.red;
+  const color = tone === "met" ? C.green : tone === "missing" ? C.cyan : C.red;
   const glyph = tone === "met" ? "✓" : tone === "missing" ? "○" : "✕";
   if (items.length === 0) return null;
   return (
@@ -92,7 +92,7 @@ function CheckList({ title, tone, items }: { title: string; tone: "met" | "missi
       </div>
       <ul className="space-y-1">
         {items.map((s, i) => (
-          <li key={i} className="flex gap-1.5 text-[9.5px] leading-snug text-[#B8C2D6]">
+          <li key={i} className="flex gap-1.5 text-[9.5px] leading-snug" style={{ color: C.txt2 }}>
             <span className="shrink-0 font-bold" style={{ color }}>
               {glyph}
             </span>
@@ -106,7 +106,10 @@ function CheckList({ title, tone, items }: { title: string; tone: "met" | "missi
 
 function Chip({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.07)] px-2 py-0.5 font-mono text-[8.5px] font-bold tracking-wider text-[#D4AF37]">
+    <span
+      className="rounded-full border px-2 py-0.5 font-mono text-[8.5px] font-bold tracking-wider"
+      style={{ borderColor: A.gold(0.35), background: A.gold(0.07), color: C.gold }}
+    >
       {label}
     </span>
   );

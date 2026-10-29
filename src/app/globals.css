@@ -45,37 +45,68 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* ═══ HALO DESIGN TOKENS v2 — single source for CSS consumers ═══
+     Mirrors C in src/lib/halo/ui-helpers.ts. JS always reads C; CSS reads
+     these. Changing a value here rebrands every surface in one place. */
+  --hx-bg: #0b1426;            /* app background */
+  --hx-deep: #070d1b;          /* near-black wells */
+  --hx-card: #0d1730;          /* glass panel base */
+  --hx-card2: #101c33;         /* raised surface / hover */
+  --hx-card3: #16233d;         /* highest raise */
+  --hx-line: #1c2a47;          /* primary border */
+  --hx-line2: #2a3a5c;         /* input / hover border */
+  --hx-line-inner: #16263f;    /* inner dividers */
+  --hx-divider: #121d35;       /* row dividers / chart grid */
+  --hx-panel-line: #1e3358;    /* PanelCard border */
+  --hx-txt: #e8ecf4;           /* primary text */
+  --hx-txt2: #b8c2d6;          /* secondary text */
+  --hx-txt3: #dde6f5;          /* panel titles */
+  --hx-muted: #8c98ae;         /* muted text */
+  --hx-label: #6b7a94;         /* label gray */
+  --hx-dim: #5d606b;           /* inactive / dot gray */
+  --hx-gold: #d4af37;          /* metallic gold — brand + primary actions */
+  --hx-gold-hi: #e3c25a;       /* gold hover */
+  --hx-cyan: #4fd8ff;          /* electric cyan — AI / telemetry */
+  --hx-teal: #35e0c8;          /* teal — verified execution / positive AI activity */
+  --hx-ice: #9be8ff;           /* ice — secondary AI glow */
+  --hx-green: #089981;         /* positive money color */
+  --hx-red: #f23645;           /* negative money color */
+  --hx-warn: #ffb454;          /* warning amber */
+
+  /* ═══ shadcn primitives, rebranded to the HALO navy command centre ═══
+     (buttons, inputs, selects, dialogs, skeletons, toasts inherit this) */
+  --background: var(--hx-bg);
+  --foreground: var(--hx-txt);
+  --card: var(--hx-card);
+  --card-foreground: var(--hx-txt);
+  --popover: #0f1a30;
+  --popover-foreground: var(--hx-txt);
+  --primary: var(--hx-gold);
+  --primary-foreground: #0b1426;
+  --secondary: var(--hx-card3);
+  --secondary-foreground: var(--hx-txt2);
+  --muted: var(--hx-card2);
+  --muted-foreground: var(--hx-muted);
+  --accent: var(--hx-card3);
+  --accent-foreground: var(--hx-txt3);
+  --destructive: var(--hx-red);
+  --border: var(--hx-line);
+  --input: var(--hx-line2);
+  --ring: rgba(79, 216, 255, 0.55);
+  --chart-1: #4fd8ff;
+  --chart-2: #089981;
+  --chart-3: #d4af37;
+  --chart-4: #9be8ff;
+  --chart-5: #f23645;
+  --sidebar: var(--hx-bg);
+  --sidebar-foreground: var(--hx-txt2);
+  --sidebar-primary: var(--hx-gold);
+  --sidebar-primary-foreground: #0b1426;
+  --sidebar-accent: var(--hx-card2);
+  --sidebar-accent-foreground: var(--hx-txt3);
+  --sidebar-border: var(--hx-line);
+  --sidebar-ring: rgba(79, 216, 255, 0.55);
 }
 
 .dark {

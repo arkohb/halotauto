@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { TrendingUp } from "lucide-react";
 import { C } from "@/lib/halo/ui-helpers";
-import { PanelCard, StatCell } from "./panel";
+import { PanelCard, StateFrame, StatCell } from "./panel";
 
 interface TradeRow {
   id: string;
@@ -75,7 +75,7 @@ export function PerformanceIntel({ refreshKey }: { refreshKey: number }) {
       icon={TrendingUp}
       accent="cyan"
       className="h-full"
-      right={<span className="font-mono text-[8.5px] tracking-wider text-[#6B7A94]">{m.n} CLOSED</span>}
+      right={<span className="font-mono text-[8.5px] tracking-wider" style={{ color: C.label }}>{m.n} CLOSED</span>}
       bodyClassName="flex flex-col gap-2 p-3"
     >
       <div className="grid grid-cols-2 gap-1.5">
@@ -86,19 +86,20 @@ export function PerformanceIntel({ refreshKey }: { refreshKey: number }) {
       </div>
 
       {/* real cumulative pips curve */}
-      <div className="mt-auto rounded-lg border border-[#16263F] bg-[#0B1426]/70 px-2 pb-1.5 pt-2">
-        <div className="mb-1 flex items-center justify-between text-[8.5px] font-bold tracking-[0.14em] text-[#6B7A94]">
+      <div
+        className="mt-auto rounded-lg border px-2 pb-1.5 pt-2"
+        style={{ borderColor: C.lineInner, background: `${C.navy}B3` }}
+      >
+        <div className="mb-1 flex items-center justify-between text-[8.5px] font-bold tracking-[0.14em]" style={{ color: C.label }}>
           <span>CUMULATIVE PIPS</span>
           <span style={{ color: m.net >= 0 ? C.green : C.red }}>
             {m.n > 0 ? `${m.net >= 0 ? "+" : "−"}${Math.abs(m.net).toFixed(0)}p` : "—"}
           </span>
         </div>
         <Sparkline data={m.curve} />
-        {!loaded && <div className="py-3 text-center text-[10px] text-[#6B7A94]">Loading book…</div>}
+        {!loaded && <StateFrame compact state="loading" title="Loading book…" className="mt-1" />}
         {loaded && m.n === 0 && (
-          <div className="py-3 text-center text-[10px] leading-snug text-[#6B7A94]">
-            No closed trades yet — the curve draws itself as the EA books real results.
-          </div>
+          <StateFrame compact state="empty" title="No closed trades yet — the curve draws itself as the EA books real results." className="mt-1" />
         )}
       </div>
     </PanelCard>
@@ -115,10 +116,10 @@ function Sparkline({ data }: { data: number[] }) {
   const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - min) / span) * h}`);
   const zeroY = h - ((0 - min) / span) * h;
   const last = data[data.length - 1];
-  const col = last >= 0 ? "#089981" : "#F23645";
+  const col = last >= 0 ? C.green : C.red;
   return (
     <svg viewBox={`0 0 ${w} ${h}`} className="h-9 w-full" preserveAspectRatio="none" role="img" aria-label="Cumulative pips curve">
-      <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="#1C2A47" strokeWidth="1" strokeDasharray="3 3" />
+      <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke={C.line} strokeWidth="1" strokeDasharray="3 3" />
       <polyline points={pts.join(" ")} fill="none" stroke={col} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
     </svg>
   );

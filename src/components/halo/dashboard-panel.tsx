@@ -2,7 +2,9 @@
 
 // Dashboard panel — faithful mirror of the PineScript HALO 3EL dashboard table
 
-import { C, fmtPips, fmtPx, runPips, statusOf, toneClasses, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { Table2 } from "lucide-react";
+import { A, C, fmtPips, fmtPx, runPips, statusOf, toneClasses, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { PanelCard } from "@/components/halo/panel";
 
 export function DashboardPanel({ state }: { state: BotStateRes }) {
   const e = state.engine;
@@ -32,11 +34,11 @@ export function DashboardPanel({ state }: { state: BotStateRes }) {
   const rp = runPips(state);
 
   return (
-    <div className="rounded-xl border-2 overflow-hidden" style={{ borderColor: "rgba(212,175,55,0.55)", background: C.navy }}>
-      <div className="px-3 py-2 text-center text-xs font-bold tracking-[0.18em]" style={{ background: C.navy, color: C.gold }}>
-        ◆ HALO 3EL · EQUAL LEVEL REJECTION
-      </div>
-      <div className="divide-y divide-[#1C2A47]/60">
+    <PanelCard title="◆ HALO 3EL · EQUAL LEVEL REJECTION" icon={Table2} accent="gold">
+      <div
+        className="divide-y divide-[#1C2A47]/60"
+        style={{ ["--zA" as string]: C.navy, ["--zB" as string]: C.navy2 }}
+      >
         <Row k="Symbol · TF" v={`${state.symbol} · ${state.tf}`} vc={C.txt} />
         <div className="grid grid-cols-1" style={{ background: toneCls.bg }}>
           <div className="px-3 py-2 text-center text-xs font-bold tracking-wide" style={{ color: toneCls.fg }}>
@@ -92,17 +94,17 @@ export function DashboardPanel({ state }: { state: BotStateRes }) {
           vc={state.enabled ? C.green : C.muted}
         />
       </div>
-      <div className="px-3 py-2 text-center text-[10px] tracking-[0.18em]" style={{ background: C.navy, color: "rgba(212,175,55,0.7)" }}>
+      <div className="px-3 py-2 text-center text-[10px] tracking-[0.18em]" style={{ background: C.navy, color: A.gold(0.7) }}>
         HALO SUITE · 3EL AUTOTRADER · PAPER EA
       </div>
-    </div>
+    </PanelCard>
   );
 }
 
 function Row({ k, v, vc }: { k: string; v: string; vc: string }) {
   return (
-    <div className="grid grid-cols-2 items-center px-3 py-1.5 odd:bg-[#0B1426] even:bg-[#101C33]">
-      <span className="text-[11px] text-[#8C98AE]">{k}</span>
+    <div className="grid grid-cols-2 items-center px-3 py-1.5 odd:bg-(--zA) even:bg-(--zB)">
+      <span className="text-[11px]" style={{ color: C.muted }}>{k}</span>
       <span className="text-[11px] font-mono font-semibold text-right" style={{ color: vc }}>
         {v}
       </span>

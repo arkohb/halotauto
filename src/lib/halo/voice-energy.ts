@@ -15,6 +15,10 @@
 //      The analyser is only created in FULL fx mode to save battery.
 //    • firePulse / alertPulse   — confirmed engine events (fire/win/loss)
 //      and verified warnings, forwarded by the dashboard cards.
+//    • setExecuting / errorPulse — REAL action-execution windows (the
+//      ActionBridge running an allowlisted command) and verified failures;
+//      the executing animation only ever runs while an operation is
+//      actually in flight, never before results are verified.
 //
 //  No React state lives here — the orb polls these values inside its own
 //  animation loop, so voice traffic never re-renders the app.
@@ -28,6 +32,8 @@ interface EnergyState {
   fireAt: number;
   fireDir: number; // -1 sell · +1 buy
   alertAt: number;
+  executing: boolean;
+  lastErrorAt: number;
 }
 
 const s: EnergyState = {
@@ -38,6 +44,8 @@ const s: EnergyState = {
   fireAt: 0,
   fireDir: 1,
   alertAt: 0,
+  executing: false,
+  lastErrorAt: 0,
 };
 
 // ── mic analyser (amplitude only — never recorded, never uploaded) ──────
@@ -77,6 +85,16 @@ export const voiceEnergy = {
   /** verified warning surfaced by the dashboard */
   alertPulse() {
     s.alertAt = performance.now();
+  },
+
+  /** a real allowlisted action started/stopped executing (ActionBridge) */
+  setExecuting(v: boolean) {
+    s.executing = v;
+  },
+
+  /** an action finished and verification FAILED — honest error flash */
+  errorPulse() {
+    s.lastErrorAt = performance.now();
   },
 
   /** open the amplitude analyser while the assistant is actually listening */

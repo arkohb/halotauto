@@ -13,14 +13,17 @@
 //    MANAGING   — a trade is open (green BUY / red SELL tint)
 //    WARNING    — feed degraded (simulator / stale / error), shown honestly
 //  Voice activity (LISTENING · PROCESSING · SPEAKING) arrives from the
-//  JARVIS console and is reported truthfully on the telemetry rows.
+//  JARVIS console and is reported truthfully on the telemetry rows. The
+//  EXECUTING (teal) and ERROR (red) orb states mirror REAL action runs:
+//  executing only while an allowlisted operation is actually in flight,
+//  error only after a verified failure — never a decorative success.
 //
 //  Presentation only — reads the same BotStateRes the panels use; never
 //  mutates engine state or routes orders.
 // ════════════════════════════════════════════════════════════════════════
 
 import dynamic from "next/dynamic";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { C, fmtPx, type BotStateRes, type VoiceState } from "@/lib/halo/ui-helpers";
 import { PanelCard, TelemetryRow } from "./panel";
 import { useHaloVoice, type WakeState } from "./voice-provider";
@@ -68,6 +71,24 @@ const WAKE_META: Record<WakeState, { label: string; color?: string }> = {
 export function HaloCore({ state }: { state: BotStateRes | null }) {
   const v = useHaloVoice();
   const voice = v.voice;
+
+  // ── real action-execution mirror (ActionBridge) ──
+  // cheap 200ms boolean-sync: executing windows are short (~100-600ms),
+  // far below the 2s bot-state poll — the orb would miss them otherwise
+  const [executing, setExecuting] = useState(false);
+  const [errFresh, setErrFresh] = useState(false);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const es = voiceEnergy.snapshot();
+      setExecuting((p) => (p === es.executing ? p : es.executing));
+      setErrFresh((p) => {
+        const fresh = es.lastErrorAt > 0 && performance.now() - es.lastErrorAt < 2800;
+        return p === fresh ? p : fresh;
+      });
+    }, 200);
+    return () => window.clearInterval(id);
+  }, []);
+
   // derive the honest core state from the polled bot state
   let core: CoreState = "offline";
   let dir: -1 | 1 = 1;
@@ -84,7 +105,16 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
   }
 
   const meta = META[core];
-  const color = voice !== "idle" ? C.cyan : core === "managing" ? (dir === -1 ? C.red : C.green) : meta.color;
+  // AI-core badge: voice activity → real execution window → verified failure → EA state
+  const badge =
+    voice !== "idle"
+      ? { label: `● ${VOICE_META[voice].label}`, color: C.cyan }
+      : executing
+        ? { label: "● EXECUTING", color: C.teal }
+        : errFresh
+          ? { label: "● ACTION FAILED", color: C.red }
+          : { label: meta.label, color: core === "managing" ? (dir === -1 ? C.red : C.green) : meta.color };
+  const color = badge.color;
   const speaking = voice !== "idle";
 
   const st = state;
@@ -96,7 +126,10 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
   const assistantDown = v.status === "offline";
   if (assistantDown) warnings.push("Assistant link unreachable — retrying");
 
-  // 3D core state — voice activity wins, then verified alerts, then EA state
+  // 3D core state — voice wins, then REAL execution windows / verified
+  // failures, then verified alerts, then EA state. Never a fake animation:
+  // executing exists only while the ActionBridge actually runs, error only
+  // for 2.8 s after a verified failure.
   const orbState: OrbVisual =
     voice === "processing"
       ? "thinking"
@@ -104,11 +137,15 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
         ? "speaking"
         : voice === "listening"
           ? "listening"
-          : assistantDown || warnings.length > 0
-            ? "alert"
-            : v.status === "initializing"
-              ? "offline"
-              : "idle";
+          : executing
+            ? "executing"
+            : errFresh
+              ? "error"
+              : assistantDown || warnings.length > 0
+                ? "alert"
+                : v.status === "initializing"
+                  ? "offline"
+                  : "idle";
 
   // confirmed engine fire → one honest energy pulse on the core
   const lastLogRef = useRef<number | null>(null);
@@ -155,7 +192,7 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
           className="rounded-full px-2 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
           style={{ background: `${color}1A`, color }}
         >
-          {voice !== "idle" ? `● ${VOICE_META[voice].label}` : meta.label}
+          {badge.label}
         </span>
       }
       bodyClassName="flex flex-col p-3"

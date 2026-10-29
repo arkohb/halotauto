@@ -14,11 +14,13 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Activity, Bell, FlaskConical, Globe, Landmark, Radar, Settings, ShieldCheck, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
 import type { HaloConfig } from "@/lib/halo/types";
 import { C, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { PageHeader } from "@/components/halo/panel";
 import { Header } from "@/components/halo/header";
 import { ControlDeck } from "@/components/halo/control-deck";
 import { StatusBanner } from "@/components/halo/status-banner";
@@ -436,14 +438,37 @@ export default function Page() {
             )}
 
             {/* ════════ MARKET · multi-symbol scanner ════════ */}
-            {view === "scanner" && <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />}
+            {view === "scanner" && (
+              <>
+                <PageHeader
+                  icon={Radar}
+                  title="MARKET SCANNER"
+                  sub="Every watchlist symbol runs the full 3EL engine — live formations, armed levels and per-symbol auto-trade switches."
+                />
+                <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />
+              </>
+            )}
 
             {/* ════════ MARKET INTEL · live external feeds ════════ */}
-            {view === "intel" && <IntelPanel />}
+            {view === "intel" && (
+              <>
+                <PageHeader
+                  icon={Globe}
+                  title="MARKET INTELLIGENCE"
+                  sub="Live external feeds — ForexFactory calendar, Bloomberg & Yahoo headlines, Yahoo quotes. Sources stamped, nothing invented."
+                />
+                <IntelPanel />
+              </>
+            )}
 
             {/* ════════ TRADING ACTIVITY ════════ */}
             {view === "activity" && (
               <div className="space-y-4">
+                <PageHeader
+                  icon={Activity}
+                  title="TRADING ACTIVITY"
+                  sub="Open positions, closed history and the engine log — exactly what the broker and the 3EL engine report."
+                />
                 <TradeCard state={state} />
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Mt5MobileApp notify={notify} />
@@ -455,6 +480,23 @@ export default function Page() {
             {/* ════════ RISK GUARDIAN ════════ */}
             {view === "risk" && (
               <div className="grid items-start gap-4 lg:grid-cols-2">
+                <PageHeader
+                  className="col-span-full"
+                  icon={ShieldCheck}
+                  title="RISK GUARDIAN"
+                  sub="Account posture, armed levels, execution routing and engine controls — verified against the live broker feed."
+                  right={
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[8px] font-extrabold tracking-[0.12em]"
+                      style={{
+                        background: state.exec.executionMode === "live" ? "rgba(242,54,69,0.12)" : "rgba(8,153,129,0.12)",
+                        color: state.exec.executionMode === "live" ? C.red : C.green,
+                      }}
+                    >
+                      {state.exec.executionMode === "live" ? "LIVE ROUTING" : "PAPER ROUTING"}
+                    </span>
+                  }
+                />
                 <div className="space-y-4">
                   <RiskGuardian state={state} />
                   <LevelsCard state={state} />
@@ -475,6 +517,11 @@ export default function Page() {
             {/* ════════ STRATEGY LAB · real-data backtests ════════ */}
             {view === "backtest" && (
               <div className="space-y-6">
+                <PageHeader
+                  icon={FlaskConical}
+                  title="STRATEGY LAB"
+                  sub="Replay and backtest the 3EL strategy over real market history — no synthetic data, ever."
+                />
                 <BacktestLive symbol={state.symbol} tf={state.tf} config={state.config} />
                 <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
               </div>
@@ -483,6 +530,12 @@ export default function Page() {
             {/* ════════ PERFORMANCE ════════ */}
             {view === "performance" && (
               <div className="grid items-start gap-4 lg:grid-cols-3">
+                <PageHeader
+                  className="col-span-full"
+                  icon={TrendingUp}
+                  title="PERFORMANCE"
+                  sub="The Pine dashboard mirror and the closed-trade book — win rate, profit factor, expectancy, drawdown."
+                />
                 <DashboardPanel state={state} />
                 <PerformanceIntel refreshKey={histKey} />
                 <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
@@ -490,14 +543,38 @@ export default function Page() {
             )}
 
             {/* ════════ BROKERS ════════ */}
-            {view === "brokers" && <BrokersPanel notify={notify} />}
+            {view === "brokers" && (
+              <>
+                <PageHeader
+                  icon={Landmark}
+                  title="BROKERS & MT5"
+                  sub="Connect MetaTrader via MetaApi, browse the prop-firm directory and arm live order routing."
+                />
+                <BrokersPanel notify={notify} />
+              </>
+            )}
 
             {/* ════════ ALERTS ════════ */}
-            {view === "alerts" && <AlertsPanel notify={notify} />}
+            {view === "alerts" && (
+              <>
+                <PageHeader
+                  icon={Bell}
+                  title="ALERTS & DELIVERY"
+                  sub="Telegram, e-mail and web-push channels with the full event matrix — test fires are real attempts, honestly reported."
+                />
+                <AlertsPanel notify={notify} />
+              </>
+            )}
 
             {/* ════════ SETTINGS ════════ */}
             {view === "settings" && (
               <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+                <PageHeader
+                  className="col-span-full"
+                  icon={Settings}
+                  title="SETTINGS"
+                  sub="Strategy inputs (Pine v1.2), FX ambience, HALO voice & profile, and the TradingView EA bridge."
+                />
                 <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
                 <div className="space-y-4">
                   <FxSettingsCard />

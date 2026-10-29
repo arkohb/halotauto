@@ -9,8 +9,8 @@
 
 import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
-import { C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
-import { CheckRow, PanelCard, StatCell } from "./panel";
+import { A, C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { CheckRow, PanelCard, Pill, StatCell } from "./panel";
 import { RiskShield, type ShieldLevel } from "./risk-shield";
 
 interface LivePos {
@@ -94,21 +94,11 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
       title="RISK GUARDIAN"
       icon={ShieldCheck}
       accent="green"
-      right={
-        <span
-          className="rounded-full px-2 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
-          style={{
-            background: live ? "rgba(242,54,69,0.12)" : "rgba(212,175,55,0.10)",
-            color: live ? C.red : C.gold,
-          }}
-        >
-          {live ? "LIVE ACCOUNT" : "SIMULATOR"}
-        </span>
-      }
+      right={<Pill tone={live ? "live" : "muted"}>{live ? "LIVE ACCOUNT" : "SIMULATOR"}</Pill>}
     >
       <div className="flex h-full flex-col gap-2 p-3">
         {/* protective hologram — colour only, never touches risk logic */}
-        <div className="flex items-center gap-3 rounded-lg border border-[#16263F] bg-[#0B1426]/60 px-3 py-2">
+        <div className="flex items-center gap-3 rounded-lg border bg-[#0B1426]/60 px-3 py-2" style={{ borderColor: C.lineInner }}>
           <RiskShield level={shieldLevel} size={64} />
           <div className="min-w-0">
             <div
@@ -117,14 +107,14 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
             >
               {shieldWord}
             </div>
-            <div className="mt-0.5 text-[9.5px] leading-snug text-[#8C98AE]">{shieldSub}</div>
+            <div className="mt-0.5 text-[9.5px] leading-snug" style={{ color: C.muted }}>{shieldSub}</div>
           </div>
           <div className="ml-auto hidden shrink-0 text-right sm:block">
-            <div className="text-[8px] font-bold tracking-[0.14em] text-[#6B7A94]">MARGIN LV</div>
+            <div className="text-[8px] font-bold tracking-[0.14em]" style={{ color: C.label }}>MARGIN LV</div>
             <div className="font-mono text-[12px] font-bold" style={{ color: marginLevel !== null ? (marginLevel < 200 ? C.gold : C.green) : C.txt }}>
               {marginLevel !== null ? `${marginLevel.toFixed(0)}%` : "—"}
             </div>
-            <div className="text-[8px] font-bold tracking-[0.14em] text-[#6B7A94]">FLOAT</div>
+            <div className="text-[8px] font-bold tracking-[0.14em]" style={{ color: C.label }}>FLOAT</div>
             <div className="font-mono text-[11px] font-bold" style={{ color: floatDrift >= 0 ? C.green : C.red }}>
               {floatDrift >= 0 ? "+" : "−"}
               {Math.abs(floatDrift).toFixed(2)}%
@@ -139,7 +129,7 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
           <StatCell
             label="Open P&L"
             value={hasPos ? `${openPnl >= 0 ? "+" : "−"}$${Math.abs(openPnl).toFixed(2)}` : "Flat"}
-            color={hasPos ? (openPnl >= 0 ? C.green : C.red) : "#8C98AE"}
+            color={hasPos ? (openPnl >= 0 ? C.green : C.red) : C.muted}
           />
         </div>
 
@@ -156,12 +146,12 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
           <StatCell
             label="Run P/L"
             value={state.engine.trade && rp !== null ? fmtPips(rp) : "—"}
-            color={state.engine.trade && rp !== null ? (rp >= 0 ? C.green : C.red) : "#8C98AE"}
+            color={state.engine.trade && rp !== null ? (rp >= 0 ? C.green : C.red) : C.muted}
           />
         </div>
 
         {/* live checks — all real */}
-        <div className="mt-auto rounded-lg border border-[#16263F] bg-[#0B1426]/70 px-2.5 py-1">
+        <div className="mt-auto rounded-lg border bg-[#0B1426]/70 px-2.5 py-1" style={{ borderColor: C.lineInner }}>
           <CheckRow label="Feed" verdict={feedOk ? "pass" : "info"} detail={feedOk ? `${state.feed.source} · live` : state.feed.note || state.feed.source} />
           <CheckRow
             label="Execution"
@@ -177,7 +167,7 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
         </div>
 
         {acct?.degraded && (
-          <div className="rounded-md border border-[rgba(242,54,69,0.4)] bg-[rgba(242,54,69,0.08)] px-2 py-1 text-[9px] font-semibold text-[#F23645]">
+          <div className="rounded-md border px-2 py-1 text-[9px] font-semibold" style={{ borderColor: A.red(0.4), background: A.red(0.08), color: C.red }}>
             Broker link degraded: {acct.degraded.slice(0, 90)}
           </div>
         )}

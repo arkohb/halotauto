@@ -6,10 +6,10 @@
 //  the polled candles), ATR, session clock (UTC math), feed telemetry.
 // ════════════════════════════════════════════════════════════════════════
 
-import { C, decimalsOf, fmtPx, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, decimalsOf, fmtPx, type BotStateRes } from "@/lib/halo/ui-helpers";
 import type { Candle } from "@/lib/halo/types";
 import { getSymbolMeta } from "@/lib/market-symbols";
-import { PanelCard } from "./panel";
+import { PanelCard, Pill } from "./panel";
 import { Gauge } from "lucide-react";
 
 /** Active FX/metal sessions for the current UTC instant (factual clock math). */
@@ -49,16 +49,9 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
       icon={Gauge}
       accent="gold"
       right={
-        <span
-          className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
-          style={{
-            background: fresh ? "rgba(8,153,129,0.12)" : "rgba(212,175,55,0.12)",
-            color: fresh ? C.green : C.gold,
-          }}
-        >
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: fresh ? C.green : C.gold }} />
+        <Pill tone={fresh ? "ok" : "gold"} pulse>
           {state.feed.source.toUpperCase()}
-        </span>
+        </Pill>
       }
     >
       <div className="flex h-full flex-col gap-2 p-3">
@@ -70,7 +63,7 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
             <span
               className="mb-0.5 rounded px-1.5 py-0.5 font-mono text-[11px] font-bold"
               style={{
-                background: chg >= 0 ? "rgba(8,153,129,0.14)" : "rgba(242,54,69,0.14)",
+                background: chg >= 0 ? A.green(0.14) : A.red(0.14),
                 color: chg >= 0 ? C.green : C.red,
               }}
             >
@@ -80,7 +73,7 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
             </span>
           )}
         </div>
-        <div className="text-[8.5px] font-medium tracking-wide text-[#6B7A94]">
+        <div className="text-[8.5px] font-medium tracking-wide" style={{ color: C.label }}>
           change over loaded {state.tf} window · {candles.length} bars
         </div>
 
@@ -90,7 +83,10 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
           <MiniStat label="FEED AGE" value={age !== null ? `${age}s` : "—"} color={fresh ? C.green : C.gold} />
         </div>
 
-        <div className="flex items-center justify-between border-t border-[#16263F]/70 pt-1.5 text-[9px] font-mono text-[#6B7A94]">
+        <div
+          className="flex items-center justify-between border-t pt-1.5 text-[9px] font-mono"
+          style={{ borderColor: `${C.lineInner}B3`, color: C.label }}
+        >
           <span>
             {state.symbol} · {state.tf}
           </span>
@@ -105,8 +101,8 @@ export function MarketPulse({ state, candles }: { state: BotStateRes; candles: C
 
 function MiniStat({ label, value, color, small }: { label: string; value: string; color?: string; small?: boolean }) {
   return (
-    <div className="min-w-0 rounded-lg border border-[#16263F] bg-[#0B1426]/70 px-2 py-1.5">
-      <div className="truncate text-[7.5px] font-bold uppercase tracking-[0.16em] text-[#6B7A94]">{label}</div>
+    <div className="min-w-0 rounded-lg border px-2 py-1.5" style={{ borderColor: C.lineInner, background: `${C.navy}B3` }}>
+      <div className="truncate text-[7.5px] font-bold uppercase tracking-[0.16em]" style={{ color: C.label }}>{label}</div>
       <div className={`truncate font-mono font-bold ${small ? "text-[9.5px]" : "text-[11.5px]"}`} style={{ color: color ?? C.txt }}>
         {value}
       </div>

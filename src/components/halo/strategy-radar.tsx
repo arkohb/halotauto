@@ -26,7 +26,7 @@
 
 import { useMemo, useState } from "react";
 import { Crosshair, Info } from "lucide-react";
-import { C } from "@/lib/halo/ui-helpers";
+import { A, C } from "@/lib/halo/ui-helpers";
 import type { Side } from "@/lib/halo/types";
 import { useFx } from "@/lib/halo/fx";
 
@@ -147,15 +147,16 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
   return (
     <section
       aria-label="Strategy radar — live 3EL setup map"
-      className="overflow-hidden rounded-xl border border-[#1C2A47] bg-[#0F1A30]"
+      className="overflow-hidden rounded-xl border"
+      style={{ borderColor: C.line, background: C.navy4 }}
     >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#1C2A47] px-4 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-2.5" style={{ borderBottomColor: C.line }}>
         <div className="flex items-center gap-2">
           <Crosshair size={13} style={{ color: C.cyan }} aria-hidden />
-          <span className="text-sm font-bold tracking-wider text-[#E8ECF4]">STRATEGY RADAR</span>
+          <span className="text-sm font-bold tracking-wider" style={{ color: C.txt }}>STRATEGY RADAR</span>
           <span
             className="rounded-full px-2 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
-            style={{ background: sweepLive ? "rgba(79,216,255,0.12)" : "rgba(140,152,174,0.1)", color: sweepLive ? C.cyan : C.muted }}
+            style={{ background: sweepLive ? A.cyan(0.12) : `${C.muted}1A`, color: sweepLive ? C.cyan : C.muted }}
           >
             {scanning ? "SCANNING NOW" : sweepLive ? "ENGINE TICK" : "IDLE SWEEP"}
           </span>
@@ -168,7 +169,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
             { c: C.red, t: "FEED ERROR" },
             { c: C.gray, t: "PAUSED" },
           ].map((l) => (
-            <span key={l.t} className="flex items-center gap-1 text-[#8C98AE]">
+            <span key={l.t} className="flex items-center gap-1" style={{ color: C.muted }}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: l.c, boxShadow: `0 0 6px ${l.c}66` }} />
               {l.t}
             </span>
@@ -182,24 +183,24 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
           <svg viewBox="0 0 400 400" className="absolute inset-0 h-full w-full" role="img" aria-label={blips.length > 0 ? `Radar with ${blips.length} watchlist symbols` : "Radar — watchlist empty"}>
             <defs>
               <radialGradient id="radarBg" cx="50%" cy="50%" r="50%">
-                <stop offset="0%" stopColor="rgba(79,216,255,0.10)" />
-                <stop offset="70%" stopColor="rgba(11,20,38,0.25)" />
-                <stop offset="100%" stopColor="rgba(11,20,38,0)" />
+                <stop offset="0%" stopColor={A.cyan(0.1)} />
+                <stop offset="70%" stopColor={`${C.navy}40`} />
+                <stop offset="100%" stopColor={`${C.navy}00`} />
               </radialGradient>
               <linearGradient id="radarBeam" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="rgba(79,216,255,0.55)" />
-                <stop offset="100%" stopColor="rgba(79,216,255,0)" />
+                <stop offset="0%" stopColor={A.cyan(0.55)} />
+                <stop offset="100%" stopColor={A.cyan(0)} />
               </linearGradient>
             </defs>
 
             <circle cx={CTR} cy={CTR} r={RAD} fill="url(#radarBg)" />
             {/* range rings — 2.5 / 1.66 / 0.83 / 0 ATR from trigger */}
             {[0.25, 0.5, 0.75, 1].map((f) => (
-              <circle key={f} cx={CTR} cy={CTR} r={RAD * f} fill="none" stroke="rgba(79,216,255,0.16)" strokeWidth="1" strokeDasharray={f === 1 ? "none" : "3 5"} />
+              <circle key={f} cx={CTR} cy={CTR} r={RAD * f} fill="none" stroke={A.cyan(0.16)} strokeWidth="1" strokeDasharray={f === 1 ? "none" : "3 5"} />
             ))}
             {/* cross hairs + ticks */}
-            <line x1={CTR - RAD} y1={CTR} x2={CTR + RAD} y2={CTR} stroke="rgba(79,216,255,0.10)" strokeWidth="1" />
-            <line x1={CTR} y1={CTR - RAD} x2={CTR} y2={CTR + RAD} stroke="rgba(79,216,255,0.10)" strokeWidth="1" />
+            <line x1={CTR - RAD} y1={CTR} x2={CTR + RAD} y2={CTR} stroke={A.cyan(0.1)} strokeWidth="1" />
+            <line x1={CTR} y1={CTR - RAD} x2={CTR} y2={CTR + RAD} stroke={A.cyan(0.1)} strokeWidth="1" />
             {Array.from({ length: 24 }, (_, i) => {
               const a = (i * 15 * Math.PI) / 180;
               const inner = RAD * (i % 6 === 0 ? 0.94 : 0.97);
@@ -210,7 +211,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                   y1={CTR + Math.sin(a) * inner}
                   x2={CTR + Math.cos(a) * RAD}
                   y2={CTR + Math.sin(a) * RAD}
-                  stroke="rgba(79,216,255,0.28)"
+                  stroke={A.cyan(0.28)}
                   strokeWidth={i % 6 === 0 ? 1.4 : 0.8}
                 />
               );
@@ -222,7 +223,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
               { f: 0.75, t: "1.9" },
               { f: 1, t: "2.5" },
             ].map((l) => (
-              <text key={l.f} x={CTR + 4} y={CTR - RAD * l.f - 3} fill="rgba(140,152,174,0.75)" fontSize="9" fontFamily="monospace">
+              <text key={l.f} x={CTR + 4} y={CTR - RAD * l.f - 3} fill={`${C.muted}BF`} fontSize="9" fontFamily="monospace">
                 {l.t}
               </text>
             ))}
@@ -234,12 +235,12 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                 fill="url(#radarBeam)"
                 opacity="0.5"
               />
-              <line x1={CTR} y1={CTR} x2={CTR + RAD} y2={CTR} stroke="rgba(79,216,255,0.65)" strokeWidth="1.4" />
+              <line x1={CTR} y1={CTR} x2={CTR + RAD} y2={CTR} stroke={A.cyan(0.65)} strokeWidth="1.4" />
             </g>
 
             {/* core emblem */}
             <circle cx={CTR} cy={CTR} r="5.5" fill={C.cyan} opacity="0.9" />
-            <circle cx={CTR} cy={CTR} r="11" fill="none" stroke="rgba(79,216,255,0.4)" strokeWidth="1" strokeDasharray="4 3" />
+            <circle cx={CTR} cy={CTR} r="11" fill="none" stroke={A.cyan(0.4)} strokeWidth="1" strokeDasharray="4 3" />
           </svg>
 
           {/* blips — real, focusable buttons over the scope */}
@@ -269,12 +270,12 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                     width: b.row.status === "C3 WATCH" || b.row.status === "RUNNING" ? 10 : 7,
                     height: b.row.status === "C3 WATCH" || b.row.status === "RUNNING" ? 10 : 7,
                     background: b.color,
-                    boxShadow: `0 0 10px 2px ${b.glow}${active ? ", 0 0 0 3px rgba(79,216,255,0.5)" : ""}`,
+                    boxShadow: `0 0 10px 2px ${b.glow}${active ? `, 0 0 0 3px ${A.cyan(0.5)}` : ""}`,
                   }}
                 />
                 <span
                   className="pointer-events-none absolute left-1/2 top-full mt-0.5 -translate-x-1/2 whitespace-nowrap font-mono text-[8px] font-bold tracking-wider transition-opacity"
-                  style={{ color: active ? "#E8ECF4" : "#8C98AE", opacity: active ? 1 : 0.75, textShadow: "0 1px 3px rgba(4,8,18,0.9)" }}
+                  style={{ color: active ? C.txt : C.muted, opacity: active ? 1 : 0.75, textShadow: "0 1px 3px rgba(4,8,18,0.9)" }}
                 >
                   {b.row.symbol.replace(/USDT$|USDTm$/i, "")}
                 </span>
@@ -284,7 +285,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
 
           {blips.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center">
-              <p className="max-w-[200px] text-center text-[10.5px] leading-snug text-[#6B7A94]">
+              <p className="max-w-[200px] text-center text-[10.5px] leading-snug" style={{ color: C.label }}>
                 Watchlist empty — add symbols below and the radar lights up with their real 3EL states.
               </p>
             </div>
@@ -294,10 +295,10 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
         {/* ── selected setup inspector — genuine row data only ── */}
         <div className="min-w-0">
           {sel ? (
-            <div className="flex h-full flex-col gap-2 rounded-lg border border-[#2A3A5C] bg-[#0B1426]/80 p-3" style={{ animation: animate ? "halo-msg 0.25s ease-out" : undefined }}>
+            <div className="flex h-full flex-col gap-2 rounded-lg border p-3" style={{ borderColor: C.line2, background: `${C.navy}CC`, animation: animate ? "halo-msg 0.25s ease-out" : undefined }}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[13px] font-extrabold tracking-wide text-[#E8ECF4]">
-                  {sel.row.symbolLabel.split("·")[0].trim()} <span className="font-mono text-[10px] text-[#8C98AE]">{sel.row.tf}</span>
+                <span className="text-[13px] font-extrabold tracking-wide" style={{ color: C.txt }}>
+                  {sel.row.symbolLabel.split("·")[0].trim()} <span className="font-mono text-[10px]" style={{ color: C.muted }}>{sel.row.tf}</span>
                 </span>
                 <span
                   className="rounded-full px-2 py-0.5 text-[8.5px] font-extrabold tracking-[0.14em]"
@@ -315,7 +316,7 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                 </button>
               </div>
 
-              <p className="flex items-start gap-1.5 text-[10.5px] leading-snug text-[#B8C2D6]">
+              <p className="flex items-start gap-1.5 text-[10.5px] leading-snug" style={{ color: C.txt2 }}>
                 <Info size={11} className="mt-0.5 shrink-0" style={{ color: sel.color }} aria-hidden />
                 {sel.reason}
               </p>
@@ -335,9 +336,9 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
                   },
                   { l: "FEED", v: sel.row.source },
                 ].map((f) => (
-                  <div key={f.l} className="min-w-0 rounded-md border border-[#16263F] bg-[#0D1730]/80 px-2 py-1.5">
-                    <div className="truncate text-[8px] font-bold tracking-[0.14em] text-[#6B7A94]">{f.l}</div>
-                    <div className="truncate font-mono text-[11px] font-bold text-[#E8ECF4]">{f.v}</div>
+                  <div key={f.l} className="min-w-0 rounded-md border px-2 py-1.5" style={{ borderColor: C.lineInner, background: `${C.panel}CC` }}>
+                    <div className="truncate text-[8px] font-bold tracking-[0.14em]" style={{ color: C.label }}>{f.l}</div>
+                    <div className="truncate font-mono text-[11px] font-bold" style={{ color: C.txt }}>{f.v}</div>
                   </div>
                 ))}
               </div>
@@ -357,9 +358,9 @@ export function StrategyRadar({ rows, scanning, lastRun, onJumpToSymbol }: Props
               </p>
             </div>
           ) : (
-            <div className="flex h-full min-h-[180px] flex-col justify-center gap-2 rounded-lg border border-dashed border-[#2A3A5C] bg-[#0B1426]/40 p-4">
-              <p className="text-[10.5px] font-bold tracking-[0.14em] text-[#6B7A94]">SETUP INSPECTOR</p>
-              <p className="text-[10.5px] leading-relaxed text-[#8C98AE]">
+            <div className="flex h-full min-h-[180px] flex-col justify-center gap-2 rounded-lg border border-dashed p-4" style={{ borderColor: C.line2, background: `${C.navy}66` }}>
+              <p className="text-[10.5px] font-bold tracking-[0.14em]" style={{ color: C.label }}>SETUP INSPECTOR</p>
+              <p className="text-[10.5px] leading-relaxed" style={{ color: C.muted }}>
                 Tap any blip to inspect its real engine conditions — status, distance to the armed wick line in
                 ATR, fresh condition counts, the last confirmed signal and the honest reason the setup qualifies,
                 is still being evaluated, or was rejected.

@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { C } from "@/lib/halo/ui-helpers";
+import { A, C } from "@/lib/halo/ui-helpers";
 
 interface LivePos {
   id: string;
@@ -81,14 +81,11 @@ interface Payload {
   updatedAt: number;
 }
 
-const GREEN = "#0ECB81";
-const RED = "#F6465D";
-
 const nf = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const money = (v: number | null | undefined) => (v === null || v === undefined || !isFinite(v) ? "—" : nf.format(v));
 const px = (v: number | null | undefined) =>
   v === null || v === undefined || !isFinite(v) || v === 0 ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: 5 });
-const pnlColor = (v: number) => (v > 0 ? GREEN : v < 0 ? RED : "#8C98AE");
+const pnlColor = (v: number) => (v > 0 ? C.green : v < 0 ? C.red : C.muted);
 const pnlStr = (v: number) => `${v > 0 ? "+" : v < 0 ? "−" : ""}${money(Math.abs(v))}`;
 
 function age(iso: string | null): string {
@@ -176,49 +173,49 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
     <section aria-label="Live MT5 mobile account" className="flex justify-center">
       {/* ══ phone frame ══ */}
       <div
-        className="w-full max-w-[400px] overflow-hidden rounded-[26px] border-2 bg-[#050B16] shadow-2xl"
-        style={{ borderColor: "#1C2A47", boxShadow: "0 12px 44px rgba(0,0,0,0.55), 0 0 0 1px #0B1426" }}
+        className="w-full max-w-[400px] overflow-hidden rounded-[26px] border-2 shadow-2xl"
+        style={{ borderColor: C.line, background: C.deep, boxShadow: `0 12px 44px rgba(0,0,0,0.55), 0 0 0 1px ${C.navy}` }}
       >
         {/* status bar */}
-        <div className="flex items-center justify-between bg-[#050B16] px-5 pb-1 pt-2.5">
-          <span className="font-mono text-[11px] font-bold text-[#E8ECF4]">{clock || "--:--"}</span>
+        <div className="flex items-center justify-between px-5 pb-1 pt-2.5" style={{ background: C.deep }}>
+          <span className="font-mono text-[11px] font-bold" style={{ color: C.txt }}>{clock || "--:--"}</span>
           {/* notch */}
-          <span className="h-4 w-20 rounded-full bg-[#0B1426] ring-1 ring-[#1C2A47]" />
-          <span className="flex items-center gap-1.5 text-[10px] text-[#8C98AE]">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${data ? "bg-[#0ECB81]" : "bg-[#787B86]"}`} />
+          <span className="h-4 w-20 rounded-full" style={{ background: C.navy, boxShadow: `0 0 0 1px ${C.line}` }} />
+          <span className="flex items-center gap-1.5 text-[10px]" style={{ color: C.muted }}>
+            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: data ? C.green : C.gray }} />
             <span style={{ letterSpacing: 1 }}>▂▄▆</span>
             <span>▮</span>
           </span>
         </div>
 
         {/* app bar */}
-        <div className="flex items-center justify-between gap-2 border-b border-[#1C2A47] bg-[#0B1426] px-4 py-2.5">
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5" style={{ borderColor: C.line, background: C.navy }}>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md bg-[#D4AF37] text-[11px] font-black text-[#0B1426]">5</span>
-              <span className="truncate text-[13px] font-bold text-[#E8ECF4]">
+              <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11px] font-black" style={{ background: C.gold, color: C.navy }}>5</span>
+              <span className="truncate text-[13px] font-bold" style={{ color: C.txt }}>
                 {acct ? acct.login : "connecting…"}
               </span>
               {data && (
                 <span
                   className="rounded px-1.5 py-0.5 text-[8px] font-black tracking-widest"
                   style={{
-                    background: live ? "rgba(246,70,93,0.15)" : "rgba(14,203,129,0.12)",
-                    color: live ? RED : GREEN,
+                    background: live ? A.red(0.15) : A.green(0.12),
+                    color: live ? C.red : C.green,
                   }}
                 >
                   {live ? "LIVE" : "PAPER"}
                 </span>
               )}
             </div>
-            <div className="mt-0.5 truncate text-[9px] tracking-wider text-[#8C98AE]">
+            <div className="mt-0.5 truncate text-[9px] tracking-wider" style={{ color: C.muted }}>
               {acct ? `${acct.broker} · ${acct.server}${acct.leverage ? ` · 1:${acct.leverage}` : ""}` : `${data?.brokerLabel ?? "MT5"} · syncing`}
             </div>
           </div>
           {data?.eaOpen && (
             <span
               className="relative flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[8px] font-black tracking-widest"
-              style={{ background: "rgba(212,175,55,0.14)", color: C.gold }}
+              style={{ background: A.gold(0.14), color: C.gold }}
             >
               <span className="h-1.5 w-1.5 animate-ping rounded-full" style={{ background: C.gold }} />
               EA RUNNING
@@ -228,27 +225,27 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
 
         {/* degraded strip */}
         {deg && (
-          <div className="border-b px-4 py-1.5 text-[9px] font-bold tracking-wider" style={{ background: "rgba(246,70,93,0.10)", color: RED, borderColor: "rgba(246,70,93,0.35)" }}>
+          <div className="border-b px-4 py-1.5 text-[9px] font-bold tracking-wider" style={{ background: A.red(0.1), color: C.red, borderColor: A.red(0.35) }}>
             ⚠ BROKER LINK ERROR — RETRYING · {deg.slice(0, 90)}
           </div>
         )}
 
         {/* equity hero */}
-        <div className="border-b border-[#1C2A47] bg-gradient-to-b from-[#0B1426] to-[#050B16] px-4 py-3.5 text-center">
-          <div className="text-[9px] font-bold tracking-[0.24em] text-[#8C98AE]">EQUITY</div>
+        <div className="border-b px-4 py-3.5 text-center" style={{ borderColor: C.line, background: `linear-gradient(180deg, ${C.navy}, ${C.deep})` }}>
+          <div className="text-[9px] font-bold tracking-[0.24em]" style={{ color: C.muted }}>EQUITY</div>
           <div className="mt-0.5 font-mono text-[28px] font-bold leading-none" style={{ color: C.gold }}>
             {acct ? money(acct.equity) : "······"}
-            <span className="ml-1.5 text-[11px] font-semibold text-[#8C98AE]">{acct?.currency ?? ""}</span>
+            <span className="ml-1.5 text-[11px] font-semibold" style={{ color: C.muted }}>{acct?.currency ?? ""}</span>
           </div>
           <div className="mt-1.5 flex items-center justify-center gap-2">
             <span
               className="rounded-full px-2.5 py-0.5 font-mono text-[11px] font-bold"
-              style={{ background: "rgba(14,203,129,0.10)", color: pnlColor(floating) }}
+              style={{ background: A.green(0.1), color: pnlColor(floating) }}
             >
               Floating {pnlStr(floating)}
             </span>
             {data && lastAge !== null && (
-              <span className="font-mono text-[9px] text-[#5D606B]">
+              <span className="font-mono text-[9px]" style={{ color: C.dim }}>
                 {live ? "broker" : "engine"} · {lastAge}s
               </span>
             )}
@@ -256,7 +253,7 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
         </div>
 
         {/* 2×2 account tiles */}
-        <div className="grid grid-cols-2 gap-px bg-[#1C2A47]">
+        <div className="grid grid-cols-2 gap-px" style={{ background: C.line }}>
           <Tile label="Balance" value={acct ? money(acct.balance) : "—"} curr={acct?.currency ?? ""} color={C.txt} />
           <Tile label="Free margin" value={acct ? money(acct.freeMargin) : "—"} curr={acct?.currency ?? ""} color={C.txt} />
           <Tile label="Margin" value={acct ? money(acct.margin) : "—"} curr={acct?.currency ?? ""} color={C.txt} />
@@ -264,12 +261,12 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
             label="Margin level"
             value={acct ? (acct.marginLevel > 0 ? `${money(acct.marginLevel)}%` : "—") : "—"}
             curr=""
-            color={acct && acct.marginLevel > 0 && acct.marginLevel < 200 ? RED : GREEN}
+            color={acct && acct.marginLevel > 0 && acct.marginLevel < 200 ? C.red : C.green}
           />
         </div>
 
         {/* tabs */}
-        <div className="grid grid-cols-2 border-b border-[#1C2A47] bg-[#0B1426]">
+        <div className="grid grid-cols-2 border-b" style={{ borderColor: C.line, background: C.navy }}>
           {(["positions", "history"] as const).map((t) => {
             const active = tab === t;
             const count = t === "positions" ? positions.length : data?.history.length ?? 0;
@@ -280,7 +277,7 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
                 aria-label={`Show ${t}`}
                 onClick={() => setTab(t)}
                 className="relative py-2.5 text-[10px] font-black tracking-[0.18em] transition-colors"
-                style={{ color: active ? C.gold : "#5D606B" }}
+                style={{ color: active ? C.gold : C.dim }}
               >
                 {t.toUpperCase()}
                 {count > 0 && <span className="ml-1 font-mono text-[9px]">({count})</span>}
@@ -291,19 +288,19 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
         </div>
 
         {/* body */}
-        <div className="min-h-[240px] bg-[#070D1B] px-2.5 py-2">
+        <div className="min-h-[240px] px-2.5 py-2" style={{ background: C.deep }}>
           {!data ? (
             <div className="space-y-2 py-4">
               {[0, 1, 2].map((i) => (
-                <div key={i} className="h-14 animate-pulse rounded-lg bg-[#0B1426]" />
+                <div key={i} className="h-14 animate-pulse rounded-lg" style={{ background: C.navy }} />
               ))}
             </div>
           ) : tab === "positions" ? (
             positions.length === 0 ? (
               <div className="flex flex-col items-center gap-2 py-10 text-center">
-                <span className="text-2xl" style={{ color: "#1C2A47" }}>◎</span>
-                <span className="text-[11px] font-bold tracking-wider text-[#8C98AE]">NO OPEN POSITIONS</span>
-                <span className="max-w-[240px] text-[9px] leading-relaxed text-[#5D606B]">
+                <span className="text-2xl" style={{ color: C.line }}>◎</span>
+                <span className="text-[11px] font-bold tracking-wider" style={{ color: C.muted }}>NO OPEN POSITIONS</span>
+                <span className="max-w-[240px] text-[9px] leading-relaxed" style={{ color: C.dim }}>
                   The EA book is flat. When HALO fires a C3 entry, the running trade appears here with live P/L.
                 </span>
               </div>
@@ -316,9 +313,9 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
             )
           ) : (data.history?.length ?? 0) === 0 ? (
             <div className="flex flex-col items-center gap-2 py-10 text-center">
-              <span className="text-2xl" style={{ color: "#1C2A47" }}>≡</span>
-              <span className="text-[11px] font-bold tracking-wider text-[#8C98AE]">NO CLOSED TRADES YET</span>
-              <span className="max-w-[240px] text-[9px] leading-relaxed text-[#5D606B]">
+              <span className="text-2xl" style={{ color: C.line }}>≡</span>
+              <span className="text-[11px] font-bold tracking-wider" style={{ color: C.muted }}>NO CLOSED TRADES YET</span>
+              <span className="max-w-[240px] text-[9px] leading-relaxed" style={{ color: C.dim }}>
                 TP / SL results booked by the EA land in this history feed.
               </span>
             </div>
@@ -328,31 +325,31 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
                 const win = h.status === "WIN";
                 const pips = h.resultPips ?? 0;
                 return (
-                  <li key={h.id} className="flex items-center justify-between rounded-lg bg-[#0B1426] px-2.5 py-2">
+                  <li key={h.id} className="flex items-center justify-between rounded-lg px-2.5 py-2" style={{ background: C.navy }}>
                     <div className="flex min-w-0 items-center gap-2">
                       <span
                         className="rounded px-1 py-0.5 text-[8px] font-black"
                         style={{
-                          background: h.direction === -1 ? "rgba(246,70,93,0.14)" : "rgba(14,203,129,0.14)",
-                          color: h.direction === -1 ? RED : GREEN,
+                          background: h.direction === -1 ? A.red(0.14) : A.green(0.14),
+                          color: h.direction === -1 ? C.red : C.green,
                         }}
                       >
                         {h.direction === -1 ? "SELL" : "BUY"}
                       </span>
-                      <span className="truncate text-[11px] font-bold text-[#E8ECF4]">{h.symbol}</span>
+                      <span className="truncate text-[11px] font-bold" style={{ color: C.txt }}>{h.symbol}</span>
                       <span
                         className="rounded px-1 py-0.5 text-[7px] font-bold tracking-wider"
                         style={{
-                          background: h.execMode === "LIVE" ? "rgba(246,70,93,0.12)" : "rgba(140,152,174,0.12)",
-                          color: h.execMode === "LIVE" ? RED : "#8C98AE",
+                          background: h.execMode === "LIVE" ? A.red(0.12) : "rgba(140,152,174,0.12)",
+                          color: h.execMode === "LIVE" ? C.red : C.muted,
                         }}
                       >
                         {h.execMode}
                       </span>
                     </div>
                     <div className="flex shrink-0 items-center gap-2.5">
-                      <span className="font-mono text-[9px] text-[#5D606B]">{age(h.closedAt)}</span>
-                      <span className="w-16 text-right font-mono text-[11px] font-bold" style={{ color: win ? GREEN : RED }}>
+                      <span className="font-mono text-[9px]" style={{ color: C.dim }}>{age(h.closedAt)}</span>
+                      <span className="w-16 text-right font-mono text-[11px] font-bold" style={{ color: win ? C.green : C.red }}>
                         {pips > 0 ? "+" : pips < 0 ? "−" : ""}
                         {Math.abs(pips).toFixed(1)} p
                       </span>
@@ -365,13 +362,13 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
         </div>
 
         {/* footer */}
-        <div className="flex items-center justify-between border-t border-[#1C2A47] bg-[#050B16] px-4 py-2">
-          <span className="text-[8px] font-bold tracking-[0.2em] text-[#5D606B]">
+        <div className="flex items-center justify-between border-t px-4 py-2" style={{ borderColor: C.line, background: C.deep }}>
+          <span className="text-[8px] font-bold tracking-[0.2em]" style={{ color: C.dim }}>
             {data ? (live ? "MT5 BROKER STREAM" : "EA ENGINE SIM STREAM") : "CONNECTING…"}
             {eaCount > 0 ? ` · ${eaCount} EA` : ""}
           </span>
-          <span className="flex items-center gap-1 text-[8px] font-bold tracking-[0.2em]" style={{ color: data ? GREEN : "#5D606B" }}>
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${data ? "animate-pulse" : ""}`} style={{ background: data ? GREEN : "#5D606B" }} />
+          <span className="flex items-center gap-1 text-[8px] font-bold tracking-[0.2em]" style={{ color: data ? C.green : C.dim }}>
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${data ? "animate-pulse" : ""}`} style={{ background: data ? C.green : C.dim }} />
             {data ? "LIVE FEED" : "WAIT"}
           </span>
         </div>
@@ -384,28 +381,28 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
 
 function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; onClose: () => void }) {
   const dirTxt = p.side === -1 ? "SELL" : "BUY";
-  const dirColor = p.side === -1 ? RED : GREEN;
+  const dirColor = p.side === -1 ? C.red : C.green;
   const cur = p.currentPrice ?? 0;
   const entry = p.entryPrice ?? 0;
   const inProfit = p.pnl > 0;
   return (
-    <li className="rounded-lg bg-[#0B1426] px-2.5 py-2" style={{ boxShadow: "inset 0 0 0 1px rgba(28,42,71,0.6)" }}>
+    <li className="rounded-lg px-2.5 py-2" style={{ background: C.navy, boxShadow: "inset 0 0 0 1px rgba(28,42,71,0.6)" }}>
       <div className="flex items-center justify-between gap-2">
         {/* symbol + side + lots */}
         <div className="flex min-w-0 items-center gap-2">
           <span
             className="rounded px-1 py-0.5 text-[8px] font-black"
-            style={{ background: p.side === -1 ? "rgba(246,70,93,0.14)" : "rgba(14,203,129,0.14)", color: dirColor }}
+            style={{ background: p.side === -1 ? A.red(0.14) : A.green(0.14), color: dirColor }}
           >
             {dirTxt}
           </span>
-          <span className="truncate text-[12px] font-bold text-[#E8ECF4]">{p.symbol}</span>
+          <span className="truncate text-[12px] font-bold" style={{ color: C.txt }}>{p.symbol}</span>
           {p.ea && (
-            <span className="rounded px-1 py-0.5 text-[7px] font-black tracking-wider" style={{ background: "rgba(212,175,55,0.16)", color: C.gold }}>
+            <span className="rounded px-1 py-0.5 text-[7px] font-black tracking-wider" style={{ background: A.gold(0.16), color: C.gold }}>
               EA
             </span>
           )}
-          <span className="shrink-0 font-mono text-[9px] text-[#8C98AE]">{p.volume.toFixed(2)} lot</span>
+          <span className="shrink-0 font-mono text-[9px]" style={{ color: C.muted }}>{p.volume.toFixed(2)} lot</span>
         </div>
         {/* P/L + close */}
         <div className="flex shrink-0 items-center gap-1.5">
@@ -427,15 +424,15 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
                 disabled={closing}
                 aria-label={`Close ${p.symbol} ${dirTxt} position`}
                 className="grid h-6 w-6 place-items-center rounded-full border text-[10px] transition-all hover:brightness-125 disabled:opacity-50"
-                style={{ borderColor: "rgba(246,70,93,0.45)", color: RED, background: "rgba(246,70,93,0.08)" }}
+                style={{ borderColor: A.red(0.45), color: C.red, background: A.red(0.08) }}
               >
                 ✕
               </button>
             </AlertDialogTrigger>
-            <AlertDialogContent className="border-[#2A3A5C] bg-[#101C33] text-[#E8ECF4]">
+            <AlertDialogContent style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
               <AlertDialogHeader>
-                <AlertDialogTitle className="text-[#F23645]">Close {p.symbol} {dirTxt} {p.volume.toFixed(2)} lot?</AlertDialogTitle>
-                <AlertDialogDescription className="text-[#8C98AE]">
+                <AlertDialogTitle style={{ color: C.red }}>Close {p.symbol} {dirTxt} {p.volume.toFixed(2)} lot?</AlertDialogTitle>
+                <AlertDialogDescription style={{ color: C.muted }}>
                   {p.paper
                     ? "The paper position is closed at current price and the result is booked."
                     : "A market close order is sent to the broker for this position immediately."}
@@ -444,7 +441,7 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel className="border-[#2A3A5C] bg-transparent text-[#8C98AE] hover:text-[#E8ECF4]">Keep position</AlertDialogCancel>
-                <AlertDialogAction className="bg-[#F23645] text-white hover:bg-[#FF4B59]" onClick={(e) => { e.preventDefault(); onClose(); }}>
+                <AlertDialogAction className="bg-[#F23645] text-white hover:brightness-125" onClick={(e) => { e.preventDefault(); onClose(); }}>
                   Close position
                 </AlertDialogAction>
               </AlertDialogFooter>
@@ -454,24 +451,24 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
       </div>
 
       {/* prices line */}
-      <div className="mt-1.5 flex items-center justify-between gap-3 border-t border-[#1C2A47]/70 pt-1.5 font-mono text-[10px]">
-        <span className="flex items-baseline gap-1 text-[#8C98AE]">
-          entry <span className="font-semibold text-[#E8ECF4]">{px(entry)}</span>
+      <div className="mt-1.5 flex items-center justify-between gap-3 border-t pt-1.5 font-mono text-[10px]" style={{ borderColor: "rgba(28,42,71,0.7)" }}>
+        <span className="flex items-baseline gap-1" style={{ color: C.muted }}>
+          entry <span className="font-semibold" style={{ color: C.txt }}>{px(entry)}</span>
         </span>
-        <span className="flex items-baseline gap-1" style={{ color: inProfit ? GREEN : RED }}>
+        <span className="flex items-baseline gap-1" style={{ color: inProfit ? C.green : C.red }}>
           {p.side === -1 ? "▼" : "▲"} now <span className="font-semibold">{px(cur || entry)}</span>
         </span>
-        <span className="flex items-baseline gap-1 text-[#8C98AE]">
-          SL <span className="font-semibold" style={{ color: RED }}>{px(p.sl)}</span>
+        <span className="flex items-baseline gap-1" style={{ color: C.muted }}>
+          SL <span className="font-semibold" style={{ color: C.red }}>{px(p.sl)}</span>
         </span>
-        <span className="flex items-baseline gap-1 text-[#8C98AE]">
-          TP <span className="font-semibold" style={{ color: GREEN }}>{px(p.tp)}</span>
+        <span className="flex items-baseline gap-1" style={{ color: C.muted }}>
+          TP <span className="font-semibold" style={{ color: C.green }}>{px(p.tp)}</span>
         </span>
       </div>
 
       {/* extras */}
       {(p.swap !== 0 || p.commission !== 0 || (p.comment && p.paper)) && (
-        <div className="mt-1 flex items-center justify-between font-mono text-[8px] text-[#5D606B]">
+        <div className="mt-1 flex items-center justify-between font-mono text-[8px]" style={{ color: C.dim }}>
           <span className="truncate">{p.comment ?? ""}</span>
           <span className="shrink-0">
             {p.swap !== 0 && <span style={{ color: pnlColor(p.swap) }}>swap {pnlStr(p.swap)} </span>}
@@ -487,13 +484,13 @@ function PositionRow({ p, closing, onClose }: { p: LivePos; closing: boolean; on
 
 function Tile({ label, value, curr, color }: { label: string; value: string; curr: string; color: string }) {
   return (
-    <div className="bg-[#0B1426] px-3.5 py-2.5">
-      <div className="text-[8px] font-bold uppercase tracking-[0.18em] text-[#5D606B]">{label}</div>
+    <div className="px-3.5 py-2.5" style={{ background: C.navy }}>
+      <div className="text-[8px] font-bold uppercase tracking-[0.18em]" style={{ color: C.dim }}>{label}</div>
       <div className="mt-0.5 flex items-baseline gap-1">
         <span className="font-mono text-[14px] font-bold" style={{ color }}>
           {value}
         </span>
-        {curr && <span className="text-[8px] font-semibold text-[#5D606B]">{curr}</span>}
+        {curr && <span className="text-[8px] font-semibold" style={{ color: C.dim }}>{curr}</span>}
       </div>
     </div>
   );

@@ -5,15 +5,18 @@
 //
 //  A single-quad fragment-shader hologram that visualises ONLY real
 //  assistant / engine state:
-//    idle      slow rotation, breathing light, orbiting particles
-//    listening concentric rings pulse with the trader's actual mic level
-//              (AnalyserNode when available, real onspeechstart events
-//              otherwise) — never a fake voice meter
-//    thinking  particles stream inward + angular scan while a genuine
-//              request is processed
-//    speaking  circular waveform driven by real TTS word-boundary events
-//    alert     short amber/red double-pulse for verified warnings
-//    offline   dimmed + desaturated, status label lives in the card
+//    idle       slow rotation, breathing light, orbiting particles
+//    listening  concentric rings pulse with the trader's actual mic level
+//               (AnalyserNode when available, real onspeechstart events
+//               otherwise) — never a fake voice meter
+//    thinking   particles stream inward + angular scan while a genuine
+//               request is processed
+//    speaking   circular waveform driven by real TTS word-boundary events
+//    executing  teal working-state while a REAL allowlisted action is in
+//               flight (ActionBridge) — never shown before/after the op
+//    alert      short amber/red double-pulse for verified warnings
+//    error      persistent red core after a verified execution failure
+//    offline    dimmed + desaturated, status label lives in the card
 //
 //  Performance rules:
 //    • lazy-loaded (dynamic import) · no loop when tab hidden / off-screen
@@ -29,7 +32,15 @@ import { useEffect, useRef, useState } from "react";
 import { useFx } from "@/lib/halo/fx";
 import { voiceEnergy } from "@/lib/halo/voice-energy";
 
-export type OrbVisual = "idle" | "listening" | "thinking" | "speaking" | "alert" | "offline";
+export type OrbVisual =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "executing"
+  | "alert"
+  | "error"
+  | "offline";
 
 const VERT = `
 attribute vec2 aPos;
@@ -182,6 +193,7 @@ const ICE: [number, number, number] = [0.45, 0.88, 1.0];
 const AMBER: [number, number, number] = [1.0, 0.62, 0.2];
 const RED: [number, number, number] = [1.0, 0.26, 0.3];
 const GRAY: [number, number, number] = [0.5, 0.56, 0.66];
+const TEAL: [number, number, number] = [0.21, 0.88, 0.78]; // #35E0C8 — verified execution
 
 function targetsFor(state: OrbVisual, alertWarm: boolean): OrbParams {
   switch (state) {
@@ -191,12 +203,35 @@ function targetsFor(state: OrbVisual, alertWarm: boolean): OrbParams {
       return { ring: 0, scan: 1, dim: 0, color: ICE };
     case "speaking":
       return { ring: 0, scan: 0, dim: 0, color: CYAN };
+    case "executing":
+      // teal working state — half-strength rings + light scan, clearly
+      // distinct from listening (cyan, full rings) and thinking (ice, full scan)
+      return { ring: 0.55, scan: 0.35, dim: 0, color: TEAL };
     case "alert":
       return { ring: 0, scan: 0, dim: 0, color: alertWarm ? RED : AMBER };
+    case "error":
+      // persistent verified-failure state — red, slightly dimmed
+      return { ring: 0.2, scan: 0, dim: 0.25, color: RED };
     case "offline":
       return { ring: 0, scan: 0, dim: 1, color: GRAY };
     default:
       return { ring: 0, scan: 0, dim: 0, color: CYAN };
+  }
+}
+
+// shared tone mapping for every CssOrb fallback site
+function cssTone(state: OrbVisual, alertWarm: boolean): { tone: string; dim: boolean } {
+  switch (state) {
+    case "alert":
+      return { tone: alertWarm ? "#F23645" : "#FFB454", dim: false };
+    case "error":
+      return { tone: "#F23645", dim: false };
+    case "executing":
+      return { tone: "#35E0C8", dim: false };
+    case "offline":
+      return { tone: "#5D606B", dim: true };
+    default:
+      return { tone: "#4FD8FF", dim: false };
   }
 }
 
@@ -424,7 +459,8 @@ export function HaloOrb({
       lastFrame = now;
       if (!onScreen || document.hidden || ctxLost) return;
       if (!animate) return; // OS reduce-motion → static frames drawn on state change
-      const active = stateRef.current !== "idle" || levelS > 0.02 || waveS > 0.02;
+      const active =
+        stateRef.current !== "idle" || levelS > 0.02 || waveS > 0.02;
       const interval = lowPowerMode ? 50 : active ? 16 : 33;
       if (now - lastRender >= interval) {
         lastRender = now;
@@ -520,17 +556,19 @@ export function HaloOrb({
   }, [state, motionOK, mode]);
 
   if (mode === "off") {
+    const t = cssTone(state, alertWarm);
     return (
       <div className={className}>
-        <CssOrb size={size} tone={state === "alert" ? (alertWarm ? "#F23645" : "#FFB454") : state === "offline" ? "#5D606B" : "#4FD8FF"} dim={state === "offline"} animate={false} />
+        <CssOrb size={size} tone={t.tone} dim={t.dim} animate={false} />
       </div>
     );
   }
 
   if (failed) {
+    const t = cssTone(state, alertWarm);
     return (
       <div className={className}>
-        <CssOrb size={size} tone={state === "alert" ? (alertWarm ? "#F23645" : "#FFB454") : "#4FD8FF"} dim={state === "offline"} animate={motionOK && mode === "full"} />
+        <CssOrb size={size} tone={t.tone} dim={t.dim} animate={motionOK && mode === "full"} />
       </div>
     );
   }
