@@ -19,6 +19,7 @@ import { Braces, CheckCircle2, ChevronRight, CircleAlert, Copy, FlaskConical, Lo
 import { PageHeader, Pill } from "@/components/halo/panel";
 import { PinePreviewChart, type PreviewHLine, type PreviewMarker, type PreviewPlot } from "@/components/halo/pine-preview-chart";
 import { A, C, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { MAX_PINE_CHARS, MAX_PINE_LINES } from "@/lib/pine/limits";
 
 // ── types mirroring the API ──────────────────────────────────────────────
 interface StrategySummary {
@@ -585,8 +586,29 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
             spellCheck={false}
             placeholder={`//@version=5\nstrategy("My Strategy", overlay=true)\n…paste your Pine Script here…`}
             className="halo-scroll w-full rounded-lg p-3 font-mono text-[11.5px] leading-[1.55] outline-none"
-            style={{ background: C.deep, border: `1px solid ${C.line2}`, color: "#D7E7FF", minHeight: 320, resize: "vertical", tabSize: 4 }}
+            style={{ background: C.deep, border: `1px solid ${C.line2}`, color: "#D7E7FF", minHeight: 380, resize: "vertical", tabSize: 4 }}
           />
+
+          {/* size feedback — long scripts are first-class (commercial packs run 1,500-2,500+ lines) */}
+          {(() => {
+            const src = editor.source;
+            if (!src) return null;
+            const lines = src.split("\n").length;
+            const chars = src.length;
+            const near = lines > MAX_PINE_LINES * 0.9 || chars > MAX_PINE_CHARS * 0.9;
+            const over = lines > MAX_PINE_LINES || chars > MAX_PINE_CHARS;
+            return (
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[9px] tracking-wide" style={{ color: over ? C.red : near ? C.warn : C.muted }}>
+                <span>
+                  {lines.toLocaleString()} line{lines === 1 ? "" : "s"} · {chars.toLocaleString()} chars
+                </span>
+                <span style={{ color: C.dim }}>
+                  limit {MAX_PINE_LINES.toLocaleString()} lines / {MAX_PINE_CHARS.toLocaleString()} chars — 2,500-line strategy packs compile fine
+                </span>
+                {over && <span className="font-bold">· TOO LARGE — trim the script before compiling</span>}
+              </div>
+            );
+          })()}
 
           {/* compile feedback */}
           {compile && (

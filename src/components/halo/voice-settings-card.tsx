@@ -15,9 +15,9 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Mic, MicOff, Play, RotateCcw, Save, ShieldCheck, Volume2 } from "lucide-react";
+import { AudioLines, Mic, MicOff, Play, RotateCcw, Save, ShieldCheck, Volume2 } from "lucide-react";
 import { A, C } from "@/lib/halo/ui-helpers";
-import { useHaloVoice } from "./voice-provider";
+import { NEURAL_VOICES, useHaloVoice } from "./voice-provider";
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -121,6 +121,62 @@ export function VoiceSettingsCard() {
         </Row>
 
         {/* ── audio prefs (this device) ── */}
+        <Row
+          label="Voice engine"
+          hint={
+            v.prefs.engine === "neural"
+              ? "Natural neural voice — generated server-side, far more human than OS voices. Falls back to the browser voice if offline."
+              : "Browser voices from your operating system — robotic but fully offline."
+          }
+        >
+          <div className="flex overflow-hidden rounded-lg" style={{ boxShadow: `inset 0 0 0 1px ${C.lineInner}` }}>
+            <button
+              type="button"
+              onClick={() => v.setPrefs({ engine: "neural" })}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.1em] transition-colors"
+              style={{
+                background: v.prefs.engine === "neural" ? A.cyan(0.16) : "transparent",
+                color: v.prefs.engine === "neural" ? C.cyan : C.muted,
+              }}
+              aria-pressed={v.prefs.engine === "neural"}
+            >
+              <AudioLines size={11} /> NATURAL
+            </button>
+            <button
+              type="button"
+              onClick={() => v.setPrefs({ engine: "browser" })}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.1em] transition-colors"
+              style={{
+                background: v.prefs.engine === "browser" ? A.blue(0.16) : "transparent",
+                color: v.prefs.engine === "browser" ? C.blue : C.muted,
+              }}
+              aria-pressed={v.prefs.engine === "browser"}
+            >
+              BROWSER
+            </button>
+          </div>
+        </Row>
+
+        {v.prefs.engine === "neural" && (
+          <Row
+            label="Natural voice"
+            hint={`${NEURAL_VOICES.find((nv) => nv.id === v.prefs.neuralVoice)?.hint ?? "natural neural voice"} · generated on the server, cached on this device.`}
+          >
+            <select
+              value={v.prefs.neuralVoice}
+              onChange={(e) => v.setPrefs({ neuralVoice: e.target.value })}
+              className="h-8 max-w-[190px] rounded-lg border border-[var(--hx-line2)] bg-[var(--hx-card2)] px-2 text-[10.5px] text-[var(--hx-txt)] outline-none"
+              aria-label="Natural voice selection"
+            >
+              {NEURAL_VOICES.map((nv) => (
+                <option key={nv.id} value={nv.id}>
+                  {nv.label}
+                </option>
+              ))}
+            </select>
+          </Row>
+        )}
+
         <Row label="Volume" hint={`Reply volume ${Math.round(v.prefs.volume * 100)}% — stored on this device.`}>
           <Volume2 size={12} color={C.cyan} />
           <input
@@ -135,7 +191,7 @@ export function VoiceSettingsCard() {
           />
         </Row>
 
-        <Row label="Speaking speed" hint={`${v.prefs.rate.toFixed(2)}× — browser voices vary.`}>
+        <Row label="Speaking speed" hint={`${v.prefs.rate.toFixed(2)}× — applies to both the natural and browser voices.`}>
           <input
             type="range"
             min={0.7}
@@ -148,8 +204,8 @@ export function VoiceSettingsCard() {
           />
         </Row>
 
-        {v.voices.length > 0 && (
-          <Row label="Voice" hint="Voices provided by your operating system / browser.">
+        {v.prefs.engine === "browser" && v.voices.length > 0 && (
+          <Row label="Browser voice" hint="Voices provided by your operating system / browser.">
             <select
               value={v.prefs.voiceURI}
               onChange={(e) => v.setPrefs({ voiceURI: e.target.value })}

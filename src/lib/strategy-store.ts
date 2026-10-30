@@ -4,6 +4,7 @@
 
 import { db } from "@/lib/db";
 import { compilePine, type CompiledPine, type PineDiagnostic } from "@/lib/pine";
+import { MAX_PINE_CHARS } from "@/lib/pine/limits";
 import type { PineStrategy } from "@prisma/client";
 
 export interface StrategySummary {
@@ -94,7 +95,7 @@ export async function compileAndSave(
   const row0 = existingId ? await db.pineStrategy.findUnique({ where: { id: existingId } }) : null;
   const name = (typeof data.name === "string" && data.name.trim().slice(0, 80)) || row0?.name || "Untitled strategy";
   const description = typeof data.description === "string" ? data.description.slice(0, 300) : row0?.description ?? "";
-  const source = typeof data.pineSource === "string" ? data.pineSource.slice(0, 60_000) : row0?.pineSource ?? "";
+  const source = typeof data.pineSource === "string" ? data.pineSource.slice(0, MAX_PINE_CHARS) : row0?.pineSource ?? "";
   const risk = clampRisk(data as Parameters<typeof clampRisk>[0]);
 
   let signalJson = row0?.signalJson ?? "{}";

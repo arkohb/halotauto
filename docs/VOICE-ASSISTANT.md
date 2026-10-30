@@ -11,7 +11,7 @@ only and talks exclusively to the pre-existing read-only assistant core.
 
 | Concern | Choice | Why |
 |---|---|---|
-| Text-to-speech | Browser **SpeechSynthesis** (Web Speech API) — local OS voices | No API keys, no network audio, works offline, volume/rate/voice configurable; degrades gracefully when absent |
+| Text-to-speech | **Two engines, one contract.** Default: **neural voice** — `/api/halo/tts` generates natural 24 kHz server-side neural WAV (z-ai SDK, no client keys), cached server- and client-side, with a 7-voice picker (HALO James default). Fallback: browser **SpeechSynthesis** (Web Speech API). Neural failures (offline, 5xx, timeout) degrade transparently to the browser voice — a network hiccup can lower the voice quality but can never silence HALO. The `speaking` state is only ever set while audio is ACTUALLY playing | The OS voices sound robotic; the neural voice sounds human. The browser engine remains for offline resilience and as an explicit choice in Settings → Voice engine (NATURAL / BROWSER) |
 | Speech input / wake word | Browser **SpeechRecognition** (`SpeechRecognition` / `webkitSpeechRecognition`) in continuous mode | Only practical option in a pure web app; Chrome/Edge/Android support it. **Not fully local**: the browser vendor's speech service processes audio. HALO never records, stores, or transmits mic audio itself |
 | Brain | Existing `/api/halo/assistant` (z-ai SDK, server-side keys) | Already grounded in verified snapshots + rate-limited; extended with trader-name injection and a `mode:"voice"` short-reply addendum |
 | Profile store | New Prisma `TraderProfile` singleton (SQLite) | No auth system exists in the project; server-backed so name + consents survive devices. Strictly additive table |

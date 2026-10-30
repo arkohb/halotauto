@@ -5,6 +5,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { PineSyntaxError, tokenize, type Token } from "./lexer";
+import { MAX_EXPR_DEPTH } from "./limits";
 
 export interface BaseNode {
   id: number;
@@ -55,7 +56,19 @@ export class Parser {
   private toks: Token[];
   private p = 0;
   private nextId = 1;
+  /** nesting guard — parens/ternaries/unaries all funnel through here so a
+   *  pathological script fails with a friendly error instead of a stack crash */
+  private exprDepth = 0;
   program: Program = { body: [], decl: null, declKind: null, nodeCount: 0 };
+
+  private enterExpr(t: Token): void {
+    if (++this.exprDepth > MAX_EXPR_DEPTH) {
+      this.err(`This expression is nested more than ${MAX_EXPR_DEPTH} levels deep — break it into named intermediate variables.`, t);
+    }
+  }
+  private leaveExpr(): void {
+    this.exprDepth--;
+  }
 
   constructor(src: string) {
     this.toks = tokenize(src);
@@ -373,10 +386,12 @@ export class Parser {
   private parseTernary(): Expr {
     const c = this.parseOr();
     if (this.at("op", "?")) {
+      this.enterExpr(this.peek());
       const t = this.next();
       const a = this.parseTernary();
       this.expectOp(":");
       const b = this.parseTernary();
+      this.leaveExpr();
       return { k: "ternary", id: this.id(), line: t.line, col: t.col, c, a, b };
     }
     return c;
@@ -429,13 +444,17 @@ export class Parser {
   private parseUnary(): Expr {
     const t = this.peek();
     if (t.kind === "op" && (t.value === "-" || t.value === "+")) {
+      this.enterExpr(t);
       this.next();
       const e = this.parseUnary();
+      this.leaveExpr();
       return { k: "unary", id: this.id(), line: t.line, col: t.col, op: t.value as "-" | "+", e };
     }
     if (this.atIdent("not")) {
+      this.enterExpr(t);
       this.next();
       const e = this.parseUnary();
+      this.leaveExpr();
       return { k: "unary", id: this.id(), line: t.line, col: t.col, op: "not", e };
     }
     return this.parsePostfix();
@@ -509,9 +528,11 @@ export class Parser {
       return { k: "ident", id: this.id(), line: t.line, col: t.col, name: t.value };
     }
     if (t.kind === "op" && t.value === "(") {
+      this.enterExpr(t);
       this.next();
       const e = this.parseExpr();
       this.expectOp(")");
+      this.leaveExpr();
       return e;
     }
     // array literal: ["Instant", "Bar close"] — used by input options=[…]

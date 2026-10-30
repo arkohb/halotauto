@@ -26,6 +26,10 @@ the same execution path as the built-in 3EL engine.*
 
 **Execution rules:** confirmed-bar evaluation only (Pine bar-close standard — no repaint), entries fill at the next available price, orders route through the SAME `executeFire()` path as the built-in engine (PAPER book or the active CFD broker with sizing + SL/TP + alerts), and the EA **START/STOP** and **PAUSE NEW ENTRIES** operator switches are obeyed exactly.
 
+### Script size — long strategies are first-class
+
+The compiler accepts up to **8,000 lines / 1,000,000 chars** per script (a live counter under the editor shows both). Commercial indicator packs routinely run 1,500–2,500 lines; a generated 2,492-line / 80K-char strategy compiles in ~200 ms, previews over 600 real bars in single-digit seconds, and evaluates each NEW bar in ~20 ms (the live tick) — verified in `scripts/pine-longscript-test.ts` and `scripts/pine-long-live-test.ts`. Safety valves for pathological input: expressions nested deeper than 400 levels, loops beyond 20,000 iterations, or any single bar evaluating longer than 10 s fail with a friendly `line:col` error — never a hang, never a stack crash.
+
 **Indicator-only scripts** (no `strategy.*` calls) still compile and chart. To auto-trade them, map which boolean series is LONG / SHORT / EXIT in the *Manual signal series* panel — the compiler lists every eligible boolean variable.
 
 ### Single-active-strategy semantics

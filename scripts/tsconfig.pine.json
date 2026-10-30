@@ -9,5 +9,5 @@
     "baseUrl": "..",
     "paths": { "@/*": ["./src/*"] }
   },
-  "files": ["../src/lib/pine/lexer.ts", "../src/lib/pine/parser.ts", "../src/lib/pine/runtime.ts", "../src/lib/pine/compile.ts", "../src/lib/pine/index.ts", "../src/lib/halo/types.ts"]
+  "files": ["../src/lib/pine/lexer.ts", "../src/lib/pine/parser.ts", "../src/lib/pine/runtime.ts", "../src/lib/pine/compile.ts", "../src/lib/pine/limits.ts", "../src/lib/pine/index.ts", "../src/lib/halo/types.ts"]
 }

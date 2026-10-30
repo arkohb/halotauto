@@ -15,6 +15,7 @@
 
 import type { Candle } from "@/lib/halo/types";
 import { parsePine, type Arg, type Expr, type Stmt, type Program, type Call } from "./parser";
+import { PINE_BAR_BUDGET_MS } from "./limits";
 
 export class PineError extends Error {
   constructor(
@@ -309,6 +310,10 @@ export class PineRuntime {
 
   private states = new Map<string, unknown>(); // per call-site helper state
   private varBoxes = new Map<string, Box>(); // `var` boxes by node key
+  // wall-clock budget — one confirmed bar of a huge script must never hang
+  // the server or the preview; checked every 1024 executed statements
+  private deadline = 0;
+  private stmtTick = 0;
 
   barTime(): number {
     const t = this.bTime.at(this.bar);
@@ -318,6 +323,8 @@ export class PineRuntime {
   // ── bar processing ────────────────────────────────────────────────────
   processBar(c: Candle, opts?: { confirmed?: boolean }): void {
     this.bar++;
+    this.deadline = Date.now() + PINE_BAR_BUDGET_MS;
+    this.stmtTick = 0;
     this.barAlerts = [];
     this.plan = { entries: [], exits: [], closes: [], closeAll: false, cancels: [] };
     const b = this.bar;
@@ -411,6 +418,13 @@ export class PineRuntime {
   private execBody(body: Stmt[], scopes: Scope[]): R {
     let last: PValue = null;
     for (const st of body) {
+      if ((++this.stmtTick & 0x3ff) === 0 && Date.now() > this.deadline) {
+        throw new PineError(
+          `This bar's evaluation exceeded the ${PINE_BAR_BUDGET_MS / 1000}s budget — the script is too heavy (unbounded loops or an extremely long body). Reduce the loop ranges or split the logic.`,
+          st.line,
+          st.col
+        );
+      }
       const r = this.execStmt(st, scopes);
       if (r === BRK || r === CONT) return r;
       last = r as PValue;
@@ -650,30 +664,28 @@ export class PineRuntime {
   }
 
   private evalBin(op: string, e: { l: Expr; r: Expr; line: number; col: number }, scopes: Scope[]): PValue {
-    if (op === "and" || op === "or") {
-      const l = this.evalExpr(e.l, scopes);
-      const lb = this.truthy(l);
-      if (op === "and" && !lb) return false;
-      if (op === "or" && lb) return true;
-      return this.truthy(this.evalExpr(e.r, scopes));
+    // Long operator chains (`a + b + c + …`, dozens/hundreds of `and`/`or`
+    // terms — common in very large scripts) evaluate ITERATIVELY down the
+    // left spine: a 10,000-term expression can never overflow the stack.
+    // and/or keep their exact short-circuit semantics inside the fold.
+    const spine: { op: string; r: Expr }[] = [];
+    let node = e as unknown as { k?: string; op?: string; l: Expr; r: Expr };
+    while (node.k === "bin") {
+      spine.push({ op: node.op as string, r: node.r });
+      node = node.l as unknown as typeof node;
     }
-    const l = this.evalExpr(e.l, scopes);
-    const r = this.evalExpr(e.r, scopes);
-    switch (op) {
-      case "==": return eqVal(l, r);
-      case "!=": return !eqVal(l, r);
-      case "<": return cmpVal(l, r, (a, b) => a < b);
-      case "<=": return cmpVal(l, r, (a, b) => a <= b);
-      case ">": return cmpVal(l, r, (a, b) => a > b);
-      case ">=": return cmpVal(l, r, (a, b) => a >= b);
-      case "+": return addVal(l, r);
-      case "-": return subVal(l, r);
-      case "*": return mulVal(l, r);
-      case "/": return divVal(l, r);
-      case "%": return modVal(l, r);
-      default:
-        throw new PineError(`Unsupported operator "${op}".`, e.line, e.col);
+    let acc = this.evalExpr(node as unknown as Expr, scopes);
+    for (let i = spine.length - 1; i >= 0; i--) {
+      const seg = spine[i];
+      if (seg.op === "and") {
+        acc = this.truthy(acc) ? this.truthy(this.evalExpr(seg.r, scopes)) : false;
+      } else if (seg.op === "or") {
+        acc = this.truthy(acc) ? true : this.truthy(this.evalExpr(seg.r, scopes));
+      } else {
+        acc = applyBin(seg.op, acc, this.evalExpr(seg.r, scopes), e.line, e.col);
+      }
     }
+    return acc;
   }
 
   private constant(name: string): PValue | undefined {
@@ -804,6 +816,24 @@ export class PineRuntime {
 }
 
 // ── value arithmetic with Pine na propagation ────────────────────────────
+/** eager binary operator application (everything except and/or) */
+function applyBin(op: string, l: PValue, r: PValue, line: number, col: number): PValue {
+  switch (op) {
+    case "==": return eqVal(l, r);
+    case "!=": return !eqVal(l, r);
+    case "<": return cmpVal(l, r, (a, b) => a < b);
+    case "<=": return cmpVal(l, r, (a, b) => a <= b);
+    case ">": return cmpVal(l, r, (a, b) => a > b);
+    case ">=": return cmpVal(l, r, (a, b) => a >= b);
+    case "+": return addVal(l, r);
+    case "-": return subVal(l, r);
+    case "*": return mulVal(l, r);
+    case "/": return divVal(l, r);
+    case "%": return modVal(l, r);
+    default:
+      throw new PineError(`Unsupported operator "${op}".`, line, col);
+  }
+}
 function eqVal(l: PValue, r: PValue): boolean {
   if (l === null || r === null) return false;
   if (typeof l === "number" && typeof r === "number") return l === r;

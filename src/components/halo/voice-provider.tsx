@@ -56,8 +56,10 @@ export interface ProfileState {
 export interface VoicePrefs {
   volume: number; // 0..1
   rate: number; // 0.7..1.4
-  voiceURI: string;
+  voiceURI: string; // browser-engine voice (fallback engine)
   muted: boolean;
+  engine: "neural" | "browser"; // neural = natural server voice, browser = OS voices
+  neuralVoice: string; // neural voice id (see NEURAL_VOICES)
   // NOTE: the old liveMode/convoSeconds (silence auto-standby) settings were
   // removed — HALO now listens permanently. Old stored prefs carrying those
   // keys are sanitized on hydrate and dropped on the next persist.
@@ -110,7 +112,25 @@ const GREET_KEY = "halo3el.voice.greeted.v1";
 // ALWAYS LISTENING: silence never ends a session or the wake standby — HALO
 // only stops listening via an exit phrase ("goodbye HALO / stop listening /
 // go to sleep"), the console close button, mute, or voice off.
-const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false };
+const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false, engine: "neural", neuralVoice: "jam" };
+
+// Natural neural voices served by /api/halo/tts — far more human than the
+// browser's robotic OS voices. jam is the English-accented default.
+export const NEURAL_VOICES: { id: string; label: string; hint: string }[] = [
+  { id: "jam", label: "HALO James", hint: "natural British co-pilot" },
+  { id: "kazi", label: "HALO Kai", hint: "clear, brisk standard" },
+  { id: "xiaochen", label: "HALO Chen", hint: "calm and professional" },
+  { id: "tongtong", label: "Tongtong", hint: "warm and friendly" },
+  { id: "luodo", label: "Luodo", hint: "expressive storyteller" },
+  { id: "douji", label: "Douji", hint: "smooth and fluent" },
+  { id: "chuichui", label: "Chuichui", hint: "bright and upbeat" },
+];
+
+// neural voice fetch — if the server voice cannot start in this window the
+// client transparently falls back to the browser engine (never silent)
+const NEURAL_START_TIMEOUT_MS = 9_000;
+const NEURAL_FETCH_TIMEOUT_MS = 30_000;
+const NEURAL_CACHE_MAX = 24;
 
 // a hung operator-core request must never wedge the assistant (mic off +
 // busy forever) — every brain call gets this hard ceiling
@@ -243,6 +263,11 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const runnerRef = useRef<ActionRunner | null>(null);
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  // neural voice engine — shared <audio> element + client-side LRU of
+  // generated replies (data URLs) so greetings replay instantly
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const neuralAbortRef = useRef<AbortController | null>(null);
+  const neuralCacheRef = useRef<Map<string, string>>(new Map());
 
   // ── helpers ──
   const greetCtx = useCallback((): GreetCtx => {
@@ -464,6 +489,13 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   }, [startRec, shouldWake]);
 
   // ── TTS engine ──
+  // Two engines, one contract:
+  //   • NEURAL (default) — /api/halo/tts returns natural 24 kHz neural WAV;
+  //     replies are cached client-side so greetings replay instantly.
+  //   • BROWSER — the OS speechSynthesis voices (robotic, but offline).
+  // Neural failures fall back to the browser engine transparently: a network
+  // hiccup can degrade the voice quality but can never silence HALO. The
+  // "speaking" state is only ever set when audio is ACTUALLY playing.
   const clearWatchdog = () => {
     if (watchdogRef.current) {
       window.clearTimeout(watchdogRef.current);
@@ -474,6 +506,21 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const stopSpeaking = useCallback(() => {
     speakTokenRef.current += 1;
     clearWatchdog();
+    if (neuralAbortRef.current) {
+      try {
+        neuralAbortRef.current.abort();
+      } catch {
+        // ignore
+      }
+      neuralAbortRef.current = null;
+    }
+    if (audioRef.current) {
+      try {
+        audioRef.current.pause();
+      } catch {
+        // ignore
+      }
+    }
     if (ttsAvailable()) {
       try {
         window.speechSynthesis.cancel();
@@ -484,48 +531,23 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     setVoice((v) => (v === "speaking" ? "idle" : v));
   }, []);
 
-  const speak = useCallback(
-    (text: string, opts: SpeakOpts = {}): boolean => {
-      const token = ++speakTokenRef.current;
-      const finish = (fireEnd: boolean) => {
-        if (token !== speakTokenRef.current) return;
-        clearWatchdog();
-        speechEndedAtRef.current = Date.now();
-        voiceEnergy.setSpeaking(false); // audible playback truly ended
-        setVoice((v) => (v === "speaking" ? "idle" : v));
-        // hand the mic back: conversation listening, or wake standby
-        if (convoRef.current && !busyRef.current) startRec("convo");
-        else if (shouldWake()) {
-          if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
-          restartTimerRef.current = window.setTimeout(() => {
-            if (shouldWake()) startRec("wake");
-          }, 800);
+  /** browser engine — the pre-neural fallback (robotic but offline-safe) */
+  const speakBrowser = useCallback(
+    (text: string, token: number, opts: SpeakOpts, finish: (fireEnd: boolean) => void): void => {
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause(); // never overlap engines
+        } catch {
+          // ignore
         }
-        if (fireEnd) opts.onend?.();
-      };
-
-      if (!ttsAvailable() || (prefsRef.current.muted && !opts.ignoreMute)) {
-        window.setTimeout(() => {
-          if (token !== speakTokenRef.current) return;
-          speechEndedAtRef.current = Date.now();
-          if (convoRef.current && !busyRef.current) startRec("convo");
-          else if (shouldWake()) {
-            restartTimerRef.current = window.setTimeout(() => {
-              if (shouldWake()) startRec("wake");
-            }, 800);
-          }
-          opts.onend?.();
-        }, 40);
-        return false;
       }
-
       const synth = window.speechSynthesis;
       try {
         synth.cancel();
       } catch {
         // ignore
       }
-      const u = new SpeechSynthesisUtterance(text.replace(/⚠/g, "").slice(0, 1200));
+      const u = new SpeechSynthesisUtterance(text.slice(0, 1200));
       u.volume = Math.max(0, Math.min(1, prefsRef.current.volume));
       u.rate = Math.max(0.7, Math.min(1.4, prefsRef.current.rate));
       u.pitch = 0.92;
@@ -571,10 +593,196 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           finish(false);
         }
       }, 60);
+    },
+    [startRec, stopRec]
+  );
+
+  const speak = useCallback(
+    (text: string, opts: SpeakOpts = {}): boolean => {
+      const token = ++speakTokenRef.current;
+      const finish = (fireEnd: boolean) => {
+        if (token !== speakTokenRef.current) return;
+        clearWatchdog();
+        speechEndedAtRef.current = Date.now();
+        voiceEnergy.setSpeaking(false); // audible playback truly ended
+        setVoice((v) => (v === "speaking" ? "idle" : v));
+        // hand the mic back: conversation listening, or wake standby
+        if (convoRef.current && !busyRef.current) startRec("convo");
+        else if (shouldWake()) {
+          if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+          restartTimerRef.current = window.setTimeout(() => {
+            if (shouldWake()) startRec("wake");
+          }, 800);
+        }
+        if (fireEnd) opts.onend?.();
+      };
+
+      // any new utterance stops whatever was playing (single-voice semantics)
+      if (neuralAbortRef.current) {
+        try {
+          neuralAbortRef.current.abort();
+        } catch {
+          // ignore
+        }
+        neuralAbortRef.current = null;
+      }
+      if (audioRef.current) {
+        try {
+          audioRef.current.pause();
+        } catch {
+          // ignore
+        }
+      }
+      if (ttsAvailable()) {
+        try {
+          window.speechSynthesis.cancel();
+        } catch {
+          // ignore
+        }
+      }
+
+      const clean = text.replace(/⚠/g, "").trim();
+
+      const silentFinish = (): boolean => {
+        window.setTimeout(() => {
+          if (token !== speakTokenRef.current) return;
+          speechEndedAtRef.current = Date.now();
+          if (convoRef.current && !busyRef.current) startRec("convo");
+          else if (shouldWake()) {
+            restartTimerRef.current = window.setTimeout(() => {
+              if (shouldWake()) startRec("wake");
+            }, 800);
+          }
+          opts.onend?.();
+        }, 40);
+        return false;
+      };
+
+      if (prefsRef.current.muted && !opts.ignoreMute) return silentFinish();
+
+      // ── NEURAL engine (default) ──
+      if (prefsRef.current.engine !== "browser") {
+        const key = `${prefsRef.current.neuralVoice}:${prefsRef.current.rate.toFixed(2)}:${clean}`;
+        const cached = neuralCacheRef.current.get(key);
+        let handedOff = false;
+        const fallback = (why: string) => {
+          if (handedOff || token !== speakTokenRef.current) return;
+          handedOff = true;
+          console.warn(`[halo-voice] neural engine unavailable (${why}) — falling back to the browser voice`);
+          if (!ttsAvailable()) {
+            finish(false);
+            opts.onblocked?.();
+            return;
+          }
+          speakBrowser(clean, token, opts, finish);
+        };
+
+        void (async () => {
+          // start ceiling — if the natural voice cannot begin in time, degrade
+          const startTimer = window.setTimeout(() => {
+            if (token !== speakTokenRef.current) return;
+            try {
+              neuralAbortRef.current?.abort();
+            } catch {
+              // ignore
+            }
+          }, NEURAL_START_TIMEOUT_MS);
+
+          const watchdog = window.setTimeout(() => {
+            if (token !== speakTokenRef.current) return;
+            if (!handedOff && !audioRef.current?.src) fallback("no audio in time");
+          }, NEURAL_START_TIMEOUT_MS + 500);
+
+          try {
+            let audioUrl = cached ?? null;
+            if (!audioUrl) {
+              const ctrl = new AbortController();
+              neuralAbortRef.current = ctrl;
+              const aborter = window.setTimeout(() => ctrl.abort(), NEURAL_FETCH_TIMEOUT_MS);
+              const r = await fetch("/api/halo/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text: clean, voice: prefsRef.current.neuralVoice, speed: prefsRef.current.rate }),
+                signal: ctrl.signal,
+              });
+              window.clearTimeout(aborter);
+              if (token !== speakTokenRef.current) return;
+              const j = (await r.json()) as { ok: boolean; audio?: string; mime?: string; error?: string };
+              if (!j.ok || !j.audio) throw new Error(j.error ?? `voice service returned ${r.status}`);
+              audioUrl = `data:${j.mime ?? "audio/wav"};base64,${j.audio}`;
+              // LRU — remember this reply so repeats are instant
+              const cache = neuralCacheRef.current;
+              cache.delete(key);
+              cache.set(key, audioUrl);
+              while (cache.size > NEURAL_CACHE_MAX) {
+                const oldest = cache.keys().next().value;
+                if (oldest === undefined) break;
+                cache.delete(oldest);
+              }
+            }
+            if (token !== speakTokenRef.current || handedOff) return;
+
+            let a = audioRef.current;
+            if (!a) {
+              a = new Audio();
+              a.preload = "auto";
+              audioRef.current = a;
+            }
+            a.onplaying = () => {
+              if (token !== speakTokenRef.current) return;
+              window.clearTimeout(startTimer);
+              window.clearTimeout(watchdog);
+              setVoice("speaking");
+              voiceEnergy.setSpeaking(true); // real audible playback began
+              if (convoRef.current && micRef.current !== "denied" && micRef.current !== "unsupported") startRec("barge");
+              else stopRec();
+            };
+            a.ontimeupdate = () => {
+              if (token !== speakTokenRef.current) return;
+              voiceEnergy.bumpSpeech(); // the orb pulses with the real audio
+            };
+            a.onended = () => {
+              if (token !== speakTokenRef.current) return;
+              finish(true);
+            };
+            a.onerror = () => {
+              if (token !== speakTokenRef.current) return;
+              if (a!.src) fallback("audio element failed");
+              else finish(false);
+            };
+            a.src = audioUrl;
+            a.volume = Math.max(0, Math.min(1, prefsRef.current.volume));
+            try {
+              await a.play();
+            } catch {
+              // autoplay policy — surface the tap-to-enable banner like the browser engine
+              if (token === speakTokenRef.current && !handedOff) {
+                handedOff = true;
+                finish(false);
+                opts.onblocked?.();
+              }
+            }
+          } catch (e) {
+            window.clearTimeout(startTimer);
+            window.clearTimeout(watchdog);
+            if ((e as Error).name === "AbortError") {
+              // aborted by stopSpeaking/new turn — not an engine failure
+              if (token === speakTokenRef.current && !handedOff) finish(false);
+              return;
+            }
+            fallback((e as Error).message || "voice request failed");
+          }
+        })();
+        return true;
+      }
+
+      // ── BROWSER engine ──
+      if (!ttsAvailable()) return silentFinish();
+      speakBrowser(clean, token, opts, finish);
       return true;
     },
-     
-    [startRec, stopRec, shouldWake]
+
+    [startRec, stopRec, shouldWake, speakBrowser]
   );
 
   // ── operator actions: runner registration + pending confirmation ──
@@ -978,6 +1186,8 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             rate: typeof p.rate === "number" ? p.rate : DEFAULT_PREFS.rate,
             voiceURI: typeof p.voiceURI === "string" ? p.voiceURI : "",
             muted: p.muted === true,
+            engine: p.engine === "browser" ? "browser" : "neural",
+            neuralVoice: typeof p.neuralVoice === "string" && NEURAL_VOICES.some((nv) => nv.id === p.neuralVoice) ? p.neuralVoice : DEFAULT_PREFS.neuralVoice,
           });
         }
       } catch {

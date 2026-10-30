@@ -6,8 +6,10 @@
 //  silent wrong result.
 // ════════════════════════════════════════════════════════════════════════
 
-import { parsePine, type Arg, type Call, type Expr, type Program, type Stmt } from "./parser";
+import { parsePine, type Arg, type Bin, type Call, type Expr, type Program, type Stmt } from "./parser";
+import { PineSyntaxError } from "./lexer";
 import { PineError } from "./runtime";
+import { MAX_PINE_CHARS, MAX_PINE_LINES, pineLimitMessage } from "./limits";
 
 export interface PineDiagnostic {
   line: number;
@@ -178,11 +180,32 @@ function inferBool(e: Expr, boolVars: Set<string>): boolean {
       return false;
     case "unary":
       return e.op === "not" || inferBool(e.e, boolVars);
-    case "bin":
-      return ["==", "!=", "<", "<=", ">", ">=", "and", "or"].includes(e.op) ||
-        (inferBool(e.l, boolVars) && inferBool(e.r, boolVars));
     case "ternary":
       return inferBool(e.a, boolVars) && inferBool(e.b, boolVars);
+    case "bin": {
+      // long or-chains (very large scripts) walk ITERATIVELY — no stack risk
+      switch (e.op) {
+        case "==": case "!=": case "<": case "<=": case ">": case ">=":
+          return true;
+        case "and":
+          return inferBool(e.l, boolVars) && inferBool(e.r, boolVars);
+        case "or": {
+          const spine: Expr[] = [];
+          let cur: Expr = e;
+          while (cur.k === "bin" && (cur as Bin).op === "or") {
+            spine.push((cur as Bin).r);
+            cur = (cur as Bin).l;
+          }
+          if (inferBool(cur, boolVars)) return true;
+          for (let i = spine.length - 1; i >= 0; i--) {
+            if (inferBool(spine[i], boolVars)) return true;
+          }
+          return false;
+        }
+        default:
+          return inferBool(e.l, boolVars) && inferBool(e.r, boolVars);
+      }
+    }
     case "call": {
       const p = memberPath(e.callee);
       return /^(ta\.)?(crossover|crossunder|cross|rising|falling)$/.test(p);
@@ -202,8 +225,15 @@ export function compilePine(srcRaw: string): CompileResult {
   if (src.trim().length === 0) {
     return { meta: ctx.meta, error: { line: 1, col: 1, msg: "The script is empty — paste a Pine v5 indicator() or strategy() script." } };
   }
-  if (src.length > 60_000) {
-    return { meta: ctx.meta, error: { line: 1, col: 1, msg: `Script too large (${src.length} chars) — the HALO compiler accepts up to 60,000.` } };
+  if (src.length > MAX_PINE_CHARS || src.replace(/\r\n?/g, "\n").split("\n").length > MAX_PINE_LINES) {
+    return {
+      meta: ctx.meta,
+      error: {
+        line: 1,
+        col: 1,
+        msg: pineLimitMessage(src.length, src.replace(/\r\n?/g, "\n").split("\n").length),
+      },
+    };
   }
 
   let program: Program;
@@ -211,6 +241,9 @@ export function compilePine(srcRaw: string): CompileResult {
     program = parsePine(src);
   } catch (e) {
     if (e instanceof PineError) {
+      return { meta: ctx.meta, error: { line: e.line, col: e.col, msg: e.message } };
+    }
+    if (e instanceof PineSyntaxError) {
       return { meta: ctx.meta, error: { line: e.line, col: e.col, msg: e.message } };
     }
     return { meta: ctx.meta, error: { line: 0, col: 0, msg: `Parse failed: ${(e as Error).message}` } };
@@ -399,10 +432,21 @@ function walkExpr(
     case "unary":
       walkExpr(e.e, ctx, scope, boolVars, inFunc, line, col);
       return;
-    case "bin":
-      walkExpr(e.l, ctx, scope, boolVars, inFunc, line, col);
-      walkExpr(e.r, ctx, scope, boolVars, inFunc, line, col);
+    case "bin": {
+      // left-spine iterative walk — a 10,000-term and/or condition (common in
+      // very large scripts) must not recurse one frame per term
+      const spine: Expr[] = [];
+      let cur: Expr = e;
+      while (cur.k === "bin") {
+        spine.push((cur as Bin).r);
+        cur = (cur as Bin).l;
+      }
+      walkExpr(cur, ctx, scope, boolVars, inFunc, line, col);
+      for (let i = spine.length - 1; i >= 0; i--) {
+        walkExpr(spine[i], ctx, scope, boolVars, inFunc, line, col);
+      }
       return;
+    }
     case "ternary":
       walkExpr(e.c, ctx, scope, boolVars, inFunc, line, col);
       walkExpr(e.a, ctx, scope, boolVars, inFunc, line, col);
