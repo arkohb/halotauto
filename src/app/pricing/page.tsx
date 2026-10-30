@@ -86,6 +86,9 @@ export default function PricingPage() {
             CHOOSE <span style={{ color: C.gold }}>YOUR PLAN</span>
           </h1>
           <p className="mt-2 text-[13px]" style={{ color: C.muted }}>One-time payment. Lifetime access. No monthly fees.</p>
+          <p className="mx-auto mt-2 max-w-2xl text-[10.5px] leading-relaxed" style={{ color: C.dim }}>
+            Lifetime licences grant access to the purchased software features under the applicable licence agreement. They do not guarantee unlimited free access to third-party services that may carry separate operating costs.
+          </p>
           <div className="mt-4 inline-flex items-center gap-2 rounded-full px-4 py-1.5" style={{ border: `1px solid ${A.gold(0.5)}`, background: A.gold(0.08) }}>
             <span className="text-[10px] font-extrabold tracking-[0.14em]" style={{ color: C.goldHover }}>ONE-TIME PAYMENT</span>
             <span className="text-[10px]" style={{ color: C.dim }}>|</span>

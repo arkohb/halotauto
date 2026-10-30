@@ -4,11 +4,22 @@ import { requireTradingAccess } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
 
+// ── MT5 PROTECTION (commercial mandate §6) ─────────────────────────────
+// Only actions that INITIATE new protected trading (or destructively reset
+// the engine) require a valid license. Protective actions — stopping the
+// engine, closing the open position, pausing new entries — stay available
+// even when a license is suspended/revoked/expired or license validation is
+// down: the licensing layer may never disable the emergency stop or any
+// risk-reducing control, and it never closes positions by itself.
+const GATED_ACTIONS = new Set(["start", "resumeNew", "reset"]);
+
 export async function POST(req: Request) {
   try {
     const { action } = (await req.json()) as { action: string };
-    const gate = await requireTradingAccess();
-    if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
+    if (GATED_ACTIONS.has(action)) {
+      const gate = await requireTradingAccess();
+      if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
+    }
     if (action === "start") await startBot();
     else if (action === "stop") await stopBot();
     else if (action === "reset") await resetBot();

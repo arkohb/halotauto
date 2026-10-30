@@ -12,6 +12,7 @@ import { LICENSE_STATUSES, ROLES } from "@/lib/commerce/constants";
 import { requireAdmin } from "@/lib/commerce/auth";
 import { deactivateDevice, generateLicense } from "@/lib/commerce/license-engine";
 import { logAudit } from "@/lib/commerce/audit";
+import { pauseNewEntriesForRevocation } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       case "suspend": {
         if (denied(SUPER_OR_LICENSE)) return NextResponse.json({ ok: false, error: "Your role cannot suspend licenses." }, { status: 403 });
         await db.license.update({ where: { id }, data: { status: LICENSE_STATUSES.SUSPENDED } });
+        await pauseNewEntriesForRevocation(); // MT5 protection: no NEW entries — open trade stays managed
         auditAction = "LICENSE_SUSPENDED";
         break;
       }
@@ -55,6 +57,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         if (denied(SUPER_OR_LICENSE)) return NextResponse.json({ ok: false, error: "Your role cannot revoke licenses." }, { status: 403 });
         await db.license.update({ where: { id }, data: { status: LICENSE_STATUSES.REVOKED } });
         await db.licenseActivation.updateMany({ where: { licenseId: id, active: true }, data: { active: false, revokedAt: new Date() } });
+        await pauseNewEntriesForRevocation(); // MT5 protection: no NEW entries — open trade stays managed
         auditAction = "LICENSE_REVOKED";
         break;
       }
@@ -94,6 +97,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         });
         await db.license.update({ where: { id }, data: { status: LICENSE_STATUSES.REVOKED } });
         await db.licenseActivation.updateMany({ where: { licenseId: id, active: true }, data: { active: false, revokedAt: new Date() } });
+        await pauseNewEntriesForRevocation(); // MT5 protection: no NEW entries — open trade stays managed
         await logAudit({ action: "LICENSE_REPLACED", actorId: actor.id, actorEmail: actor.email, actorRole: actor.role, targetType: "license", targetId: id, meta: { replacementKeyMasked: replacement.key.slice(0, 9) + "…", reason: reason ?? "" } });
         return NextResponse.json({ ok: true, replacementKey: replacement.key });
       }

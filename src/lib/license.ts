@@ -159,3 +159,24 @@ export async function requireFeature(featureKey: string): Promise<Guard> {
 /** Convenience wrappers matching the existing API surfaces. */
 export const requireTradingAccess = () => requireFeature(GATE_FEATURES.bot);
 export const requireStrategyAccess = () => requireFeature(GATE_FEATURES.strategies);
+
+/**
+ * MT5 PROTECTION (commercial mandate §6) — when a license or account loses
+ * authorization (suspended / revoked / replaced), the engine must not keep
+ * INITIATING new protected trades. This pauses NEW engine entries only:
+ *   • the open position keeps being managed by the engine,
+ *   • protective broker-side SL/TP stay attached,
+ *   • nothing is ever closed, modified or liquidated by the licensing layer,
+ *   • the trader keeps emergency-stop / close / pause access (bot/control
+ *     gates only start·resumeNew·reset).
+ * Owner mode: no-op. Engine bookkeeping must never break the admin action.
+ */
+export async function pauseNewEntriesForRevocation(): Promise<void> {
+  if (!isCommercialEnabled()) return;
+  try {
+    const { setPauseNew } = await import("@/lib/bot");
+    await setPauseNew(true);
+  } catch {
+    // non-fatal by design
+  }
+}

@@ -12,6 +12,7 @@ import { requireAdmin } from "@/lib/commerce/auth";
 import { ROLES, USER_STATUSES } from "@/lib/commerce/constants";
 import { logAudit } from "@/lib/commerce/audit";
 import { notify, approvalEmail, sendMail, addressed } from "@/lib/commerce/mailer";
+import { pauseNewEntriesForRevocation } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
 
@@ -117,6 +118,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         if (!allowed(SUPER_ONLY)) return NextResponse.json({ ok: false, error: "Only a Super Administrator can suspend accounts." }, { status: 403 });
         await db.user.update({ where: { id }, data: { status: USER_STATUSES.SUSPENDED } });
         await db.session.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+        await pauseNewEntriesForRevocation(); // MT5 protection: no NEW entries — open trade stays managed
         auditAction = "USER_SUSPENDED";
         break;
       }
@@ -130,6 +132,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
         if (!allowed(SUPER_ONLY)) return NextResponse.json({ ok: false, error: "Only a Super Administrator can block accounts." }, { status: 403 });
         await db.user.update({ where: { id }, data: { status: USER_STATUSES.BLOCKED } });
         await db.session.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+        await pauseNewEntriesForRevocation(); // MT5 protection: no NEW entries — open trade stays managed
         auditAction = "USER_BLOCKED";
         break;
       }

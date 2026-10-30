@@ -141,6 +141,9 @@ function CheckoutInner() {
               </div>
               <div className="text-[20px] font-extrabold" style={{ color: C.goldHover }}>{money(state.amountCents, state.currency)}</div>
             </div>
+            <p className="mt-2 text-[9.5px] leading-relaxed" style={{ color: C.dim }}>
+              Lifetime licences grant access to the purchased software features under the applicable licence agreement. They do not guarantee unlimited free access to third-party services that may carry separate operating costs.
+            </p>
           </div>
 
           {state.warning && (
