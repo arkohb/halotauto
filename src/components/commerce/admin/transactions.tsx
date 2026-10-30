@@ -58,14 +58,44 @@ export function AdminTransactions({ onChanged }: { onChanged?: () => void }) {
 
   const totalVerified = (rows ?? []).filter((r) => r.status === "VERIFIED").reduce((n, r) => n + r.amountCents, 0);
 
+  // §10.G — export the CURRENTLY FILTERED ledger as CSV (admin-only surface;
+  // the API enforces the role, the CSV is just the rows already on screen).
+  const exportCsv = () => {
+    if (!rows || rows.length === 0) return;
+    const esc = (v: string | number | null) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const head = ["Reference", "Customer", "Email", "Plan", "Amount", "Currency", "Provider", "Status", "License", "Created", "Verified"];
+    const lines = rows.map((r) =>
+      [r.reference, r.customer, r.customerEmail, r.planName, (r.amountCents / 100).toFixed(2), r.currency, r.provider, r.status, r.licenseKeyMasked ?? "", r.createdAt, r.verifiedAt ?? ""]
+        .map(esc)
+        .join(",")
+    );
+    const blob = new Blob([[head.map(esc).join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `halo-transactions-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   return (
     <div>
       <SectionHead title="Transactions & Revenue" sub="Only VERIFIED payments count as revenue · manual verification records your admin identity" />
       <div className="mb-3 flex flex-wrap items-center gap-3">
         <SearchInput value={q} onChange={setQ} placeholder="Search reference or customer e-mail…" />
         <FilterChips options={[...FILTERS]} value={status} onChange={setStatus} />
-        <div className="ml-auto text-[10px] font-extrabold tracking-[0.14em]" style={{ color: C_GREEN }}>
-          VERIFIED (FILTERED): {money(totalVerified, rows?.[0]?.currency ?? "USD")}
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={exportCsv}
+            disabled={!rows || rows.length === 0}
+            className="rounded-lg px-3 py-1.5 text-[10px] font-extrabold tracking-[0.14em] transition-opacity disabled:opacity-40"
+            style={{ border: "1px solid rgba(46,204,255,0.35)", color: "#2ECCFF", background: "rgba(46,204,255,0.06)" }}
+            title="Download the currently filtered ledger as CSV"
+          >
+            EXPORT CSV
+          </button>
+          <div className="text-[10px] font-extrabold tracking-[0.14em]" style={{ color: C_GREEN }}>
+            VERIFIED (FILTERED): {money(totalVerified, rows?.[0]?.currency ?? "USD")}
+          </div>
         </div>
       </div>
       {err ? <div className="mb-3 rounded-lg px-3 py-2 text-[11px]" style={{ background: "rgba(255,77,94,0.1)", color: C_RED }}>{err}</div> : null}

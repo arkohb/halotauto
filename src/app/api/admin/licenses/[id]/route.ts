@@ -25,11 +25,12 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     if (!g.ok) return NextResponse.json({ ok: false, error: g.error }, { status: g.status });
     const actor = g.user;
     const { id } = await ctx.params;
-    const { action, deviceLimit, newOwnerEmail, reason } = (await req.json()) as {
+    const { action, deviceLimit, newOwnerEmail, reason, activationId } = (await req.json()) as {
       action?: string;
       deviceLimit?: number;
       newOwnerEmail?: string;
       reason?: string;
+      activationId?: string;
     };
 
     const license = await db.license.findUnique({ where: { id }, include: { activations: true, user: true } });
@@ -103,10 +104,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       }
       case "reset-activation": {
         if (denied(ALL_ADMINS)) return NextResponse.json({ ok: false, error: "Your role cannot reset activations." }, { status: 403 });
-        const { activationId } = (await req.json()) as { activationId?: string };
+        // NOTE: activationId comes from the single body read above — the request
+        // body can only be consumed once (a second req.json() here threw
+        // "Body already used" and broke admin device-transfer assist entirely).
         if (!activationId) return NextResponse.json({ ok: false, error: "Select the device activation to reset." }, { status: 400 });
         const ok = await deactivateDevice(activationId, actor);
         if (!ok) return NextResponse.json({ ok: false, error: "Activation not found or already inactive." }, { status: 400 });
+        await logAudit({ action: "LICENSE_DEVICE_RESET", actorId: actor.id, actorEmail: actor.email, actorRole: actor.role, targetType: "license_activation", targetId: activationId, meta: { licenseId: id, keyMasked: license.key.slice(0, 9) + "…" } });
         return NextResponse.json({ ok: true });
       }
       default:
