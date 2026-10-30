@@ -83,6 +83,7 @@ export interface ExecRes {
 export interface BotStateRes {
   enabled: boolean;
   autoAttach: boolean;
+  pauseNew?: boolean;
   symbol: string;
   tf: string;
   mintick: number;

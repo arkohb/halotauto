@@ -10,6 +10,7 @@ import {
   BrokerCreds,
   OrderRequest,
   OrderResult,
+  PendingOrderInfo,
   PositionInfo,
   jfetch,
   mapWith,
@@ -153,8 +154,16 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
   }
 }
 
-async function closePosition(creds: BrokerCreds, symbol: string, side?: -1 | 1): Promise<OrderResult> {
+async function closePosition(creds: BrokerCreds, symbol?: string, side?: -1 | 1): Promise<OrderResult> {
   try {
+    // close-all: iterate every open position (OANDA closes per-instrument)
+    if (!symbol) {
+      const open = await getPositions(creds);
+      for (const p of open) {
+        await closePosition(creds, p.symbol, undefined).catch(() => {});
+      }
+      return { ok: true };
+    }
     const inst = mapWith(creds, symbol, DEFAULT_MAP);
     const body = side === 1 ? { longUnits: "ALL" } : side === -1 ? { shortUnits: "ALL" } : { longUnits: "ALL", shortUnits: "ALL" };
     const j = (await jfetch(
@@ -210,6 +219,100 @@ async function getPositions(creds: BrokerCreds, symbol?: string): Promise<Positi
   }
 }
 
+// ── pending orders ───────────────────────────────────────────────────────
+// GET    /v3/accounts/:id/pendingOrders            → resting orders
+// DELETE /v3/accounts/:id/orders/:specifier        → cancel resting order
+// PUT    /v3/accounts/:id/trades/:tradeID/orders   → replace SL/TP on a trade
+
+async function getOrders(creds: BrokerCreds, symbol?: string): Promise<PendingOrderInfo[]> {
+  try {
+    const j = (await jfetch(
+      `${base(creds)}/v3/accounts/${encodeURIComponent(String(creds.accountId))}/pendingOrders`,
+      { headers: headers(creds) }
+    )) as {
+      orders?: Array<{
+        id?: string;
+        type?: string;
+        instrument?: string;
+        units?: string;
+        price?: string;
+        stopLossOnFill?: { price?: string };
+        takeProfitOnFill?: { price?: string };
+        createTime?: string;
+        state?: string;
+        clientExtensions?: { comment?: string; id?: string };
+      }>;
+    };
+    const out: PendingOrderInfo[] = [];
+    for (const o of j.orders ?? []) {
+      const units = num(o.units);
+      if (units === 0) continue;
+      const comment = o.clientExtensions?.comment ?? "";
+      out.push({
+        id: String(o.id ?? ""),
+        symbol: String(o.instrument ?? ""),
+        type: String(o.type ?? "LIMIT").toUpperCase(),
+        side: units > 0 ? 1 : -1,
+        volume: Math.abs(units),
+        entryPrice: num(o.price) || undefined,
+        sl: num(o.stopLossOnFill?.price) || undefined,
+        tp: num(o.takeProfitOnFill?.price) || undefined,
+        placedAt: o.createTime ? new Date(o.createTime).getTime() : undefined,
+        status: String(o.state ?? "PENDING").toUpperCase(),
+        comment: comment || undefined,
+        ea: /halo/i.test(comment) || /halo/i.test(o.clientExtensions?.id ?? "") || undefined,
+      });
+    }
+    return symbol ? out.filter((x) => x.symbol === mapWith(creds, symbol, DEFAULT_MAP)) : out;
+  } catch {
+    return [];
+  }
+}
+
+async function cancelOrder(creds: BrokerCreds, orderId: string): Promise<OrderResult> {
+  try {
+    const j = (await jfetch(
+      `${base(creds)}/v3/accounts/${encodeURIComponent(String(creds.accountId))}/orders/${encodeURIComponent(orderId)}`,
+      { method: "DELETE", headers: headers(creds) }
+    )) as Record<string, unknown>;
+    return { ok: true, raw: j };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+async function modifyPosition(
+  creds: BrokerCreds,
+  positionId: string,
+  patch: { sl?: number | null; tp?: number | null }
+): Promise<OrderResult> {
+  try {
+    // positionId is "INSTRUMENT:L" / "INSTRUMENT:S" — resolve the OANDA trade id first
+    const [instRaw, sideTxt] = positionId.split(":");
+    const wantSide = sideTxt === "S" ? -1 : 1;
+    const j = (await jfetch(
+      `${base(creds)}/v3/accounts/${encodeURIComponent(String(creds.accountId))}/openTrades`,
+      { headers: headers(creds) }
+    )) as {
+      trades?: Array<{ id?: string; instrument?: string; currentUnits?: string }>; 
+    };
+    const trade = (j.trades ?? []).find(
+      (t) => t.instrument === instRaw && (num(t.currentUnits) > 0 ? 1 : -1) === wantSide
+    );
+    if (!trade?.id) return { ok: false, error: "open trade not found for position" };
+    const body: Record<string, unknown> = {};
+    if (patch.sl !== undefined) body.stopLoss = patch.sl ? { price: String(roundPx(patch.sl)), timeInForce: "GTC" } : null;
+    if (patch.tp !== undefined) body.takeProfit = patch.tp ? { price: String(roundPx(patch.tp)), timeInForce: "GTC" } : null;
+    const res = (await jfetch(
+      `${base(creds)}/v3/accounts/${encodeURIComponent(String(creds.accountId))}/trades/${encodeURIComponent(trade.id)}/orders`,
+      { method: "PUT", headers: headers(creds), body: JSON.stringify(body) }
+    )) as Record<string, unknown>;
+    return { ok: true, raw: res };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export const oandaAdapter: BrokerAdapter = {
   kind: "oanda",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -218,4 +321,7 @@ export const oandaAdapter: BrokerAdapter = {
   marketOrder,
   closePosition,
   getPositions,
+  getOrders,
+  cancelOrder,
+  modifyPosition,
 };

@@ -14,6 +14,7 @@ import {
   BrokerCreds,
   OrderRequest,
   OrderResult,
+  PendingOrderInfo,
   PositionInfo,
   jfetch,
   mapWith,
@@ -192,8 +193,16 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
   }
 }
 
-async function closePosition(creds: BrokerCreds, symbol: string, side?: -1 | 1): Promise<OrderResult> {
+async function closePosition(creds: BrokerCreds, symbol?: string, side?: -1 | 1): Promise<OrderResult> {
   try {
+    // close-all: iterate every open IG position
+    if (!symbol) {
+      const open = await getPositions(creds);
+      for (const p of open) {
+        await closePosition(creds, p.symbol, undefined).catch(() => {});
+      }
+      return { ok: true };
+    }
     const epic = mapWith(creds, symbol, DEFAULT_MAP);
     const positions = await getPositions(creds, symbol);
     const targets = positions.filter((p) => (side ? p.side === side : true));
@@ -247,6 +256,63 @@ async function getPositions(creds: BrokerCreds, symbol?: string): Promise<Positi
   }
 }
 
+// ── pending (working) orders ──────────────────────────────────────────
+// GET   /workingorders (v2)          → resting orders
+// POST  /positions/otc/:dealId?_METHOD=DELETE with dealId of the working order → cancel
+
+async function getOrders(creds: BrokerCreds, symbol?: string): Promise<PendingOrderInfo[]> {
+  try {
+    const j = (await igFetch(creds, "/workingorders", { version: "2", method: "GET" })) as {
+      workingOrders?: Array<{
+        workingOrderData?: {
+          dealId?: string;
+          direction?: string;
+          size?: number;
+          level?: number;
+          limitDistance?: number;
+          stopDistance?: number;
+          createdDate?: string;
+          orderType?: string;
+        };
+        marketData?: { epic?: string; instrumentName?: string };
+      }>;
+    };
+    const out: PendingOrderInfo[] = (j.workingOrders ?? []).map((w) => {
+      const d = w.workingOrderData ?? {};
+      const typeRaw = String(d.orderType ?? "LIMIT").toUpperCase();
+      return {
+        id: String(d.dealId ?? ""),
+        symbol: String(w.marketData?.epic ?? ""),
+        type: typeRaw.includes("STOP") ? "STOP" : "LIMIT",
+        side: d.direction === "SELL" ? -1 : 1,
+        volume: num(d.size),
+        entryPrice: num(d.level) || undefined,
+        tp: num(d.limitDistance) || undefined,
+        sl: num(d.stopDistance) || undefined,
+        placedAt: d.createdDate ? new Date(d.createdDate).getTime() : undefined,
+        status: "WORKING",
+      };
+    });
+    return symbol ? out.filter((x) => x.symbol === mapWith(creds, symbol, DEFAULT_MAP)) : out;
+  } catch {
+    return [];
+  }
+}
+
+async function cancelOrder(creds: BrokerCreds, orderId: string): Promise<OrderResult> {
+  try {
+    // IG cancels a working order by deleting it OTC (dealId = working order id)
+    await igFetch(creds, `/workingorders/otc/${encodeURIComponent(orderId)}?_METHOD=DELETE`, {
+      version: "1",
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export const igAdapter: BrokerAdapter = {
   kind: "ig",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -255,4 +321,6 @@ export const igAdapter: BrokerAdapter = {
   marketOrder,
   closePosition,
   getPositions,
+  getOrders,
+  cancelOrder,
 };

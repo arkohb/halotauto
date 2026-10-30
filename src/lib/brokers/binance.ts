@@ -11,6 +11,7 @@ import {
   BrokerCreds,
   OrderRequest,
   OrderResult,
+  PendingOrderInfo,
   PositionInfo,
   jfetch,
   mapWith,
@@ -163,8 +164,17 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
   }
 }
 
-async function closePosition(creds: BrokerCreds, symbol: string): Promise<OrderResult> {
+async function closePosition(creds: BrokerCreds, symbol?: string): Promise<OrderResult> {
   try {
+    // close-all: cancel every open order + market-sell every non-quote asset
+    if (!symbol) {
+      await signedFetch(creds, "/api/v3/openOrders", {}, "DELETE").catch(() => {});
+      const open = await getPositions(creds);
+      for (const p of open) {
+        await closePosition(creds, p.symbol).catch(() => {});
+      }
+      return { ok: true };
+    }
     const sym = mapWith(creds, symbol, DEFAULT_MAP);
     await signedFetch(creds, "/api/v3/openOrders", { symbol }, "DELETE").catch(() => {});
     const baseAsset = sym.replace(/USDT$|BUSD$|USDC$|FDUSD$/, "") || sym;
@@ -200,6 +210,50 @@ async function getPositions(creds: BrokerCreds, symbol?: string): Promise<Positi
   }
 }
 
+// ── resting spot orders ───────────────────────────────────────────────
+async function getOrders(creds: BrokerCreds, symbol?: string): Promise<PendingOrderInfo[]> {
+  try {
+    const q: Record<string, string | number> = symbol ? { symbol: mapWith(creds, symbol, DEFAULT_MAP) } : {};
+    const j = (await signedFetch(creds, "/api/v3/openOrders", q, "GET")) as Array<{
+      orderId?: number | string;
+      symbol?: string;
+      side?: string;
+      type?: string;
+      origQty?: string;
+      price?: string;
+      stopPrice?: string;
+      time?: number;
+      status?: string;
+    }>;
+    const out: PendingOrderInfo[] = (Array.isArray(j) ? j : []).map((o) => ({
+      id: String(o.orderId ?? ""),
+      symbol: String(o.symbol ?? ""),
+      type: String(o.type ?? "LIMIT").toUpperCase(),
+      side: String(o.side ?? "BUY").toUpperCase() === "SELL" ? -1 : 1,
+      volume: num(o.origQty),
+      entryPrice: num(o.price) || num(o.stopPrice) || undefined,
+      placedAt: o.time || undefined,
+      status: String(o.status ?? "NEW").toUpperCase(),
+    }));
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+async function cancelOrder(creds: BrokerCreds, orderId: string): Promise<OrderResult> {
+  try {
+    // Binance cancels per symbol — resolve the symbol from the open order book
+    const open = await getOrders(creds);
+    const hit = open.find((o) => o.id === orderId);
+    if (!hit) return { ok: false, error: "order not found in open orders" };
+    await signedFetch(creds, "/api/v3/order", { symbol: hit.symbol, orderId }, "DELETE");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export const binanceAdapter: BrokerAdapter = {
   kind: "binance",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -208,4 +262,6 @@ export const binanceAdapter: BrokerAdapter = {
   marketOrder,
   closePosition,
   getPositions,
+  getOrders,
+  cancelOrder,
 };

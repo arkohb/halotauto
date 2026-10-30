@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import ZAI from "z-ai-web-dev-sdk";
 import { db } from "@/lib/db";
-import { botState, startBot, stopBot, closeOpenTrade, updateBotConfig } from "@/lib/bot";
+import { botState, startBot, stopBot, closeOpenTrade, setPauseNew, updateBotConfig } from "@/lib/bot";
 import { buildSnapshot } from "@/lib/halo/assistant-snapshot";
 import { getAction, validateActionParams, ACTIONS, VIEWS } from "@/lib/halo/actions";
 import { getCalendar, getNews, getQuote, type CalendarDay } from "@/lib/halo/intel";
@@ -227,23 +227,31 @@ async function intelDetail(id: string, params: Record<string, string | boolean>,
 async function executeConsequential(p: PendingAction): Promise<{ ok: boolean; detail: string }> {
   const id = p.id;
   try {
-    if (id === "pause_new_entries" || id === "emergency_stop") {
+    if (id === "pause_new_entries") {
+      await setPauseNew(true);
+      const st = await botState();
+      if (!st.enabled) {
+        return { ok: true, detail: "New entries are paused — note the EA is also detached right now, so it was not scanning anyway. Use resume to bring it back." };
+      }
+      return { ok: st.pauseNew === true, detail: st.pauseNew ? "Confirmed: no new entries while flat. An open trade (if any) stays fully managed by the engine and its SL/TP." : "The engine did not confirm the pause — check the dashboard before relying on it." };
+    }
+    if (id === "emergency_stop") {
       const before = await botState();
       if (!before.enabled) {
         return { ok: true, detail: "New entries were already paused — the EA is detached. Open positions keep their broker SL/TP." };
       }
       await stopBot();
       const st = await botState();
-      return { ok: !st.enabled, detail: st.enabled ? "Stop command did not verify — the engine still reports armed. Check the dashboard." : "Confirmed: new entries are paused. The EA is detached; any open position keeps its broker SL/TP." };
+      return { ok: !st.enabled, detail: st.enabled ? "Stop command did not verify — the engine still reports armed. Check the dashboard." : "Confirmed: full stop. The EA is detached; any open position keeps its broker SL/TP." };
     }
     if (id === "resume_new_entries") {
-      const before = await botState();
-      if (before.enabled) {
-        return { ok: true, detail: "The EA is already running — scanning for C1/C2 equal levels." };
+      await setPauseNew(false);
+      const st0 = await botState();
+      if (!st0.enabled) {
+        await startBot();
       }
-      await startBot();
       const st = await botState();
-      return { ok: st.enabled, detail: st.enabled ? "Confirmed: the EA is live again, scanning for C1/C2 equal levels with the existing risk settings." : "Start did not verify — the engine still reports detached." };
+      return { ok: st.enabled && st.pauseNew === false, detail: st.enabled && st.pauseNew === false ? "Confirmed: the EA accepts fresh C3 fires again with the existing risk settings." : "Resume did not verify — check the dashboard." };
     }
     if (id === "close_open_trade") {
       const before = await botState();

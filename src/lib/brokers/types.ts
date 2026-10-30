@@ -87,6 +87,28 @@ export interface PositionInfo {
   ea?: boolean;
 }
 
+/** A resting (pending) order on the broker — BUY LIMIT / SELL STOP / … */
+export interface PendingOrderInfo {
+  id: string;
+  symbol: string; // broker-side symbol
+  type: string; // BUY_LIMIT | SELL_LIMIT | BUY_STOP | SELL_STOP | …
+  side: -1 | 1;
+  volume: number;
+  /** trigger price of the pending order */
+  entryPrice?: number;
+  /** current market price (when the broker supplies it) */
+  currentPrice?: number;
+  sl?: number;
+  tp?: number;
+  /** epoch ms when the order was placed */
+  placedAt?: number;
+  /** broker state — e.g. PLACED / WORKING / PENDING */
+  status?: string;
+  comment?: string;
+  /** placed by the HALO EA (comment / magic match) */
+  ea?: boolean;
+}
+
 export interface BrokerAdapter {
   kind: BrokerKind;
   /** internal symbol id → broker-native symbol */
@@ -95,9 +117,19 @@ export interface BrokerAdapter {
   testConnection(creds: BrokerCreds): Promise<AccountInfo>;
   getAccount(creds: BrokerCreds): Promise<AccountInfo>;
   marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<OrderResult>;
-  /** close the open position on `symbol` (side optional filter) */
-  closePosition(creds: BrokerCreds, symbol: string, side?: -1 | 1): Promise<OrderResult>;
+  /** close the open position on `symbol` (side optional filter; omit both → close ALL) */
+  closePosition(creds: BrokerCreds, symbol?: string, side?: -1 | 1): Promise<OrderResult>;
   getPositions(creds: BrokerCreds, symbol?: string): Promise<PositionInfo[]>;
+  /** resting pending orders — adapters that cannot read them return [] */
+  getOrders?(creds: BrokerCreds, symbol?: string): Promise<PendingOrderInfo[]>;
+  /** delete a resting pending order by id */
+  cancelOrder?(creds: BrokerCreds, orderId: string): Promise<OrderResult>;
+  /** amend SL/TP on an OPEN position (price-level fields optional) */
+  modifyPosition?(
+    creds: BrokerCreds,
+    positionId: string,
+    patch: { sl?: number | null; tp?: number | null }
+  ): Promise<OrderResult>;
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────

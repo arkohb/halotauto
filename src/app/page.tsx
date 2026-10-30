@@ -27,7 +27,9 @@ import { StatusBanner } from "@/components/halo/status-banner";
 import ChartPanel from "@/components/halo/chart-panel";
 import { EaAttachCard } from "@/components/halo/ea-attach";
 import { TradeCard } from "@/components/halo/trade-card";
+import { QuickActions } from "@/components/halo/quick-actions";
 import { LevelsCard } from "@/components/halo/levels-card";
+import { MarketConditions } from "@/components/halo/market-conditions";
 import { DashboardPanel } from "@/components/halo/dashboard-panel";
 import { Mt5MobileApp } from "@/components/halo/mt5-mobile";
 import { SettingsPanel } from "@/components/halo/settings-panel";
@@ -480,6 +482,7 @@ export default function Page() {
                 </div>
                 <div className="col-span-12 space-y-3 xl:col-span-4">
                   <MarketPulse state={state} candles={candles} />
+                  <MarketConditions state={state} candles={candles} />
                   <LevelsCard state={state} />
                 </div>
                 <div className="col-span-12">
@@ -498,6 +501,7 @@ export default function Page() {
                 />
                 <TradeCard state={state} />
                 <TradingActivity state={state} histKey={histKey} />
+                <QuickActions state={state} notify={notify} />
                 <div className="grid gap-4 lg:grid-cols-2">
                   <Mt5MobileApp notify={notify} />
                   <ControlDeck

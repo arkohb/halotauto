@@ -609,3 +609,49 @@ export async function mtClosePosition(
     token
   );
 }
+
+// ── pending orders + SL/TP modification (MetaApi client REST) ──────────
+// GET    /users/current/accounts/:id/orders            → resting orders
+// DELETE /users/current/accounts/:id/orders/:orderId   → cancel resting order
+// PATCH  /users/current/accounts/:id/orders/:orderId   → amend resting order
+// PATCH  /users/current/accounts/:id/positions/:posId  → amend open position SL/TP
+
+export async function mtOrders(accountId: string, region: string, token?: string): Promise<Record<string, unknown>[]> {
+  const j = await clientCall<Record<string, unknown>[]>(accountId, region, "/orders", { timeoutMs: 20000 }, token);
+  return Array.isArray(j) ? j : [];
+}
+
+export async function mtCancelOrder(
+  accountId: string,
+  region: string,
+  orderId: string,
+  token?: string
+): Promise<MtOrderResult> {
+  return clientCall<MtOrderResult>(
+    accountId,
+    region,
+    `/orders/${encodeURIComponent(orderId)}`,
+    { method: "DELETE", body: {}, timeoutMs: 25000 },
+    token
+  );
+}
+
+/** amend SL/TP on an open position (pass 0 to clear a level) */
+export async function mtModifyPosition(
+  accountId: string,
+  region: string,
+  positionId: string,
+  patch: { sl?: number | null; tp?: number | null },
+  token?: string
+): Promise<MtOrderResult> {
+  const body: Record<string, unknown> = {};
+  if (patch.sl !== undefined) body.stopLoss = patch.sl ?? 0;
+  if (patch.tp !== undefined) body.takeProfit = patch.tp ?? 0;
+  return clientCall<MtOrderResult>(
+    accountId,
+    region,
+    `/positions/${encodeURIComponent(positionId)}`,
+    { method: "PATCH", body, timeoutMs: 25000 },
+    token
+  );
+}

@@ -24,6 +24,8 @@ export interface BotRuntime {
   enabled: boolean;
   /** AUTO-ATTACH: EA attaches itself to the chart & auto-starts on boot (no manual start) */
   autoAttach: boolean;
+  /** operator PAUSE NEW ENTRIES: keep managing an open trade, block new signals when flat */
+  pauseNew: boolean;
   bootstrapped: boolean;
   lastConfirmedTime: number;
   lastTickAt: number;
@@ -50,6 +52,7 @@ export function getBot(): BotRuntime {
       engine: new HaloEngine(DEFAULT_CONFIG, 0.01),
       enabled: false,
       autoAttach: true,
+      pauseNew: false,
       bootstrapped: false,
       lastConfirmedTime: 0,
       lastTickAt: 0,
@@ -98,6 +101,7 @@ async function loadPersisted(): Promise<void> {
     if (row) {
       bot.enabled = row.enabled;
       bot.autoAttach = row.autoAttach;
+      bot.pauseNew = Boolean(row.pauseNew);
       bot.symbol = row.symbol;
       bot.tf = row.timeframe;
       bot.realizedPips = row.realizedPips;
@@ -112,6 +116,7 @@ async function loadPersisted(): Promise<void> {
           id: "main",
           enabled: false,
           autoAttach: true,
+          pauseNew: bot.pauseNew,
           symbol: bot.symbol,
           timeframe: bot.tf,
           configJson: JSON.stringify(bot.cfg),
@@ -132,6 +137,7 @@ async function persistBot(): Promise<void> {
         id: "main",
         enabled: bot.enabled,
         autoAttach: bot.autoAttach,
+        pauseNew: bot.pauseNew,
         symbol: bot.symbol,
         timeframe: bot.tf,
         configJson: JSON.stringify(bot.cfg),
@@ -141,6 +147,7 @@ async function persistBot(): Promise<void> {
       update: {
         enabled: bot.enabled,
         autoAttach: bot.autoAttach,
+        pauseNew: bot.pauseNew,
         symbol: bot.symbol,
         timeframe: bot.tf,
         configJson: JSON.stringify(bot.cfg),
@@ -239,6 +246,10 @@ function startTimer(): void {
 /** Instant mode: trial-run the live candle on a clone; commit only on fire/exit. */
 function liveTrial(live: Candle): void {
   const bot = getBot();
+  // PAUSE NEW ENTRIES: while flat, new signals are not evaluated at all —
+  // the engine can never emit a fire we would refuse to execute.
+  // An open trade keeps its full lifecycle (win/loss detection) untouched.
+  if (bot.pauseNew && !bot.engine.snapshot().trade) return;
   if (bot.cfg.sigMode !== "instant") return;
   const clone = bot.engine.clone();
   const events = clone.processBar(live, false);
@@ -342,6 +353,15 @@ export async function tickBot(force = false): Promise<void> {
 
     for (const c of candles) {
       if (c.time > bot.lastConfirmedTime && c.time + secMs <= now) {
+        // PAUSE NEW ENTRIES: when flat, keep the bar cursor moving (price book
+        // stays fresh) but do NOT feed the engine — no new C1/C2 evaluation,
+        // so it can never emit a fire that would be skipped dishonestly.
+        // When a trade is open the engine keeps processing (SL/TP detection).
+        if (bot.pauseNew && !bot.engine.snapshot().trade) {
+          bot.lastConfirmedTime = c.time;
+          bot.lastPrice = c.close;
+          continue;
+        }
         const ev = bot.engine.processBar(c, true);
         await handleEvents(ev, c);
         bot.lastConfirmedTime = c.time;
@@ -410,6 +430,22 @@ export async function resetBot(): Promise<void> {
   }
   await warmEngine();
   await persistBot();
+}
+
+/** Operator PAUSE NEW ENTRIES — open trade keeps being managed, no new signals while flat. */
+export async function setPauseNew(paused: boolean): Promise<void> {
+  const bot = getBot();
+  await ensureBoot();
+  if (bot.pauseNew === paused) return;
+  bot.pauseNew = paused;
+  await persistBot();
+  void sendAlert({
+    kind: "status",
+    title: `HALO 3EL · NEW ENTRIES ${paused ? "PAUSED" : "RESUMED"}`,
+    body: paused
+      ? `${bot.symbol} ${bot.tf} — no new positions while flat. An open trade (if any) stays fully managed by the engine + broker SL/TP.`
+      : `${bot.symbol} ${bot.tf} — the EA accepts new C3 fires again.`,
+  });
 }
 
 /** Manual market close of the open trade at the last known price. */
@@ -484,6 +520,7 @@ export interface ExecSummary {
 export async function botState(): Promise<{
   enabled: boolean;
   autoAttach: boolean;
+  pauseNew: boolean;
   symbol: string;
   tf: string;
   mintick: number;
@@ -512,6 +549,7 @@ export async function botState(): Promise<{
   return {
     enabled: bot.enabled,
     autoAttach: bot.autoAttach,
+    pauseNew: bot.pauseNew,
     symbol: bot.symbol,
     tf: bot.tf,
     mintick: meta.mintick,

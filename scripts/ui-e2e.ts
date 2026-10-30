@@ -28,22 +28,30 @@ const ok = (name: string, pass: boolean, detail = "") =>
   // ── 1. every navigation route renders with its page header ──
   const routes: { chip: string; header: string; shot: string }[] = [
     { chip: "Dashboard", header: null as unknown as string, shot: "ui-01-dashboard" }, // dashboard has welcome banner, no PageHeader
-    { chip: "Market", header: "MARKET SCANNER", shot: "ui-02-market" },
-    { chip: "Market Intel", header: "MARKET INTELLIGENCE", shot: "ui-03-intel" },
-    { chip: "Trading Activity", header: "TRADING ACTIVITY", shot: "ui-04-activity" },
+    { chip: "Market Intelligence", header: "Market Intelligence", shot: "ui-03-intel" },
+    { chip: "Trading Activity", header: "Trading Activity", shot: "ui-04-activity" },
     { chip: "Risk Guardian", header: "RISK GUARDIAN", shot: "ui-05-risk" },
     { chip: "Strategy Lab", header: "STRATEGY LAB", shot: "ui-06-lab" },
+    { chip: "Trade History", header: "Trade History", shot: "ui-11-history" },
     { chip: "Performance", header: "PERFORMANCE", shot: "ui-07-performance" },
-    { chip: "Brokers", header: "BROKERS & MT5", shot: "ui-08-brokers" },
-    { chip: "Alerts", header: "ALERTS & DELIVERY", shot: "ui-09-alerts" },
+    { chip: "Daily Briefing", header: "Daily Briefing", shot: "ui-12-briefing" },
+    { chip: "Learning Missions", header: "Learning Missions", shot: "ui-13-learning" },
     { chip: "Settings", header: "SETTINGS", shot: "ui-10-settings" },
+    { chip: "Market Scanner", header: "MARKET SCANNER", shot: "ui-02-market" },
+    { chip: "Voice Command", header: "Voice Command Center", shot: "ui-14-voice" },
+    { chip: "Brokers & MT5", header: "BROKERS & MT5", shot: "ui-08-brokers" },
+    { chip: "Alerts", header: "ALERTS & DELIVERY", shot: "ui-09-alerts" },
   ];
+  // mockup nav: active pill = azure gradient fill + white label
   const activeIsGold = async () =>
     page.evaluate(() => {
       const cur = document.querySelector('button[aria-current="page"]');
       if (!cur) return false;
+      const st = (cur as HTMLElement).style;
       const label = cur.querySelector("span:last-child") as HTMLElement | null;
-      return !!label && /gold/i.test(label.style.color) === false ? label.style.color === "rgb(212, 175, 55)" : (cur as HTMLElement).innerText.length > 0;
+      const filled = /gradient|46, 204, 255|38, 146, 255/.test(st.background + st.backgroundImage + st.boxShadow);
+      const bright = !!label && ["rgb(255, 255, 255)", "white", "rgb(236, 246, 255)"].includes(label.style.color);
+      return filled || bright;
     });
 
   for (const r of routes) {
@@ -55,13 +63,13 @@ const ok = (name: string, pass: boolean, detail = "") =>
     const body = await page.evaluate(() => document.body.innerText);
     const headerOk = r.header === null ? true : body.includes(r.header);
     ok(`ROUTE ${r.chip}: renders${r.header ? ` + PageHeader "${r.header}"` : " (welcome banner)"}`, headerOk, headerOk ? "" : "header text missing");
-    ok(`ROUTE ${r.chip}: active-tab treatment (aria-current + gold)`, await activeIsGold());
+    ok(`ROUTE ${r.chip}: active-tab treatment (aria-current + azure pill)`, await activeIsGold());
     await page.screenshot({ path: `${SHOT}/${r.shot}.png` });
   }
 
   // ── 2. key interactive controls survived the redesign ──
   await page.evaluate(() => {
-    const nav = [...document.querySelectorAll("nav button")].find((x) => x.textContent?.trim() === "Market");
+    const nav = [...document.querySelectorAll("nav button")].find((x) => x.textContent?.trim() === "Market Scanner");
     (nav as HTMLElement)?.click();
   });
   await page.waitForTimeout(2200);
@@ -77,15 +85,19 @@ const ok = (name: string, pass: boolean, detail = "") =>
     (nav as HTMLElement)?.click();
   });
   await page.waitForTimeout(2600);
+  // mockup-01 dashboard composition: deck · AI core · risk · market overview ·
+  // account summary · recent trades · orb canvas · EA pill
+  // (Daily Briefing is its own dedicated view since the mockup redesign)
   const dashBits = await page.evaluate(() => ({
     deck: document.body.innerText.includes("CONTROL DECK"),
-    aiCore: document.body.innerText.includes("HALO AI CORE"),
+    aiCore: document.body.innerText.includes("HALO AI"),
     riskCard: document.body.innerText.includes("RISK GUARDIAN"),
-    briefing: document.body.innerText.includes("DAILY BRIEFING"),
+    overview: document.body.innerText.includes("MARKET OVERVIEW") || document.body.innerText.includes("GOLD · LIVE"),
+    account: document.body.innerText.includes("ACCOUNT SUMMARY") || document.body.innerText.includes("EQUITY"),
     orbCanvas: !!document.querySelector("canvas"),
     eaPill: /EA (ON|OFF)/.test(document.body.innerText),
   }));
-  ok("CONTROLS Dashboard: deck + AI core + risk + briefing + orb canvas + EA pill", Object.values(dashBits).every(Boolean), JSON.stringify(dashBits));
+  ok("CONTROLS Dashboard: deck + AI core + risk + overview + account + orb canvas + EA pill", Object.values(dashBits).every(Boolean), JSON.stringify(dashBits));
 
   // voice console opens + mic button (drag/re-verify voice flow intact)
   await page.evaluate(() => {
@@ -106,16 +118,16 @@ const ok = (name: string, pass: boolean, detail = "") =>
     const cs = getComputedStyle(document.body);
     const rootStyle = getComputedStyle(document.documentElement);
     return {
-      bg: cs.backgroundColor === "rgb(11, 20, 38)",
-      tokens: rootStyle.getPropertyValue("--hx-cyan").trim() === "#4fd8ff" && rootStyle.getPropertyValue("--hx-teal").trim() === "#35e0c8",
-      shadcnGold: rootStyle.getPropertyValue("--primary").trim() === "var(--hx-gold)",
+      bg: cs.backgroundColor === "rgb(2, 11, 26)",
+      tokens: rootStyle.getPropertyValue("--hx-cyan").trim() === "#2eccff" && rootStyle.getPropertyValue("--hx-teal").trim() === "#35e0c8",
+      shadcnCyan: rootStyle.getPropertyValue("--primary").trim() === "#2eccff", // --primary resolves to the azure rebrand in :root AND .dark
     };
   });
-  ok("THEME: navy body + --hx tokens + shadcn primary rebranded", cssOk.bg && cssOk.tokens && cssOk.shadcnGold, JSON.stringify(cssOk));
+  ok("THEME: navy body + --hx tokens + shadcn primary rebranded", cssOk.bg && cssOk.tokens && cssOk.shadcnCyan, JSON.stringify(cssOk));
 
   // ── 4. honest states exist (intel panel loading/verify + scanner states) ──
   await page.evaluate(() => {
-    const nav = [...document.querySelectorAll("nav button")].find((x) => x.textContent?.trim() === "Market Intel");
+    const nav = [...document.querySelectorAll("nav button")].find((x) => x.textContent?.trim() === "Market Intelligence");
     (nav as HTMLElement)?.click();
   });
   await page.waitForTimeout(3500);

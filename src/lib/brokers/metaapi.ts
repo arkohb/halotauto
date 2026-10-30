@@ -16,6 +16,7 @@ import {
   BrokerCreds,
   OrderRequest,
   OrderResult,
+  PendingOrderInfo,
   PositionInfo,
   mapWith,
   num,
@@ -24,8 +25,11 @@ import {
   friendlyMetaApiError,
   METAAPI_MAGIC,
   mtAccountInformation,
+  mtCancelOrder,
   mtClosePosition,
   mtMarketOrder,
+  mtModifyPosition,
+  mtOrders,
   mtPositions,
   mtSymbolSpec,
 } from "./metaapi-core";
@@ -217,6 +221,70 @@ async function closePosition(creds: BrokerCreds, symbol: string, side?: -1 | 1):
   }
 }
 
+async function getOrders(creds: BrokerCreds, symbol?: string): Promise<PendingOrderInfo[]> {
+  try {
+    const a = acct(creds);
+    const j = await mtOrders(a.id, a.region, a.token);
+    const out: PendingOrderInfo[] = j.map((o) => {
+      const rec = o as Record<string, unknown>;
+      const t = String(rec.type ?? "");
+      const upper = t.toUpperCase();
+      const comment = String(rec.comment ?? "");
+      const magic = num(rec.magic);
+      const placedRaw = rec.time ?? rec.openTime ?? rec.createdAt;
+      const placed = placedRaw ? new Date(String(placedRaw)).getTime() : undefined;
+      return {
+        id: String(rec.id ?? ""),
+        symbol: String(rec.symbol ?? ""),
+        type: upper || "PENDING",
+        side: upper.includes("SELL") ? -1 : 1,
+        volume: num(rec.volume),
+        entryPrice: num(rec.openPrice) || undefined,
+        currentPrice: num(rec.currentPrice) || undefined,
+        sl: rec.stopLoss !== undefined && num(rec.stopLoss) > 0 ? num(rec.stopLoss) : undefined,
+        tp: rec.takeProfit !== undefined && num(rec.takeProfit) > 0 ? num(rec.takeProfit) : undefined,
+        placedAt: placed && isFinite(placed) ? placed : undefined,
+        status: String(rec.state ?? "PLACED").toUpperCase(),
+        comment: comment || undefined,
+        ea: magic === METAAPI_MAGIC || /halo/i.test(comment) || undefined,
+      };
+    });
+    return symbol ? out.filter((x) => x.symbol === mapWith(creds, symbol, DEFAULT_MAP)) : out;
+  } catch {
+    return [];
+  }
+}
+
+async function cancelOrder(creds: BrokerCreds, orderId: string): Promise<OrderResult> {
+  try {
+    const a = acct(creds);
+    const res = await mtCancelOrder(a.id, a.region, orderId, a.token);
+    if (res.errorCode || res.description) {
+      return { ok: false, error: `${res.errorCode ?? ""} ${res.description ?? ""}`.trim(), raw: res };
+    }
+    return { ok: true, brokerOrderId: res.orderId ?? orderId, raw: res };
+  } catch (e) {
+    return { ok: false, error: friendlyMetaApiError(e) };
+  }
+}
+
+async function modifyPosition(
+  creds: BrokerCreds,
+  positionId: string,
+  patch: { sl?: number | null; tp?: number | null }
+): Promise<OrderResult> {
+  try {
+    const a = acct(creds);
+    const res = await mtModifyPosition(a.id, a.region, positionId, patch, a.token);
+    if (res.errorCode || res.description) {
+      return { ok: false, error: `${res.errorCode ?? ""} ${res.description ?? ""}`.trim(), raw: res };
+    }
+    return { ok: true, raw: res };
+  } catch (e) {
+    return { ok: false, error: friendlyMetaApiError(e) };
+  }
+}
+
 export const metaapiAdapter: BrokerAdapter = {
   kind: "metaapi",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -225,4 +293,7 @@ export const metaapiAdapter: BrokerAdapter = {
   marketOrder,
   closePosition,
   getPositions,
+  getOrders,
+  cancelOrder,
+  modifyPosition,
 };

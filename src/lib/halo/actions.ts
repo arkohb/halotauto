@@ -304,21 +304,21 @@ export const ACTIONS: ActionDef[] = [
   //    trader explicitly confirms; every execution is audit-logged) ──
   {
     id: "pause_new_entries",
-    description: "Stop the EA from entering NEW trades (engine detaches; open positions keep their broker SL/TP). Same as the dashboard STOP button.",
+    description: "Pause NEW automated entries: the EA keeps managing an open trade and its SL/TP, but accepts no fresh C3 fires while flat. (For a full detach use emergency stop.)",
     scope: "server",
     risk: "consequential",
     params: {},
     confirmQuestion: "Pause new automated entries?",
-    confirmEffect: "The EA stops scanning-for-entry; the open position (if any) stays protected by its existing SL/TP.",
+    confirmEffect: "No new positions while flat. An open trade (if any) stays fully managed by the engine and its broker SL/TP.",
   },
   {
     id: "resume_new_entries",
-    description: "Start the EA again (same as the dashboard START button).",
+    description: "Resume automated entries: clear the new-entries pause and, if the EA was detached, start it again with all existing risk settings.",
     scope: "server",
     risk: "consequential",
     params: {},
     confirmQuestion: "Resume automated entries?",
-    confirmEffect: "The EA re-attaches to the chart and resumes the 3EL strategy with all existing risk settings.",
+    confirmEffect: "The EA accepts fresh C3 fires again (and restarts if it was detached) with the existing risk settings.",
   },
   {
     id: "close_open_trade",

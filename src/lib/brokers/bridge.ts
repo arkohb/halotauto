@@ -23,6 +23,7 @@ import {
   BrokerKind,
   OrderRequest,
   OrderResult,
+  PendingOrderInfo,
   PositionInfo,
   jfetch,
   num,
@@ -81,9 +82,9 @@ export function createBridgeAdapter(kind: BrokerKind): BrokerAdapter {
     }
   }
 
-  async function closePosition(creds: BrokerCreds, symbol: string, side?: -1 | 1): Promise<OrderResult> {
+  async function closePosition(creds: BrokerCreds, symbol?: string, side?: -1 | 1): Promise<OrderResult> {
     try {
-      await post(creds, { action: "close", symbol, side: side ?? null });
+      await post(creds, { action: "close", symbol: symbol ?? null, side: side ?? null });
       return { ok: true };
     } catch (e) {
       return { ok: false, error: (e as Error).message };
@@ -110,6 +111,37 @@ export function createBridgeAdapter(kind: BrokerKind): BrokerAdapter {
     }
   }
 
+  async function getOrders(creds: BrokerCreds, symbol?: string): Promise<PendingOrderInfo[]> {
+    try {
+      const j = (await post(creds, { action: "orders", symbol: symbol ?? null })) as
+        | { orders?: Array<Record<string, unknown>> }
+        | Array<Record<string, unknown>>;
+      const arr = Array.isArray(j) ? j : (j.orders ?? []);
+      return arr.map((o) => ({
+        id: String(o.id ?? o.orderId ?? ""),
+        symbol: String(o.symbol ?? ""),
+        type: String(o.type ?? o.orderType ?? "PENDING").toUpperCase(),
+        side: String(o.side ?? o.direction ?? "").toUpperCase().startsWith("S") || num(o.side) === -1 ? -1 : 1,
+        volume: num(o.volume ?? o.size ?? o.units, 0),
+        entryPrice: num(o.entryPrice ?? o.price ?? o.entry) || undefined,
+        sl: o.sl != null ? num(o.sl) : undefined,
+        tp: o.tp != null ? num(o.tp) : undefined,
+        status: String(o.status ?? "PENDING").toUpperCase(),
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function cancelOrder(creds: BrokerCreds, orderId: string): Promise<OrderResult> {
+    try {
+      await post(creds, { action: "cancel-order", orderId });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
   return {
     kind,
     mapSymbol: (creds, symbol) => creds.symbolMap?.[symbol] ?? symbol,
@@ -118,5 +150,7 @@ export function createBridgeAdapter(kind: BrokerKind): BrokerAdapter {
     marketOrder,
     closePosition,
     getPositions,
+    getOrders,
+    cancelOrder,
   };
 }

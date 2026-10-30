@@ -9,6 +9,7 @@ import {
   BrokerCreds,
   OrderRequest,
   OrderResult,
+  PendingOrderInfo,
   PositionInfo,
   mapWith,
 } from "./types";
@@ -51,10 +52,16 @@ export const paperAdapter: BrokerAdapter = {
       volume: Math.max(0.01, Math.round(vol * 100) / 100),
     };
   },
-  async closePosition(): Promise<OrderResult> {
+  async closePosition(_creds): Promise<OrderResult> {
     return { ok: true, brokerOrderId: `paper-close-${Date.now().toString(36)}` };
   },
   async getPositions(): Promise<PositionInfo[]> {
     return [];
+  },
+  async getOrders(): Promise<PendingOrderInfo[]> {
+    return [];
+  },
+  async cancelOrder(): Promise<OrderResult> {
+    return { ok: true };
   },
 };

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAdapter, isBrokerKind, parseCreds } from "@/lib/brokers";
 import type { AccountInfo } from "@/lib/brokers/types";
-import { mtClosePosition } from "@/lib/brokers/metaapi-core";
+import { mtCancelOrder, mtModifyPosition } from "@/lib/brokers/metaapi-core";
 import { ensureBoot, getBot, closeOpenTrade } from "@/lib/bot";
 import { loadExecSettings } from "@/lib/execution";
 import { getSymbolMeta } from "@/lib/market-symbols";
@@ -61,6 +61,23 @@ export interface LiveHistoryRow {
   closedAt: string | null;
 }
 
+interface LiveOrder {
+  id: string;
+  symbol: string;
+  type: string;
+  side: -1 | 1;
+  volume: number;
+  entryPrice: number | null;
+  currentPrice: number | null;
+  sl: number | null;
+  tp: number | null;
+  placedAt: number | null;
+  status: string;
+  comment: string | null;
+  ea: boolean;
+  paper: boolean;
+}
+
 interface Payload {
   ok: boolean;
   live: boolean;
@@ -69,6 +86,7 @@ interface Payload {
   brokerLabel: string;
   account: LiveAcct | null;
   positions: LivePos[];
+  orders: LiveOrder[];
   eaOpen: boolean;
   history: LiveHistoryRow[];
   updatedAt: number;
@@ -157,6 +175,7 @@ async function buildPayload(): Promise<Payload> {
     brokerLabel: liveWanted ? String(activeRow?.label) : "Paper EA",
     account: null,
     positions: [],
+    orders: [],
     eaOpen: Boolean(snap.trade) && bot.openTradeExec === "PAPER",
     history: [],
     updatedAt: Date.now(),
@@ -202,6 +221,28 @@ async function buildPayload(): Promise<Payload> {
       pips: null,
     }));
 
+    // resting pending orders (adapters without order reads return [])
+    const rawOrders =
+      adapter.getOrders != null
+        ? await withTimeout(adapter.getOrders(creds), 9000, [])
+        : [];
+    const orders: LiveOrder[] = rawOrders.map((o) => ({
+      id: o.id,
+      symbol: o.symbol,
+      type: o.type,
+      side: o.side,
+      volume: o.volume,
+      entryPrice: o.entryPrice ?? null,
+      currentPrice: o.currentPrice ?? null,
+      sl: o.sl ?? null,
+      tp: o.tp ?? null,
+      placedAt: o.placedAt ?? null,
+      status: o.status ?? "PENDING",
+      comment: o.comment ?? null,
+      ea: Boolean(o.ea),
+      paper: false,
+    }));
+
     base.live = true;
     base.kind = String(kind);
     base.account = {
@@ -218,6 +259,7 @@ async function buildPayload(): Promise<Payload> {
       marginLevel: acct.marginLevel ?? 0,
     };
     base.positions = positions;
+    base.orders = orders;
     base.eaOpen = positions.some((p) => p.ea);
     base.history = await loadHistory();
     return base;
@@ -299,6 +341,7 @@ export async function GET() {
           brokerLabel: "Paper EA",
           account: paperAccount(PAPER_BALANCE, 0),
           positions: [],
+          orders: [],
           eaOpen: false,
           history: [],
           updatedAt: Date.now(),
@@ -318,48 +361,116 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       action?: string;
       positionId?: string;
+      orderId?: string;
       symbol?: string;
       side?: number;
+      sl?: number | null;
+      tp?: number | null;
     };
-    if (body.action !== "close") {
+    if (!body.action || !["close", "close-all", "cancel-order", "modify"].includes(body.action)) {
       return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
     }
     cache = null; // force a fresh read after the mutation
 
     // paper EA trade → finalize through the engine
-    if (!body.positionId || body.positionId.startsWith("ea-")) {
+    if (body.action === "close" && (!body.positionId || body.positionId.startsWith("ea-"))) {
       await closeOpenTrade();
       return NextResponse.json({ ok: true, paper: true });
     }
 
-    // live broker position
     const activeRow = await db.brokerAccount.findFirst({ where: { active: true } });
+
+    // ── paper-mode close-all: the only open position is the EA trade ──
+    if (body.action === "close-all" && (!activeRow || !isBrokerKind(activeRow.kind) || activeRow.kind === "paper")) {
+      const snap = getBot().engine.snapshot();
+      if (snap.trade) {
+        await closeOpenTrade();
+        return NextResponse.json({ ok: true, paper: true });
+      }
+      return NextResponse.json({ ok: true, paper: true }); // flat book — nothing to close
+    }
+
     if (!activeRow || !isBrokerKind(activeRow.kind) || activeRow.kind === "paper") {
       return NextResponse.json({ ok: false, error: "no live broker account" }, { status: 400 });
     }
     const creds = parseCreds(activeRow.credsJson);
 
+    // ── MetaApi direct REST paths (same as the panel's close button) ──
     if (activeRow.kind === "metaapi") {
-      const res = await withTimeout(
-        mtClosePosition(
-          encodeURIComponent(String(creds.accountId ?? "")),
-          String(creds.region ?? "new-york"),
-          body.positionId
-        ),
-        15000,
-        { errorCode: "timeout", description: "close timed out" }
-      );
-      if (res.errorCode || res.description) {
-        return NextResponse.json(
-          { ok: false, error: `${res.errorCode ?? ""} ${res.description ?? ""}`.trim() },
-          { status: 502 }
-        );
+      if (body.action === "close-all") {
+        const adapter = getAdapter("metaapi");
+        const res = await withTimeout(adapter.closePosition(creds), 25000, { ok: false, error: "close-all timed out" });
+        return NextResponse.json({ ok: res.ok, error: res.error ?? null }, { status: res.ok ? 200 : 502 });
       }
-      return NextResponse.json({ ok: true });
+      if (body.action === "cancel-order") {
+        if (!body.orderId) return NextResponse.json({ ok: false, error: "orderId missing" }, { status: 400 });
+        const res = await withTimeout(
+          mtCancelOrder(encodeURIComponent(String(creds.accountId ?? "")), String(creds.region ?? "new-york"), body.orderId),
+          15000,
+          { errorCode: "timeout", description: "cancel timed out" }
+        );
+        if (res.errorCode || res.description) {
+          return NextResponse.json({ ok: false, error: `${res.errorCode ?? ""} ${res.description ?? ""}`.trim() }, { status: 502 });
+        }
+        return NextResponse.json({ ok: true });
+      }
+      if (body.action === "modify") {
+        if (!body.positionId) return NextResponse.json({ ok: false, error: "positionId missing" }, { status: 400 });
+        if ((body.sl == null || !isFinite(body.sl) || body.sl <= 0) && (body.tp == null || !isFinite(body.tp) || body.tp <= 0)) {
+          return NextResponse.json({ ok: false, error: "provide a valid SL and/or TP" }, { status: 400 });
+        }
+        const res = await withTimeout(
+          mtModifyPosition(
+            encodeURIComponent(String(creds.accountId ?? "")),
+            String(creds.region ?? "new-york"),
+            body.positionId,
+            { sl: body.sl ?? undefined, tp: body.tp ?? undefined }
+          ),
+          15000,
+          { errorCode: "timeout", description: "modify timed out" }
+        );
+        if (res.errorCode || res.description) {
+          return NextResponse.json({ ok: false, error: `${res.errorCode ?? ""} ${res.description ?? ""}`.trim() }, { status: 502 });
+        }
+        return NextResponse.json({ ok: true });
+      }
     }
 
-    // other adapters close by symbol+side
+    // ── generic adapter paths (OANDA / IG / Binance / bridge …) ──
     const adapter = getAdapter(activeRow.kind);
+
+    if (body.action === "close-all") {
+      // close every open position (closePosition with no symbol closes ALL where supported)
+      const res = await withTimeout(
+        Promise.resolve(adapter.closePosition(creds)),
+        30000,
+        { ok: false, error: "close-all timed out" }
+      );
+      return NextResponse.json({ ok: res.ok, error: res.error ?? null }, { status: res.ok ? 200 : 502 });
+    }
+
+    if (body.action === "cancel-order") {
+      if (!adapter.cancelOrder) return NextResponse.json({ ok: false, error: "this broker does not support order cancellation" }, { status: 501 });
+      if (!body.orderId) return NextResponse.json({ ok: false, error: "orderId missing" }, { status: 400 });
+      const res = await withTimeout(adapter.cancelOrder(creds, body.orderId), 15000, { ok: false, error: "cancel timed out" });
+      return NextResponse.json({ ok: res.ok, error: res.error ?? null }, { status: res.ok ? 200 : 502 });
+    }
+
+    if (body.action === "modify") {
+      if (!adapter.modifyPosition) return NextResponse.json({ ok: false, error: "this broker does not support SL/TP modification" }, { status: 501 });
+      if (!body.positionId) return NextResponse.json({ ok: false, error: "positionId missing" }, { status: 400 });
+      if ((body.sl == null || !isFinite(body.sl) || body.sl <= 0) && (body.tp == null || !isFinite(body.tp) || body.tp <= 0)) {
+        return NextResponse.json({ ok: false, error: "provide a valid SL and/or TP" }, { status: 400 });
+      }
+      const res = await withTimeout(
+        adapter.modifyPosition(creds, body.positionId, { sl: body.sl ?? undefined, tp: body.tp ?? undefined }),
+        15000,
+        { ok: false, error: "modify timed out" }
+      );
+      return NextResponse.json({ ok: res.ok, error: res.error ?? null }, { status: res.ok ? 200 : 502 });
+    }
+
+    // body.action === "close" for a live broker position
     const res = await withTimeout(
       adapter.closePosition(creds, body.symbol ?? "", body.side === -1 ? -1 : body.side === 1 ? 1 : undefined),
       15000,
