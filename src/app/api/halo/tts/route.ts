@@ -10,8 +10,10 @@
 //    • the audio returned is exactly the text requested — nothing invented
 //    • failures return a real error; the client speaks the fallback voice
 //    • replies are cached (text+voice+speed) so greetings replay instantly
-//  Long replies are split at sentence boundaries (≤ 950 chars per chunk,
-//  engine limit 1024) and stitched into one continuous WAV.
+//  Long replies are split at sentence boundaries (≤ 480 chars per chunk) and
+//  generated through a small bounded pool with one retry per chunk — small
+//  chunks + mild parallelism keep a long reply inside a few seconds, which is
+//  what keeps the client's fetch ceiling (and HALO's voice) honest.
 // ════════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
@@ -21,7 +23,9 @@ export const dynamic = "force-dynamic";
 const VOICES = new Set(["jam", "kazi", "xiaochen", "tongtong", "luodo", "douji", "chuichui"]);
 const DEFAULT_VOICE = "jam";
 const MAX_TEXT = 4000;
-const CHUNK_MAX = 950;
+const CHUNK_MAX = 480;
+const CHUNK_CONCURRENCY = 2; // the upstream engine 429s on bursts — stay well under it
+const CHUNK_RETRIES = 2; // backoff retries per chunk (429s/timeouts are transient)
 const CHUNK_TIMEOUT_MS = 25_000;
 const RATE_LIMIT = 30;
 const RATE_WINDOW_MS = 60_000;
@@ -162,20 +166,47 @@ export async function POST(req: NextRequest) {
 
     const zai = await getZai();
     const chunks = chunkText(text);
-    // chunks are independent — generate in parallel so a long reply costs one
-    // generation round-trip, not N (keeps the client's fetch timeout honest)
-    const parts = await Promise.all(
-      chunks.map(async (c) => {
-        const resp = await Promise.race([
-          zai.audio.tts.create({ input: c, voice, speed, response_format: "wav", stream: false }),
-          new Promise<never>((_, rej) => setTimeout(() => rej(new Error("voice engine timed out")), CHUNK_TIMEOUT_MS)),
-        ]);
-        const ab = await (resp as Response).arrayBuffer();
-        const buf = Buffer.from(new Uint8Array(ab));
-        if (buf.length < 44) throw new Error("voice engine returned empty audio");
-        return buf;
-      })
-    );
+
+    // One chunk = one upstream call with a hard timeout + one retry. Chunks
+    // run through a bounded worker pool: measured on this deployment, a
+    // 1 700-char reply took 22 s as two 950-char chunks but ~7 s as smaller
+    // parallel chunks — the difference between a reply that is spoken and one
+    // that silently times out.
+    const genChunk = async (c: string): Promise<Buffer> => {
+      let lastErr: Error = new Error("voice engine failed");
+      for (let attempt = 0; attempt <= CHUNK_RETRIES; attempt++) {
+        try {
+          if (attempt > 0) {
+            // growing backoff — the upstream answers bursts with 429 and needs
+            // a beat before the same chunk is accepted again
+            await new Promise((res) => setTimeout(res, 1200 * attempt));
+          }
+          const resp = (await Promise.race([
+            zai.audio.tts.create({ input: c, voice, speed, response_format: "wav", stream: false }),
+            new Promise<never>((_, rej) => setTimeout(() => rej(new Error("voice engine timed out")), CHUNK_TIMEOUT_MS)),
+          ])) as Response;
+          const ab = await (resp as Response).arrayBuffer();
+          const buf = Buffer.from(new Uint8Array(ab));
+          if (buf.length < 44) throw new Error("voice engine returned empty audio");
+          return buf;
+        } catch (e) {
+          lastErr = e as Error;
+        }
+      }
+      throw lastErr;
+    };
+
+    const parts: Buffer[] = new Array(chunks.length);
+    let next = 0;
+    const worker = async () => {
+      for (;;) {
+        const i = next++;
+        if (i >= chunks.length) return;
+        parts[i] = await genChunk(chunks[i]);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CHUNK_CONCURRENCY, chunks.length) }, () => worker()));
+
     const wav = concatWav(parts);
     // data bytes → seconds: byteRate sits at offset 8 inside the fmt payload
     const byteRate = riffChunk(wav, "fmt ")?.readUInt32LE(8) ?? 48000;

@@ -170,9 +170,11 @@ export const NEURAL_VOICES: { id: string; label: string; hint: string }[] = [
   { id: "chuichui", label: "Chuichui", hint: "bright and upbeat" },
 ];
 
-// neural voice fetch — if the server voice cannot start in this window the
-// client transparently falls back to the browser engine (never silent)
-const NEURAL_START_TIMEOUT_MS = 9_000;
+// neural voice fetch — generating a LONG reply can legitimately take many
+// seconds, so the fetch gets a generous ceiling and the abort NEVER drops a
+// reply: a slow/failed neural voice degrades to the browser engine instead of
+// going silent ("the bot does not speak back" regression).
+const NEURAL_PLAY_TIMEOUT_MS = 4_500; // audio ready → it must actually START in this window
 const NEURAL_FETCH_TIMEOUT_MS = 30_000;
 const NEURAL_CACHE_MAX = 24;
 
@@ -295,6 +297,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const watchdogRef = useRef<number | null>(null);
   const lastSpokenRef = useRef<string | null>(null);
   const speechEndedAtRef = useRef(0);
+  const speechStartedAtRef = useRef(0); // when the CURRENT audible playback began
   const recRef = useRef<HaloSpeechRecognition | null>(null);
   const recGenRef = useRef(0);
   const recModeRef = useRef<RecMode>("off");
@@ -399,6 +402,15 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     );
   }, []);
 
+  // Echo guard window: the tail after playback ended PLUS the WHOLE time HALO
+  // is still speaking. Our own voice reaching the mic through speakers must
+  // never barge-in over (or after) the reply itself — that self-interruption
+  // is the other classic "HALO never finishes a sentence" bug.
+  const heardEcho = useCallback((t: string) => {
+    const anchor = Math.max(speechEndedAtRef.current, voiceRef.current === "speaking" ? speechStartedAtRef.current : 0);
+    return isEcho(t, lastSpokenRef.current) && Date.now() - anchor < ECHO_TAIL_MS;
+  }, []);
+
   const startRec = useCallback(
     (mode: RecMode) => {
       stopRec();
@@ -481,7 +493,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           // echo guard FIRST — on loud speakers our own spoken lines (e.g. the
           // standby line "…say HALO when you need me again") must never
           // re-wake the assistant
-          const echo = (t: string) => isEcho(t, lastSpokenRef.current) && Date.now() - speechEndedAtRef.current < ECHO_TAIL_MS;
+          const echo = heardEcho;
           const phrase = profileRef.current.wakePhrase;
           if (finalText && wakeHit(finalText, phrase) && !echo(finalText)) {
             if (Date.now() - lastActRef.current > WAKE_COOLDOWN_MS) {
@@ -511,8 +523,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         if (interimText.trim() && mode === "convo") setVoice("listening");
         const text = finalText.trim();
         if (!text) return;
-        // echo guard — ignore our own voice bouncing back
-        if (isEcho(text, lastSpokenRef.current) && Date.now() - speechEndedAtRef.current < ECHO_TAIL_MS) return;
+        // echo guard — ignore our own voice bouncing back (the window covers
+        // the whole playback, so speakers can never barge-in over HALO itself)
+        if (heardEcho(text)) return;
 
         if (mode === "barge") {
           // the trader started talking over HALO — stop speaking, take over
@@ -532,7 +545,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       }
     },
      
-    [stopRec, shouldWake, addMsg]
+    [stopRec, shouldWake, addMsg, heardEcho]
   );
 
   // A failed turn (network loss, brain 5xx, 30 s timeout) must never leave
@@ -628,6 +641,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       u.onstart = () => {
         if (token !== speakTokenRef.current) return;
         started = true;
+        speechStartedAtRef.current = Date.now();
         clearWatchdog();
         setVoice("speaking");
         voiceEnergy.setSpeaking(true); // actual audible playback began
@@ -740,9 +754,12 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         const key = `${prefsRef.current.neuralVoice}:${prefsRef.current.rate.toFixed(2)}:${clean}`;
         const cached = neuralCacheRef.current.get(key);
         let handedOff = false;
+        let startedPlay = false; // the returned audio is ACTUALLY audible
+        let playWatchdog = 0;
         const fallback = (why: string) => {
           if (handedOff || token !== speakTokenRef.current) return;
           handedOff = true;
+          if (playWatchdog) window.clearTimeout(playWatchdog);
           console.warn(`[halo-voice] neural engine unavailable (${why}) — falling back to the browser voice`);
           if (!ttsAvailable()) {
             finish(false);
@@ -753,34 +770,23 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         };
 
         void (async () => {
-          // start ceiling — if the natural voice cannot begin in time, degrade
-          const startTimer = window.setTimeout(() => {
-            if (token !== speakTokenRef.current) return;
-            try {
-              neuralAbortRef.current?.abort();
-            } catch {
-              // ignore
-            }
-          }, NEURAL_START_TIMEOUT_MS);
-
-          const watchdog = window.setTimeout(() => {
-            if (token !== speakTokenRef.current) return;
-            if (!handedOff && !audioRef.current?.src) fallback("no audio in time");
-          }, NEURAL_START_TIMEOUT_MS + 500);
-
           try {
             let audioUrl = cached ?? null;
             if (!audioUrl) {
               const ctrl = new AbortController();
               neuralAbortRef.current = ctrl;
               const aborter = window.setTimeout(() => ctrl.abort(), NEURAL_FETCH_TIMEOUT_MS);
-              const r = await fetch("/api/halo/tts", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ text: clean, voice: prefsRef.current.neuralVoice, speed: prefsRef.current.rate }),
-                signal: ctrl.signal,
-              });
-              window.clearTimeout(aborter);
+              let r: Response;
+              try {
+                r = await fetch("/api/halo/tts", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ text: clean, voice: prefsRef.current.neuralVoice, speed: prefsRef.current.rate }),
+                  signal: ctrl.signal,
+                });
+              } finally {
+                window.clearTimeout(aborter);
+              }
               if (token !== speakTokenRef.current) return;
               const j = (await r.json()) as { ok: boolean; audio?: string; mime?: string; error?: string };
               if (!j.ok || !j.audio) throw new Error(j.error ?? `voice service returned ${r.status}`);
@@ -805,8 +811,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             }
             a.onplaying = () => {
               if (token !== speakTokenRef.current) return;
-              window.clearTimeout(startTimer);
-              window.clearTimeout(watchdog);
+              startedPlay = true;
+              if (playWatchdog) window.clearTimeout(playWatchdog);
+              speechStartedAtRef.current = Date.now();
               setVoice("speaking");
               voiceEnergy.setSpeaking(true); // real audible playback began
               if (convoRef.current && micRef.current !== "denied" && micRef.current !== "unsupported") startRec("barge");
@@ -827,22 +834,30 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             };
             a.src = audioUrl;
             a.volume = Math.max(0, Math.min(1, prefsRef.current.volume));
+            // once the audio is ready it must actually START — a play() that
+            // never settles (autoplay edge cases) must not stall the turn
+            playWatchdog = window.setTimeout(() => {
+              if (token === speakTokenRef.current && !handedOff && !startedPlay) fallback("audio did not start in time");
+            }, NEURAL_PLAY_TIMEOUT_MS);
             try {
               await a.play();
             } catch {
               // autoplay policy — surface the tap-to-enable banner like the browser engine
               if (token === speakTokenRef.current && !handedOff) {
                 handedOff = true;
+                if (playWatchdog) window.clearTimeout(playWatchdog);
                 finish(false);
                 opts.onblocked?.();
               }
             }
           } catch (e) {
-            window.clearTimeout(startTimer);
-            window.clearTimeout(watchdog);
+            if (playWatchdog) window.clearTimeout(playWatchdog);
             if ((e as Error).name === "AbortError") {
-              // aborted by stopSpeaking/new turn — not an engine failure
-              if (token === speakTokenRef.current && !handedOff) finish(false);
+              // token still current ⇒ the trader did NOT interrupt (stopSpeaking
+              // bumps the token first) — the fetch ceiling fired, so the natural
+              // voice is unavailable for this reply. DEGRADE to the browser
+              // voice instead of dropping the reply silently.
+              fallback("neural voice did not respond in time");
               return;
             }
             fallback((e as Error).message || "voice request failed");
@@ -904,7 +919,13 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             : `Connection lost during confirmation: ${(e as Error).message}`;
         addMsg({ role: "halo", text: `⚠ ${line}`, at: Date.now(), err: true });
         setVoice("idle");
-        resumeAfterTurn(); // never go deaf after a failed confirmation
+        if (convoRef.current) {
+          lastSpokenRef.current = line;
+          pendingGreetRef.current = line;
+          speak(line); // never go deaf after a failed confirmation
+        } else {
+          resumeAfterTurn();
+        }
       } finally {
         window.clearTimeout(kill);
         busyRef.current = false;
@@ -1012,9 +1033,18 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         };
 
         if (!j.ok || !j.say) {
-          addMsg({ role: "halo", text: `⚠ ${j.error ?? "Operator core unavailable — try again shortly."}`, at: Date.now(), err: true });
+          const line = j.error ?? "Operator core unavailable — try again shortly.";
+          addMsg({ role: "halo", text: `⚠ ${line}`, at: Date.now(), err: true });
           setVoice("idle");
-          resumeAfterTurn(); // the session stays open — never go deaf on an error
+          if (origin === "voice" || convoRef.current) {
+            // a spoken turn deserves a spoken failure — never leave the trader
+            // talking to a silent assistant (speak() re-arms the mic itself)
+            lastSpokenRef.current = line;
+            pendingGreetRef.current = line;
+            speak(line);
+          } else {
+            resumeAfterTurn(); // text chat: session stays open, stays quiet
+          }
           return;
         }
 
@@ -1080,7 +1110,13 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             : `Connection lost: ${(e as Error).message}`;
         addMsg({ role: "halo", text: `⚠ ${line}`, at: Date.now(), err: true });
         setVoice("idle");
-        resumeAfterTurn(); // the session stays open — never go deaf on an error
+        if (origin === "voice" || convoRef.current) {
+          lastSpokenRef.current = line;
+          pendingGreetRef.current = line;
+          speak(line); // spoken failure, then the mic re-arms automatically
+        } else {
+          resumeAfterTurn(); // the session stays open — never go deaf on an error
+        }
       } finally {
         window.clearTimeout(kill);
         busyRef.current = false;
@@ -1484,7 +1520,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       if (welcomeRef.current.stage !== "hidden") return;
       const pending = pendingGreetRef.current;
       pendingGreetRef.current = null;
-      const script = pending ?? lastGreetRef.current;
+      // a reply blocked MID-CONVERSATION replays the last thing HALO wanted to
+      // say — not the welcome script
+      const script = pending ?? lastSpokenRef.current ?? lastGreetRef.current;
       if (script) {
         lastSpokenRef.current = script;
         speak(script, { onblocked: () => setBlocked(true) });

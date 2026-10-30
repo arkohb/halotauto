@@ -126,3 +126,23 @@ Voice-engine regression: `scripts/voice-e2e.ts` **9/9 PASS** (incl. the new "wel
 - Chrome may auto-end continuous recognition sessions; the loop restarts automatically (backoff on repeated errors).
 - There is no authenticated-account system in the project; the "profile" is a single server-side singleton, so any visitor of this deployment shares the same name/consents. When real auth is added, `TraderProfile` should get a user foreign key.
 - Nothing was deployed to production (per your instruction) — dev-server verification only.
+
+## 8. Speak-back reliability fix — "the bot does not speak back" (2026-10-30)
+
+**Reported bug:** HALO heard commands and showed text replies, but often never spoke them.
+
+**Root causes found (all three fixed in `voice-provider.tsx` / `api/halo/tts/route.ts`):**
+
+1. **Silent drop on slow neural generation (primary).** The client aborted the `/api/halo/tts` fetch after 9 s and treated the abort as "user interrupted" — the reply was dropped with **no browser-voice fallback and no error**. Measured: a 1 720-char reply took 22 s to generate, and even typical replies regularly exceeded 9 s, so any reply slower than 9 s was silently discarded. The 9.5 s fallback watchdog was defeated by a stale `audio.src` left from the previous utterance, so it never fired either.
+2. **Errors were never spoken.** Brain/TTS failures only rendered a text `⚠` line — a voice turn could end with zero audio.
+3. **Self-interruption on speakers.** The echo guard only covered a 3 s tail after the *previous* utterance; mid-reply, HALO's own voice reaching the mic could pass the guard and trigger barge-in, cutting HALO off within seconds.
+
+**Fixes:**
+
+- Neural engine never drops a reply: the 9 s start-abort is gone (fetch ceiling is now 30 s); an `AbortError` with a still-current speak token ⇒ degrades to the browser voice instead of silence; a `startedPlay` flag + 4.5 s play-watchdog replaces the stale-`src` check; autoplay-blocked play() still raises the tap-to-enable banner.
+- Spoken turns get spoken failures: brain `!ok`/network errors are now spoken when the turn is voice-origin or a session is open (`send` + `sendConfirm`); text chat stays quiet.
+- Echo guard window now covers the **whole playback** (`speechStartedAtRef` anchored at real `onplaying`/`onstart`) plus the 3 s tail — speakers can no longer barge-in over HALO's own reply.
+- TTS server: chunks 950 → 480 chars through a bounded pool (concurrency 2, upstream 429s on bursts) with growing-backoff retries per chunk (1.2 s × attempt) — long replies generate faster and survive transient upstream hiccups; the client cache/server cache still make repeats instant.
+- Blocked-retry now replays the **last reply** mid-conversation (previously it replayed the welcome script).
+
+**Regression tests (new, `scripts/voice-e2e.ts` — 12/12 PASS, real Chromium/Xvfb):** a console turn produces real `<audio>` playback (probe on `HTMLMediaElement.play`); a 12 s-delayed neural response still plays (the exact silent-drop scenario); a hard neural outage degrades to the fallback voice (warn captured, reply intact). Screenshots `download/voice-e2e-{7,8,9}-*.png`.

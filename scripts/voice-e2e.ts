@@ -32,7 +32,13 @@ const ok = (name: string, pass: boolean, detail = "") =>
   await ctx.grantPermissions(["microphone"], { origin: URL });
   const page = await ctx.newPage();
   const errors: string[] = [];
+  const fallbackWarns: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e).slice(0, 120)));
+  page.on("console", (m) => {
+    if (m.type() === "warning" && m.text().includes("[halo-voice] neural engine unavailable")) {
+      fallbackWarns.push(m.text().slice(0, 120));
+    }
+  });
 
   await page.goto(URL, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(9000);
@@ -152,6 +158,113 @@ const ok = (name: string, pass: boolean, detail = "") =>
     }
   });
   ok("REGRESSION: silence-timeout prefs removed from storage (sanitize on hydrate)", prefsSanitized);
+
+  // ══ SPEAK-BACK REGRESSION SUITE ══════════════════════════════════════
+  // The reported bug: “the bot does not speak back when spoken to” — replies
+  // died silently when neural TTS was slow/failed. A reply counts as SPOKEN
+  // only when the audio element actually plays. These tests drive real turns
+  // through the console and observe real playback.
+  await page.evaluate(() => {
+    const w = window as unknown as { __haloAudio: { plays: { src: string }[] } };
+    w.__haloAudio = { plays: [] };
+    const orig = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function (...args: unknown[]) {
+      try {
+        w.__haloAudio.plays.push({ src: String((this as HTMLMediaElement).src).slice(0, 48) });
+      } catch {
+        // ignore
+      }
+      return orig.apply(this, args as []);
+    };
+  });
+  const askHalo = async (q: string) => {
+    await page.evaluate((question) => {
+      const input = document.querySelector('[aria-label="HALO JARVIS console"] input[name="q"]') as HTMLInputElement | null;
+      if (!input) throw new Error("console input not found");
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, question);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.closest("form")?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    }, q);
+  };
+  const lastHaloReply = async () =>
+    page.evaluate(() => {
+      try {
+        const arr = JSON.parse(localStorage.getItem("halo-jarvis-transcript") || "[]") as { role: string; text: string }[];
+        return arr.filter((m) => m.role === "halo").slice(-1)[0]?.text ?? "";
+      } catch {
+        return "";
+      }
+    });
+  const audioPlays = () => page.evaluate(() => (window as unknown as { __haloAudio: { plays: { src: string }[] } }).__haloAudio.plays);
+
+  // console must be open for the typed turns (wake-independent path)
+  if (!(await panelOpen())) {
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll("button")].find((x) => x.getAttribute("aria-label")?.startsWith("Open HALO console"));
+      (b as HTMLElement)?.click();
+    });
+    await page.waitForTimeout(1800);
+  }
+
+  // ── 7. VOICE REPLY (fast path): a turn produces REAL audio playback ──
+  const playsBefore = (await audioPlays()).length;
+  await askHalo("what is my account balance");
+  let played = false;
+  let replyText = "";
+  for (let i = 0; i < 40; i++) {
+    await page.waitForTimeout(750);
+    replyText = await lastHaloReply();
+    if ((await audioPlays()).length > playsBefore) {
+      played = true;
+      break;
+    }
+  }
+  ok(
+    "VOICE REPLY: asking HALO produces real audio playback (not just text)",
+    played && replyText.length > 0 && !replyText.startsWith("⚠"),
+    `played=${played} reply="${replyText.slice(0, 56)}"`
+  );
+  await page.screenshot({ path: `${SHOT}/voice-e2e-7-reply-spoken.png` });
+
+  // ── 8. SLOW NEURAL TTS: a >9s generation must still be SPOKEN ──
+  // (the original bug: the old 9s start-abort dropped the reply silently)
+  await page.route("**/api/halo/tts", async (route) => {
+    await new Promise((r) => setTimeout(r, 12_000));
+    await route.continue();
+  });
+  const playsBeforeSlow = (await audioPlays()).length;
+  const warnsBeforeSlow = fallbackWarns.length;
+  await askHalo("what is my risk status");
+  let slowPlayed = false;
+  for (let i = 0; i < 48; i++) {
+    await page.waitForTimeout(750);
+    if ((await audioPlays()).length > playsBeforeSlow) {
+      slowPlayed = true;
+      break;
+    }
+  }
+  await page.unroute("**/api/halo/tts");
+  ok(
+    "SLOW TTS: 12s neural generation still plays the reply (no silent drop)",
+    slowPlayed && fallbackWarns.length === warnsBeforeSlow,
+    `played=${slowPlayed} warns+${fallbackWarns.length - warnsBeforeSlow}`
+  );
+  await page.screenshot({ path: `${SHOT}/voice-e2e-8-slow-tts.png` });
+
+  // ── 9. NEURAL FAILURE: the reply degrades to the fallback voice — never silence ──
+  await page.route("**/api/halo/tts", (route) => route.abort("failed"));
+  const warnsBeforeFail = fallbackWarns.length;
+  await askHalo("how many open positions do I have");
+  await page.waitForTimeout(6000);
+  await page.unroute("**/api/halo/tts");
+  const failReply = await lastHaloReply();
+  ok(
+    "TTS FAILURE: neural outage degrades to the fallback voice (never silent)",
+    fallbackWarns.length > warnsBeforeFail && failReply.length > 0 && !failReply.startsWith("⚠"),
+    `warns+${fallbackWarns.length - warnsBeforeFail} reply="${failReply.slice(0, 48)}"`
+  );
+  await page.screenshot({ path: `${SHOT}/voice-e2e-9-tts-fallback.png` });
 
   ok("NO PAGE ERRORS: zero uncaught exceptions across all scenarios", errors.length === 0, errors.join(" | ").slice(0, 160));
 
