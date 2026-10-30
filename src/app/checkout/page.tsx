@@ -34,6 +34,7 @@ function CheckoutInner() {
   const router = useRouter();
   const params = useSearchParams();
   const planCode = params.get("plan");
+  const refParam = params.get("ref"); // return visit from a hosted provider checkout
   const [state, setState] = useState<CheckoutState | null>(null);
   const [status, setStatus] = useState<string>("PENDING");
   const [busy, setBusy] = useState(true);
@@ -42,6 +43,7 @@ function CheckoutInner() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const startCheckout = useCallback(async () => {
+    if (!planCode) { router.replace("/pricing"); return; } // no plan chosen yet → pick one
     setBusy(true);
     setError(null);
     try {
@@ -52,6 +54,7 @@ function CheckoutInner() {
       });
       const j = (await r.json()) as { ok: boolean; error?: string } & CheckoutState;
       if (!j.ok) {
+        if (r.status === 404) { router.replace("/pricing"); return; } // unknown/deactivated plan → choose again
         setError(j.error ?? "Could not start checkout.");
         if (r.status === 401) setTimeout(() => router.push("/login?next=/checkout?plan=" + planCode), 900);
         return;
@@ -75,11 +78,48 @@ function CheckoutInner() {
   }, [planCode, router]);
 
   useEffect(() => {
+    if (refParam) return; // provider-return visit — the resume flow below owns it
     void startCheckout();
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [startCheckout]);
+  }, [startCheckout, refParam]);
+
+  // Resume the EXISTING payment after the hosted provider redirect (?ref=…).
+  // Never creates a second transaction — status polling (with provider
+  // self-healing verification on the server) takes over from here.
+  useEffect(() => {
+    if (!refParam || planCode) return;
+    let cancelled = false;
+    (async () => {
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await fetch(`/api/commerce/payment-status?ref=${encodeURIComponent(refParam)}`, { cache: "no-store" });
+        const j = (await r.json()) as { ok: boolean; status?: string; planName?: string; amountCents?: number; currency?: string; provider?: string; error?: string };
+        if (cancelled) return;
+        if (!j.ok) {
+          setError(j.error ?? "Payment not found. Start again from the plans page.");
+          return;
+        }
+        setState({
+          reference: refParam,
+          provider: j.provider ?? "MANUAL",
+          redirectUrl: null,
+          instructions: "",
+          amountCents: j.amountCents ?? 0,
+          currency: j.currency ?? "USD",
+          planName: j.planName ?? "",
+        });
+        setStatus(j.status ?? "PENDING");
+      } catch (e) {
+        if (!cancelled) setError((e as Error).message);
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refParam, planCode]);
 
   // Poll payment status while pending (manual verification or provider check).
   useEffect(() => {
@@ -159,12 +199,23 @@ function CheckoutInner() {
             </a>
           ) : (
             <>
-              <div className="rounded-xl p-4" style={{ background: A.cyan(0.05), border: `1px solid ${A.cyan(0.3)}` }}>
-                <div className="mb-1.5 flex items-center gap-2 text-[10px] font-extrabold tracking-[0.14em]" style={{ color: C.cyan }}>
-                  <ShieldCheck size={13} /> MANUAL PAYMENT — VERIFIED BY AN ADMINISTRATOR
+              {state.provider === "MANUAL" ? (
+                <div className="rounded-xl p-4" style={{ background: A.cyan(0.05), border: `1px solid ${A.cyan(0.3)}` }}>
+                  <div className="mb-1.5 flex items-center gap-2 text-[10px] font-extrabold tracking-[0.14em]" style={{ color: C.cyan }}>
+                    <ShieldCheck size={13} /> MANUAL PAYMENT — VERIFIED BY AN ADMINISTRATOR
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed" style={{ color: C.txt2 }}>{state.instructions}</p>
                 </div>
-                <p className="text-[11.5px] leading-relaxed" style={{ color: C.txt2 }}>{state.instructions}</p>
-              </div>
+              ) : (
+                <div className="rounded-xl p-4" style={{ background: A.blue(0.06), border: `1px solid ${A.blue(0.3)}` }}>
+                  <div className="mb-1.5 flex items-center gap-2 text-[10px] font-extrabold tracking-[0.14em]" style={{ color: C.cyan }}>
+                    <ShieldCheck size={13} /> {state.provider} PAYMENT — VERIFYING
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed" style={{ color: C.txt2 }}>
+                    This page updates automatically as soon as your {state.provider} payment is confirmed.
+                  </p>
+                </div>
+              )}
 
               <div className="rounded-xl p-4" style={{ background: A.white(0.03), border: `1px solid ${C.line}` }}>
                 <div className="mb-1 text-[9px] font-extrabold tracking-[0.16em]" style={{ color: C.label }}>YOUR PAYMENT REFERENCE</div>

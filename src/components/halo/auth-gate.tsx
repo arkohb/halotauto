@@ -3,16 +3,15 @@
 // ══════════════════════════════════════════════════════════════════════════
 //  AUTH GATE · commercial-mode access overlay for the trading app
 //
-//  OWNER MODE (HALO_COMMERCE unset) → renders nothing; the app behaves
-//  exactly as it always has for the owner's own installation.
-//
-//  COMMERCIAL MODE (HALO_COMMERCE=on):
+//  COMMERCIAL MODE (default — the platform is a sold product):
 //   · signed out            → premium sign-in / create-account overlay
 //   · account without a
 //     valid license         → license activation overlay (device-bound),
 //                             with precise server reasons (suspended /
 //                             revoked / expired / not activated / none)
 //   · valid license         → renders nothing; the dashboard is fully live
+//
+//  OWNER MODE (HALO_COMMERCE=off) → renders nothing; legacy local behaviour.
 //
 //  License validity is ALWAYS established server-side (/api/auth/me →
 //  licenseStatus()); browser storage is never trusted. This gate guards UI

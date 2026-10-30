@@ -1,10 +1,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 //  LOGIN-FIRST GATE · the app always opens on the login dashboard
 //
-//  OWNER MODE (HALO_COMMERCE unset) → pass-through; dev/E2E/owner behave
-//  exactly as before (no gate).
-//
-//  COMMERCIAL MODE (HALO_COMMERCE=on):
+//  COMMERCIAL MODE (default — the platform is a sold product):
 //   · unauthenticated page navigation → redirected to /login?next=… so the
 //     app ALWAYS opens on the login dashboard (server-side, before any
 //     dashboard HTML/JS is served).
@@ -13,6 +10,10 @@
 //   · public surfaces stay reachable: sign-in, registration, password
 //     recovery, the pricing page, e-mail verification links and the
 //     payment/TV webhooks (server-to-server, no browser session).
+//
+//  OWNER MODE (HALO_COMMERCE=off) → pass-through; legacy local behaviour.
+//  The default is code-level ON so a lost/reset .env can never silently
+//  re-open the app.
 //
 //  The cookie-presence check here is the fast outer ring only; every
 //  sensitive endpoint still re-validates the session and license
@@ -42,7 +43,7 @@ const PUBLIC_API_PREFIXES = [
 ];
 
 export function middleware(req: NextRequest) {
-  if (process.env.HALO_COMMERCE !== "on") return NextResponse.next();
+  if (process.env.HALO_COMMERCE === "off") return NextResponse.next();
 
   const { pathname, search } = req.nextUrl;
   const hasSession = () => !!req.cookies.get(SESSION_COOKIE)?.value;

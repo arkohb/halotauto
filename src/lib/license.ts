@@ -2,11 +2,12 @@
 //  LICENSE GATE · commercial enforcement seam for the trading app
 //
 //  MODES
-//  - OWNER MODE (default; HALO_COMMERCE unset): no gate at all. Dev, E2E
-//    and the owner's own installation behave exactly as before.
-//  - COMMERCIAL MODE (HALO_COMMERCE=on): consequential endpoints require an
-//    authenticated account whose license is ACTIVE and unexpired, with the
-//    feature entitlement for the specific surface (Starter→Ultimate).
+//  - COMMERCIAL MODE (default; the platform is a sold product): consequential
+//    endpoints require an authenticated account whose license is ACTIVE and
+//    unexpired, with the feature entitlement for the specific surface
+//    (Starter→Ultimate). The gate is code-level ON so a lost/reset .env can
+//    never silently re-open the app — opt OUT only with HALO_COMMERCE=off.
+//  - OWNER MODE (HALO_COMMERCE=off): no gate at all — legacy local behaviour.
 //
 //  MT5 PROTECTION GUARANTEE
 //  This gate is INDEPENDENT of position management. It only guards NEW
@@ -23,7 +24,10 @@ import { hasFeature, parseEntitlements } from "@/lib/commerce/entitlements";
 import { GATE_FEATURES } from "@/lib/commerce/constants";
 
 export function isCommercialEnabled(): boolean {
-  return process.env.HALO_COMMERCE === "on";
+  // Commercial by default: the platform is a sold product. Only an explicit
+  // HALO_COMMERCE=off (legacy local dev) disables the gate — this way a
+  // lost/reset .env can never silently re-open the app to anonymous users.
+  return process.env.HALO_COMMERCE !== "off";
 }
 
 /** Back-compat alias used by older callers. */

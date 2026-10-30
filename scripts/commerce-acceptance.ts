@@ -252,11 +252,24 @@ async function registerAndLogin(a: Actor, n: string): Promise<string> {
   const statsRevenue = ((rStats.j.revenue as { totalCents?: number }) ?? {}).totalCents;
   ok("35. revenue equals VERIFIED payments only (DB cross-check)", rStats.j.ok === true && statsRevenue === dbRevenue, `stats=${statsRevenue} db=${dbRevenue}`);
 
-  // ══ OWNER-MODE LIVE SERVER (read-only probes on :3000) ════════════════
-  const rOwnerState = await fetch(`${OWNER}/api/bot/state`, { cache: "no-store" });
-  const ownerState = (await rOwnerState.json()) as { enabled?: boolean; symbol?: string };
+  // ══ OWNER LIVE SERVER (read-only probes on :3000) ═════════════════════
+  // The owner server now runs login-first commercial mode BY DEFAULT, so the
+  // read-only probe must authenticate first (same env creds as voice-e2e).
+  const ownerCreds = { identifier: process.env.HALO_E2E_EMAIL ?? "", password: process.env.HALO_E2E_PASSWORD ?? "" };
+  let ownerCookie = "";
+  if (ownerCreds.identifier && ownerCreds.password) {
+    const lr = await fetch(`${OWNER}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...ownerCreds, remember: false }),
+    });
+    const sc = lr.headers.get("set-cookie");
+    if (sc) ownerCookie = sc.split(";")[0];
+  }
+  const rOwnerState = await fetch(`${OWNER}/api/bot/state`, { cache: "no-store", ...(ownerCookie ? { headers: { Cookie: ownerCookie } } : {}) });
+  const ownerState = (await rOwnerState.json().catch(() => ({}))) as { enabled?: boolean; symbol?: string };
   const rOwnerPricing = await fetch(`${OWNER}/pricing`);
-  ok("30. owner live server intact: engine running + pricing renders (§19.30 regression)", rOwnerState.status === 200 && ownerState.enabled === true && rOwnerPricing.status === 200, `engine=${ownerState.enabled} symbol=${ownerState.symbol}`);
+  ok("30. owner live server intact: engine running + pricing renders (§19.30 regression)", rOwnerState.status === 200 && ownerState.enabled === true && rOwnerPricing.status === 200, `state=${rOwnerState.status} engine=${ownerState.enabled} symbol=${ownerState.symbol} pricing=${rOwnerPricing.status}`);
 
   ok("25-27+29. MT5 protection: gate wraps ONLY start·resumeNew·reset; no code path from licensing to position close/SL/TP (code-audited)", true, "runtime MT5 demo test = owner-required before production");
   ok("19b. Super Admin comp-license issuance exercised twice during this run (§19.19)", rComp1.j.ok === true && rComp2.j.ok === true);

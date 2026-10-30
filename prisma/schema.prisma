@@ -189,8 +189,8 @@ model PineStrategy {
 //  COMMERCIAL PLATFORM — accounts, plans, licenses, payments, audit
 //  (Replaces the legacy single-row License gate. The owner's legacy row is
 //  ported to a complimentary license by scripts/commerce-setup.ts.)
-//  Enforcement is opt-in: with HALO_COMMERCE unset the app runs in owner
-//  mode (no gate). With HALO_COMMERCE=on, consequential trading endpoints
+//  Enforcement is on by default (the platform is a sold product); set
+//  HALO_COMMERCE=off for legacy owner mode. Consequential trading endpoints
 //  require an authenticated customer with a valid license entitlement.
 //  NEVER connected to open-position management or broker-side protection.
 // ══════════════════════════════════════════════════════════════════════════
