@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { botState, resetBot, startBot, stopBot, closeOpenTrade, setPauseNew } from "@/lib/bot";
+import { requireLicensed } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
     const { action } = (await req.json()) as { action: string };
+    const gate = await requireLicensed();
+    if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
     if (action === "start") await startBot();
     else if (action === "stop") await stopBot();
     else if (action === "reset") await resetBot();

@@ -20,6 +20,7 @@ import {
   Activity,
   Bell,
   BookOpen,
+  Braces,
   FlaskConical,
   Globe,
   Landmark,
@@ -49,7 +50,8 @@ export type HaloView =
   | "trade-history"
   | "briefing"
   | "learning"
-  | "voice";
+  | "voice"
+  | "strategies";
 
 interface NavItem {
   id: HaloView;
@@ -66,6 +68,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { id: "activity", label: "Trading Activity", icon: Activity },
       { id: "risk", label: "Risk Guardian", icon: ShieldCheck },
       { id: "backtest", label: "Strategy Lab", icon: FlaskConical },
+      { id: "strategies", label: "Strategy Studio", icon: Braces },
       { id: "trade-history", label: "Trade History", icon: ScrollText },
       { id: "performance", label: "Performance", icon: TrendingUp },
       { id: "briefing", label: "Daily Briefing", icon: SunMedium },

@@ -61,6 +61,8 @@ import { MarketOverview } from "@/components/halo/market-overview";
 import { AccountSummary } from "@/components/halo/account-summary";
 import { LatestSignal, MonitorStatus, RecentTrades } from "@/components/halo/dashboard-strip";
 import { NavRail, NavChips, type HaloView } from "@/components/halo/nav-rail";
+import { StrategyStudio } from "@/components/halo/strategy-studio";
+import { LicenseGate } from "@/components/halo/license-gate";
 import { FxProvider } from "@/lib/halo/fx";
 import { FxSettingsCard } from "@/components/halo/fx-settings-card";
 import { ActionBridge, type BridgeHandlers } from "@/components/halo/action-bridge";
@@ -341,6 +343,7 @@ export default function Page() {
 
   return (
     <FxProvider>
+      <LicenseGate />
       <HaloVoiceProvider snapshot={state}>
       <ActionBridge handlers={bridgeHandlers} />
       <div className="flex min-h-screen flex-col text-[#EAF3FF]">
@@ -391,6 +394,7 @@ export default function Page() {
                       cfg={state.config}
                       atr={state.engine.atr}
                       price={state.feed.price}
+                      pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
                     />
                   </div>
                   <div className="col-span-12 space-y-3 md:col-span-6 xl:col-span-4">
@@ -478,6 +482,7 @@ export default function Page() {
                     cfg={state.config}
                     atr={state.engine.atr}
                     price={state.feed.price}
+                    pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
                   />
                 </div>
                 <div className="col-span-12 space-y-3 xl:col-span-4">
@@ -552,6 +557,9 @@ export default function Page() {
                 </div>
               </div>
             )}
+
+            {/* ════════ STRATEGY STUDIO · Pine Script → indicator → auto-trade ════════ */}
+            {view === "strategies" && <StrategyStudio state={state} notify={notify} />}
 
             {/* ════════ TRADE HISTORY (mockup 04) ════════ */}
             {view === "trade-history" && (

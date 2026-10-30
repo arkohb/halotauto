@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { botState, updateBotConfig } from "@/lib/bot";
 import { SYMBOLS, TIMEFRAMES } from "@/lib/market";
 import type { HaloConfig } from "@/lib/halo/types";
+import { requireLicensed } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,8 @@ interface Body {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Body;
+    const gate = await requireLicensed();
+    if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
     const symbol =
       body.symbol && SYMBOLS.some((s) => s.id === body.symbol) ? body.symbol : undefined;
     const tf = body.tf && (TIMEFRAMES as readonly string[]).includes(body.tf) ? body.tf : undefined;

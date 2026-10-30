@@ -42,7 +42,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Candle, HaloConfig, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
-import { C, fmtPx } from "@/lib/halo/ui-helpers";
+import { C, fmtPx, type PineOverlayData } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
 import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-symbols";
 import { TvChart } from "./tv-chart";
@@ -64,6 +64,8 @@ interface ChartProps {
   statusLine?: string;
   /** where fires are routed, e.g. "LIVE → ICMarketsSC-MT5 · 12345" */
   routing?: string;
+  /** when a Pine strategy is the bot's active strategy, its indicator plots here */
+  pineStrategy?: { id: string; name: string } | null;
   /** EA bot running */
   enabled: boolean;
   /** EA auto-attaches to this chart (auto-start on boot) */
@@ -206,7 +208,7 @@ const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator
 export default function ChartPanel(props: ChartProps) {
   const {
     candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing,
-    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy,
   } = props;
   const [mode, setMode] = useState<ChartMode>("3el");
   const [tvNote, setTvNote] = useState<string | null>(null);
@@ -544,6 +546,79 @@ export default function ChartPanel(props: ChartProps) {
     mk.setMarkers(markers);
   }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle]);
 
+  // ── PINE STRATEGY OVERLAY · the active custom indicator draws itself here ──
+  const [pineData, setPineData] = useState<PineOverlayData | null>(null);
+  const pineSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  const pineMarkersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
+
+  useEffect(() => {
+    if (!pineStrategy) return; // clearing happens via the render effect below
+    let alive = true;
+    const load = async () => {
+      try {
+        const r = await fetch(`/api/strategies/${pineStrategy.id}/preview?symbol=${symbol}&tf=${tf}&limit=400`, { cache: "no-store" });
+        const j = (await r.json()) as { ok: boolean; plots?: PineOverlayData["plots"]; markers?: PineOverlayData["markers"]; name?: string };
+        if (alive && j.ok) {
+          setPineData({ plots: j.plots ?? [], markers: j.markers ?? [], name: j.name ?? pineStrategy.name });
+        } else if (alive && !j.ok) {
+          setPineData(null);
+        }
+      } catch {
+        // keep last overlay on network hiccups
+      }
+    };
+    void load();
+    const id = setInterval(load, 60_000); // indicator series move slowly — refresh once a minute
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [pineStrategy?.id, pineStrategy, symbol, tf]);
+
+  useEffect(() => {
+    if (mode !== "3el") return;
+    const chart = chartRef.current;
+    const cs = candleRef.current;
+    if (!chart || !cs) return;
+    // clear previous pine series (own ref — never touches the 3EL overlays)
+    for (const s of pineSeriesRef.current) {
+      try {
+        chart.removeSeries(s);
+      } catch {
+        // already gone
+      }
+    }
+    pineSeriesRef.current = [];
+    if (pineMarkersRef.current) {
+      pineMarkersRef.current.setMarkers([]);
+    }
+    if (!pineStrategy || !pineData || candles.length === 0) return;
+    for (const p of pineData.plots.slice(0, 6)) {
+      if (p.data.length === 0) continue;
+      const ser = chart.addSeries(LineSeries, {
+        color: p.color || C.cyan,
+        lineWidth: Math.min(3, Math.max(1, p.lineWidth ?? 2)) as 1 | 2 | 3,
+        lastValueVisible: true,
+        priceLineVisible: false,
+        title: p.title,
+        crosshairMarkerVisible: false,
+        pointMarkersVisible: false,
+      });
+      ser.setData(p.data.map((d) => ({ time: (d.time / 1000) as UTCTimestamp, value: d.value })));
+      pineSeriesRef.current.push(ser);
+    }
+    const mkPine: SeriesMarker<Time>[] = pineData.markers.slice(0, 120).map((m) => ({
+      time: (m.time / 1000) as UTCTimestamp,
+      position: m.up ? "belowBar" : "aboveBar",
+      shape: m.up ? "arrowUp" : "arrowDown",
+      color: m.color || (m.up ? C.green : C.red),
+      text: m.text || (m.up ? "BUY" : "SELL"),
+      size: 1.5,
+    }));
+    if (!pineMarkersRef.current) pineMarkersRef.current = createSeriesMarkers(cs, []);
+    pineMarkersRef.current.setMarkers(mkPine);
+  }, [pineData, candles, mode, pineStrategy]);
+
   const heightCls = "h-[380px] sm:h-[440px] xl:h-[540px]";
 
   return (
@@ -591,6 +666,11 @@ export default function ChartPanel(props: ChartProps) {
         {tvNote && mode === "tv" && (
           <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(233,185,78,0.5)", color: C.gold }}>
             TV FALLBACK
+          </span>
+        )}
+        {pineStrategy && mode === "3el" && (
+          <span className="hidden rounded-md px-1.5 py-[5px] text-[9px] font-extrabold uppercase tracking-wider backdrop-blur md:inline" style={{ background: "rgba(0,214,143,0.14)", color: C.green, boxShadow: "inset 0 0 0 1px rgba(0,214,143,0.4)" }}>
+            PINE · {pineStrategy.name}
           </span>
         )}
       </div>

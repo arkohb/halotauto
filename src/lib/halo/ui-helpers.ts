@@ -80,6 +80,42 @@ export interface ExecRes {
   broker: { id: string; label: string; kind: string; status: string; statusMsg: string } | null;
 }
 
+/** which strategy the bot is trading — from /api/bot/state (additive) */
+export interface StrategyRes {
+  active: boolean;
+  id: string | null;
+  name: string;
+  kind: "builtin" | "pine";
+  symbol: string;
+  tf: string;
+  warmed: boolean;
+  position: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null } | null;
+  selected: { id: string | null; name: string; kind: "builtin" | "pine" };
+}
+
+/** custom-indicator overlay rendered on the 3EL chart (from /api/strategies/[id]/preview) */
+export interface PineOverlayPlot {
+  key: string;
+  title: string;
+  style: string;
+  color: string;
+  lineWidth: number;
+  overlay: boolean;
+  data: { time: number; value: number; color?: string }[];
+}
+export interface PineOverlayMarker {
+  time: number;
+  up: boolean;
+  text: string;
+  color: string;
+  title: string;
+}
+export interface PineOverlayData {
+  plots: PineOverlayPlot[];
+  markers: PineOverlayMarker[];
+  name: string;
+}
+
 export interface BotStateRes {
   enabled: boolean;
   autoAttach: boolean;
@@ -91,6 +127,7 @@ export interface BotStateRes {
   config: HaloConfig;
   engine: EngineSnapshot;
   exec: ExecRes;
+  strategy?: StrategyRes;
 }
 
 export function decimalsOf(mintick: number): number {

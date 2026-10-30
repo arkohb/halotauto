@@ -19,6 +19,7 @@ import { getAdapter, parseCreds } from "@/lib/brokers";
 import type { PendingOrderInfo, PositionInfo } from "@/lib/brokers/types";
 import { loadExecSettings, resolveBroker } from "@/lib/execution";
 import { botState, closeOpenTrade, resetBot } from "@/lib/bot";
+import { selectedStrategyInfo } from "@/lib/pine-bot";
 import { scannerScanNow, scannerState } from "@/lib/scanner";
 import { pickJoke, type JokeStyle } from "@/lib/halo/jokes";
 
@@ -297,4 +298,59 @@ export function jokeDetail(style: string | undefined): string {
   const j = pickJoke(valid, lastJoke);
   lastJoke = j.text;
   return j.text;
+}
+
+// ── strategy selection (Strategy Studio) ─────────────────────────────────
+
+/** Verified read of every strategy + which one the bot trades right now. */
+export async function listStrategiesDetail(): Promise<string> {
+  try {
+    const { db } = await import("@/lib/db");
+    const rows = await db.pineStrategy.findMany({ orderBy: { updatedAt: "desc" } });
+    const sel = selectedStrategyInfo();
+    const lines: string[] = [];
+    lines.push(
+      sel.kind === "pine"
+        ? `The bot is currently auto-trading the Pine strategy "${sel.name}".`
+        : "The bot is currently auto-trading the built-in HALO 3EL v1.2 engine."
+    );
+    if (rows.length === 0) {
+      lines.push("No custom Pine strategies exist yet — add one in the Strategy Studio.");
+      return lines.join(" ");
+    }
+    lines.push(`${rows.length} Pine strateg${rows.length === 1 ? "y" : "ies"} in the studio:`);
+    for (const r of rows) {
+      const flags = [r.status === "compiled" ? "compiled" : r.status === "error" ? "compile errors" : "draft", r.active ? "ACTIVE" : null].filter(Boolean).join(", ");
+      lines.push(`• ${r.name} — ${flags}`);
+    }
+    return lines.join(" ");
+  } catch (e) {
+    return `I could not read the strategy list: ${(e as Error).message}`;
+  }
+}
+
+/** Consequential: switch the bot's auto-trading strategy (confirmed by the trader). */
+export async function selectStrategyExec(name: string): Promise<OpResult> {
+  const req = (name ?? "").trim().toLowerCase();
+  if (!req || req === "default" || req === "built-in" || req === "builtin" || req.includes("3el") || req.includes("halo 3")) {
+    const { deactivatePineStrategy } = await import("@/lib/pine-bot");
+    const was = selectedStrategyInfo();
+    if (was.kind === "builtin") return { ok: true, detail: "The built-in HALO 3EL v1.2 engine is already the bot's strategy — nothing changed." };
+    await deactivatePineStrategy();
+    return { ok: true, detail: `Deactivated "${was.name}" — the bot is back on the built-in HALO 3EL v1.2 engine.` };
+  }
+  try {
+    const { db } = await import("@/lib/db");
+    const rows = await db.pineStrategy.findMany();
+    const match = rows.find((r) => r.name.toLowerCase() === req) ?? rows.find((r) => r.name.toLowerCase().includes(req));
+    if (!match) {
+      return { ok: false, detail: `No strategy named "${name}" in the Strategy Studio. Say "list my strategies" to hear the exact names.` };
+    }
+    const { activatePineStrategy } = await import("@/lib/pine-bot");
+    const r = await activatePineStrategy(match.id);
+    if (!r.ok) return { ok: false, detail: `Could not activate "${match.name}": ${r.error}` };
+    return { ok: true, detail: `The bot now auto-trades "${match.name}". The built-in 3EL engine's fires are skipped while it stays active.` };
+  } catch (e) {
+    return { ok: false, detail: `Strategy switch failed: ${(e as Error).message}` };
+  }
 }

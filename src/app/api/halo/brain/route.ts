@@ -14,6 +14,8 @@ import {
   resetEngineExec,
   runMarketScanDetail,
   jokeDetail,
+  listStrategiesDetail,
+  selectStrategyExec,
 } from "@/lib/halo/operations";
 import { decimalsOf } from "@/lib/market-symbols";
 
@@ -168,14 +170,15 @@ function detailFor(id: string, s: Snap): string {
 // ── external intel reads (live fetch at question time, never invented) ───
 const INTEL_ACTION_IDS = new Set(["get_economic_calendar", "get_market_news", "get_market_quote"]);
 
-// ── operation reads (orders / scan / humour — verified live, async) ──────
-const OP_READ_IDS = new Set(["list_pending_orders", "run_market_scan", "tell_joke"]);
+// ── operation reads (orders / scan / humour / strategies — verified live) ──
+const OP_READ_IDS = new Set(["list_pending_orders", "run_market_scan", "tell_joke", "list_strategies"]);
 
 async function opReadDetail(id: string, params: Record<string, string | boolean>): Promise<string> {
   try {
     if (id === "list_pending_orders") return await listPendingOrdersDetail();
     if (id === "run_market_scan") return await runMarketScanDetail();
     if (id === "tell_joke") return jokeDetail(typeof params.style === "string" ? params.style : undefined);
+    if (id === "list_strategies") return await listStrategiesDetail();
     return "";
   } catch (e) {
     return `That operation failed: ${(e as Error).message.slice(0, 140)}. I won't guess at the result.`;
@@ -319,6 +322,16 @@ async function executeConsequential(p: PendingAction): Promise<{ ok: boolean; de
     }
     if (id === "reset_engine") {
       return resetEngineExec();
+    }
+    if (id === "select_strategy") {
+      const name = typeof p.params.strategy === "string" ? p.params.strategy : "default";
+      const r = await selectStrategyExec(name);
+      if (r.ok) {
+        const st = await botState();
+        const sel = st.strategy?.selected;
+        return { ok: true, detail: `${r.detail} Verified: the runtime now reports ${sel ? `"${sel.name}"` : "the built-in engine"} as the bot's strategy.` };
+      }
+      return r;
     }
     return { ok: false, detail: "That action is not executable." };
   } catch (e) {

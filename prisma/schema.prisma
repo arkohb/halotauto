@@ -157,3 +157,43 @@ model ScannerSymbol {
 
   @@unique([symbol, tf])
 }
+
+// Trader-authored Pine Script strategy (Strategy Studio).
+// The trader pastes a Pine v5 script; the compiler turns it into a real
+// indicator (chart plots) + optional auto-trading signals. Exactly ONE
+// strategy can be active for auto-trading at a time (active=true); with
+// none active the bot trades the built-in HALO 3EL v1.2 engine.
+model PineStrategy {
+  id           String    @id @default(cuid())
+  name         String
+  description  String    @default("")
+  pineSource   String
+  compiledJson String    @default("{}") // compiled artifact meta (plots, inputs, kind…)
+  status       String    @default("draft") // draft | compiled | error
+  compileMsg   String    @default("") // human-readable last compile result
+  active       Boolean   @default(false) // selected as THE bot strategy
+  // risk overlay — applied ONLY when the script itself sets no SL/TP
+  useSlATR     Boolean   @default(true)
+  slATRm       Float     @default(1.5)
+  useSlPts     Boolean   @default(false)
+  slPts        Float     @default(1000)
+  rrMult       Float     @default(3.0)
+  // manual signal mapping for indicator-only scripts (no strategy.* calls)
+  signalJson   String    @default("{}") // { mode: "strategy"|"manual", longVar, shortVar, exitVar }
+  lastTradedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// Commercial license (one-time payment activation).
+// Enforcement is opt-in: when HALO_LICENSE_SECRET is unset the app runs in
+// owner mode (no gate). When set, the UI locks until a valid key activates.
+model License {
+  id          String    @id @default("main")
+  key         String    @default("")
+  holder      String    @default("") // trader name / e-mail the key was minted for
+  plan        String    @default("lifetime")
+  status      String    @default("inactive") // inactive | active
+  activatedAt DateTime?
+  createdAt   DateTime  @default(now())
+}

@@ -34,7 +34,8 @@ export type ViewId =
   | "trade-history"
   | "briefing"
   | "learning"
-  | "voice";
+  | "voice"
+  | "strategies";
 
 export interface ViewMeta {
   id: ViewId;
@@ -48,6 +49,7 @@ export const VIEWS: ViewMeta[] = [
   { id: "activity", label: "Trading Activity", aliases: ["trading activity", "activity", "open positions", "positions"] },
   { id: "risk", label: "Risk Guardian", aliases: ["risk guardian", "risk", "protection"] },
   { id: "backtest", label: "Strategy Lab", aliases: ["strategy lab", "backtest", "lab", "signals lab"] },
+  { id: "strategies", label: "Strategy Studio", aliases: ["strategy studio", "strategies", "pine editor", "pine script", "pine studio", "my strategies", "custom strategy"] },
   { id: "trade-history", label: "Trade History", aliases: ["trade history", "history", "closed trades", "trade log"] },
   { id: "performance", label: "Performance", aliases: ["performance", "stats", "statistics", "analytics"] },
   { id: "briefing", label: "Daily Briefing", aliases: ["daily briefing", "briefing", "market brief"] },
@@ -282,6 +284,13 @@ export const ACTIONS: ActionDef[] = [
     },
   },
   {
+    id: "list_strategies",
+    description: "List every strategy in the Strategy Studio: the built-in HALO 3EL v1.2 engine plus the trader's compiled Pine strategies, and which one the bot is currently auto-trading.",
+    scope: "server",
+    risk: "read",
+    params: {},
+  },
+  {
     id: "explain_last_rejection",
     description: "Explain from engine state why nothing entered: burned/skipped/expired level counters and the last outcome.",
     scope: "server",
@@ -325,6 +334,15 @@ export const ACTIONS: ActionDef[] = [
 
   // ── tier 3 · consequential controls (server executes ONLY after the
   //    trader explicitly confirms; every execution is audit-logged) ──
+  {
+    id: "select_strategy",
+    description: "Switch which strategy the bot auto-trades: pick a named Pine strategy from the Strategy Studio, or 'default' to restore the built-in HALO 3EL v1.2 engine. While a Pine strategy trades, the built-in engine's fires are skipped.",
+    scope: "server",
+    risk: "consequential",
+    params: { strategy: { type: "string", desc: "strategy name (say 'default' for the built-in HALO 3EL engine)" } },
+    confirmQuestion: "Switch the bot's auto-trading strategy?",
+    confirmEffect: "The bot will trade the selected strategy on the chart symbol/timeframe — the other engine stays armed for levels but its fires are skipped.",
+  },
   {
     id: "pause_new_entries",
     description: "Pause NEW automated entries while KEEPING the EA attached: it keeps managing an open trade and its SL/TP, but accepts no fresh C3 fires while flat. NOT for \"stop the bot\" — that maps to emergency_stop. (For a full detach use emergency stop.)",

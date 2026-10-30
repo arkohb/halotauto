@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "files": ["../src/lib/pine/index.ts", "../src/lib/strategy-select.ts", "../src/lib/pine-bot.ts", "../src/lib/license.ts", "../src/lib/strategy-store.ts", "../src/lib/bot.ts", "../src/app/api/strategies/route.ts", "../src/app/api/strategies/[id]/route.ts", "../src/app/api/strategies/[id]/activate/route.ts", "../src/app/api/strategies/[id]/preview/route.ts", "../src/app/api/license/route.ts", "../src/app/api/bot/control/route.ts", "../src/app/api/bot/config/route.ts", "../scripts/license-mint.ts"]
+}

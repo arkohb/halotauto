@@ -15,6 +15,15 @@ import { Candle, DEFAULT_CONFIG, EngineEvent, HaloConfig } from "./halo/types";
 import { getKlines, getSymbolMeta, tfSec } from "./market";
 import { closeBrokerPosition, clampExec, executeFire, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
 import { sendAlert } from "./alerts";
+import { registerBotProbe } from "./strategy-select";
+import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
+
+// register the live runtime probe for the Pine auto-trade loop (leaf module,
+// avoids a circular import between bot.ts and pine-bot.ts)
+registerBotProbe(() => {
+  const b = getBot();
+  return { enabled: b.enabled, pauseNew: b.pauseNew, symbol: b.symbol, tf: b.tf };
+});
 
 export interface BotRuntime {
   cfg: HaloConfig;
@@ -246,10 +255,10 @@ function startTimer(): void {
 /** Instant mode: trial-run the live candle on a clone; commit only on fire/exit. */
 function liveTrial(live: Candle): void {
   const bot = getBot();
-  // PAUSE NEW ENTRIES: while flat, new signals are not evaluated at all —
-  // the engine can never emit a fire we would refuse to execute.
-  // An open trade keeps its full lifecycle (win/loss detection) untouched.
-  if (bot.pauseNew && !bot.engine.snapshot().trade) return;
+  // PAUSE NEW ENTRIES / PINE STRATEGY ACTIVE: while flat, new signals are not
+  // evaluated at all — the engine can never emit a fire we would refuse to
+  // execute. An open trade keeps its full lifecycle (win/loss detection).
+  if ((bot.pauseNew || getPineBotInfo().active) && !bot.engine.snapshot().trade) return;
   if (bot.cfg.sigMode !== "instant") return;
   const clone = bot.engine.clone();
   const events = clone.processBar(live, false);
@@ -266,6 +275,17 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
   const symLabel = meta.label.split("·")[0].trim() || bot.symbol;
   for (const e of events) {
     if (e.type === "fire") {
+      // SINGLE ACTIVE STRATEGY — when a Pine strategy is selected in the
+      // Strategy Studio, the 3EL engine stays armed for levels & charting but
+      // its fires are NOT executed. Alerted honestly, never dropped silently.
+      if (getPineBotInfo().active) {
+        void sendAlert({
+          kind: "status",
+          title: "HALO 3EL · FIRE SKIPPED — PINE STRATEGY ACTIVE",
+          body: `${e.dir === -1 ? "SELL" : "BUY"} @ ${e.entry} on ${bot.symbol} ${bot.tf} was NOT executed: the bot is currently trading the Pine strategy "${getPineBotInfo().name}". Deactivate it in the Strategy Studio to restore 3EL auto-trading.`,
+        });
+        continue;
+      }
       const exec = await loadExecSettings();
       const live = exec.executionMode === "live";
       const tradeId = await executeFire({
@@ -288,37 +308,38 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
         body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nMode: ${live ? `LIVE · ${bot.liveBroker?.label ?? "broker"}` : "PAPER"}\nRisk ${e.riskPips.toFixed(1)} pips → reward ${e.rewardPips.toFixed(1)} pips`,
       });
     } else if (e.type === "win" || e.type === "loss") {
+      const hadExecuted = !!bot.openTradeDbId; // a skipped fire (Pine active) never books anything
       const wasLive = bot.openTradeExec === "LIVE";
-      if (wasLive && bot.liveBroker) {
+      if (hadExecuted && wasLive && bot.liveBroker) {
         // broker-side SL/TP usually fired already; market-close as backstop
         const d = bot.openTradeDir;
         await closeBrokerPosition(bot.liveBroker, bot.symbol, d === 0 ? undefined : d).catch(() => {});
       }
-      try {
-        if (bot.openTradeDbId) {
+      if (hadExecuted) {
+        try {
           await db.trade.update({
-            where: { id: bot.openTradeDbId },
+            where: { id: bot.openTradeDbId! },
             data: {
               status: e.type === "win" ? "WIN" : "LOSS",
               resultPips: e.pips,
               closedAt: new Date(e.time),
             },
           });
+          bot.realizedPips += e.type === "win" ? e.pips : -e.pips;
+          await persistBot();
+        } catch {
+          // ignore
         }
-        bot.realizedPips += e.type === "win" ? e.pips : -e.pips;
-        await persistBot();
-      } catch {
-        // ignore
+        void sendAlert({
+          kind: e.type,
+          title: `HALO 3EL ${e.type === "win" ? "TP HIT +" : "SL HIT −"}${e.pips.toFixed(1)} PIPS · ${symLabel}`,
+          body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nRealized book: ${bot.realizedPips >= 0 ? "+" : "−"}${Math.abs(bot.realizedPips).toFixed(1)} pips`,
+        });
       }
       bot.openTradeDbId = null;
       bot.openTradeExec = "PAPER";
       bot.openTradeDir = 0;
       bot.liveBroker = null;
-      void sendAlert({
-        kind: e.type,
-        title: `HALO 3EL ${e.type === "win" ? "TP HIT +" : "SL HIT −"}${e.pips.toFixed(1)} PIPS · ${symLabel}`,
-        body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nRealized book: ${bot.realizedPips >= 0 ? "+" : "−"}${Math.abs(bot.realizedPips).toFixed(1)} pips`,
-      });
     }
   }
   void bar;
@@ -353,11 +374,12 @@ export async function tickBot(force = false): Promise<void> {
 
     for (const c of candles) {
       if (c.time > bot.lastConfirmedTime && c.time + secMs <= now) {
-        // PAUSE NEW ENTRIES: when flat, keep the bar cursor moving (price book
-        // stays fresh) but do NOT feed the engine — no new C1/C2 evaluation,
-        // so it can never emit a fire that would be skipped dishonestly.
+        // PAUSE NEW ENTRIES / PINE STRATEGY ACTIVE: when flat, keep the bar
+        // cursor moving (price book stays fresh) but do NOT feed the engine —
+        // no new C1/C2 evaluation, so it can never emit a fire that would be
+        // refused (or a phantom internal trade) while another strategy trades.
         // When a trade is open the engine keeps processing (SL/TP detection).
-        if (bot.pauseNew && !bot.engine.snapshot().trade) {
+        if ((bot.pauseNew || getPineBotInfo().active) && !bot.engine.snapshot().trade) {
           bot.lastConfirmedTime = c.time;
           bot.lastPrice = c.close;
           continue;
@@ -528,10 +550,12 @@ export async function botState(): Promise<{
   config: HaloConfig;
   engine: ReturnType<HaloEngine["snapshot"]>;
   exec: ExecSummary;
+  strategy: ReturnType<typeof getPineBotInfo> & { selected: { id: string | null; name: string; kind: "builtin" | "pine" } };
 }> {
   await ensureBoot();
   const bot = getBot();
   await tickBot().catch(() => {});
+  void ensurePineBoot().catch(() => {}); // re-arm the Pine auto-trader after restarts
   const meta = getSymbolMeta(bot.symbol);
   const exec = await loadExecSettings();
   let broker: ExecSummary["broker"] = null;
@@ -569,5 +593,6 @@ export async function botState(): Promise<{
       sizePercent: exec.sizePercent,
       broker,
     },
+    strategy: { ...getPineBotInfo(), selected: getPineBotInfo().active ? { id: getPineBotInfo().id, name: getPineBotInfo().name, kind: "pine" } : { id: null, name: "HALO 3EL v1.2", kind: "builtin" } },
   };
 }
