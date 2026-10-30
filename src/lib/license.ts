@@ -54,13 +54,17 @@ export interface LicenseStatus {
 /** Full license/session status for the current request. */
 export async function licenseStatus(): Promise<LicenseStatus> {
   if (!isCommercialEnabled()) {
+    // Owner mode: no license gate — but still resolve the session so that
+    // /api/auth/me, /login redirects and the admin dashboard work while the
+    // owner is signed in.
+    const user = await getSessionUser();
     return {
       commerce: false,
       licensing: false,
-      authenticated: false,
+      authenticated: !!user,
       activated: true,
       mode: "owner",
-      user: null,
+      user,
       license: null,
       reason: "owner",
     };

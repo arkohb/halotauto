@@ -81,6 +81,23 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
   const { canInstall, install } = usePwa();
   const v = useHaloVoice();
 
+  // ── session awareness: avatar links to the customer account dashboard
+  // when a signed-in session exists (commercial mode). Owner mode → the
+  // avatar stays a passive badge, exactly as before.
+  const [signedIn, setSignedIn] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { authenticated?: boolean }) => {
+        if (alive) setSignedIn(!!j.authenticated);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   // ── FX switch — cycles FULL → REDUCED → OFF (persisted by the provider) ──
   const fx = useFx();
 
@@ -208,18 +225,21 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
             {state?.enabled ? "EA ON" : "EA OFF"}
           </span>
 
-          {/* avatar — shows the trader's own initial when a name is set */}
-          <span
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border"
+          {/* avatar — shows the trader's own initial when a name is set;
+              links to /account whenever a session exists */}
+          <a
+            href={signedIn ? "/account" : undefined}
+            aria-label={signedIn ? "My account" : "Trader"}
             title={v.profile.hasName ? v.profile.displayName : "Trader"}
-            style={{ borderColor: A.cyan(0.4), background: `radial-gradient(circle at 35% 30%, ${A.cyan(0.25)}, ${C.navy2})`, boxShadow: `0 0 10px 0 ${A.cyan(0.2)}` }}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full border ${signedIn ? "transition-transform hover:scale-110" : ""}`}
+            style={{ borderColor: A.cyan(0.4), background: `radial-gradient(circle at 35% 30%, ${A.cyan(0.25)}, ${C.navy2})`, boxShadow: `0 0 10px 0 ${A.cyan(0.2)}`, cursor: signedIn ? "pointer" : "default" }}
           >
             {initial ? (
               <span className="text-[12px] font-extrabold" style={{ color: C.ice }}>{initial}</span>
             ) : (
               <User size={14} style={{ color: C.ice }} />
             )}
-          </span>
+          </a>
         </div>
 
         {/* mobile symbol/tf row */}

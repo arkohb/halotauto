@@ -7,7 +7,7 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { ROLES } from "@/lib/commerce/constants";
+import { ROLES, type Role } from "@/lib/commerce/constants";
 import { emailProblem, hashPassword, passwordProblem, requireSuper } from "@/lib/commerce/auth";
 import { logAudit } from "@/lib/commerce/audit";
 
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
       const email = String(body.email ?? "").trim().toLowerCase();
       const fullName = String(body.fullName ?? "").trim();
       const role = String(body.role ?? "");
-      if (!Object.values(ROLES).includes(role as (typeof ROLES)[SUPER_ADMIN])) {
+      if (!Object.values(ROLES).includes(role as Role)) {
         return NextResponse.json({ ok: false, error: "Invalid role." }, { status: 400 });
       }
       const ep = emailProblem(email);
@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
       if (target.role === ROLES.SUPER_ADMIN && target.id !== actor.id) {
         return NextResponse.json({ ok: false, error: "Only another Super Administrator can be edited from a Super Admin session." }, { status: 403 });
       }
-      if (!Object.values(ROLES).includes(role as (typeof ROLES)[SUPER_ADMIN])) {
+      if (!Object.values(ROLES).includes(role as Role)) {
         return NextResponse.json({ ok: false, error: "Invalid role." }, { status: 400 });
       }
       await db.user.update({ where: { id: target.id }, data: { role } });

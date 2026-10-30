@@ -63,7 +63,7 @@ import { AccountSummary } from "@/components/halo/account-summary";
 import { LatestSignal, MonitorStatus, RecentTrades } from "@/components/halo/dashboard-strip";
 import { NavRail, NavChips, type HaloView } from "@/components/halo/nav-rail";
 import { StrategyStudio } from "@/components/halo/strategy-studio";
-import { LicenseGate } from "@/components/halo/license-gate";
+import { AuthGate } from "@/components/halo/auth-gate";
 import { FxProvider } from "@/lib/halo/fx";
 import { FxSettingsCard } from "@/components/halo/fx-settings-card";
 import { ActionBridge, type BridgeHandlers } from "@/components/halo/action-bridge";
@@ -344,7 +344,7 @@ export default function Page() {
 
   return (
     <FxProvider>
-      <LicenseGate />
+      <AuthGate />
       <HaloVoiceProvider snapshot={state}>
       <ActionBridge handlers={bridgeHandlers} />
       <div className="flex min-h-screen flex-col text-[#EAF3FF]">

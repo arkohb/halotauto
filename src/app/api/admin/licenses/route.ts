@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
     const licenses = await db.license.findMany({
       where,
-      include: { user: { select: { email: true, fullName: true } }, activations: { where: { active: true } }, payment: false },
+      include: { user: { select: { email: true, fullName: true } }, activations: { where: { active: true } } },
       orderBy: { createdAt: "desc" },
       take: 200,
     });

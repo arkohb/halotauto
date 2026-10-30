@@ -188,19 +188,14 @@ console.log("\n═══ ⑧ bad scripts compile honestly ═══");
   await api(`/api/strategies/${id}`, { method: "DELETE" });
 }
 
-console.log("\n═══ ⑨ license library (mint → verify → reject) ═══");
+console.log("\n═══ ⑨ license library (CSPRNG format + canonicalisation) ═══");
 {
-  process.env.HALO_LICENSE_SECRET = "e2e-test-secret-123";
-  const { mintKey, verifyKey, canonicalKey } = await import("../src/lib/license");
-  const key = mintKey("trader@example.com");
+  const { generateLicenseKey, canonicalKey } = await import("../src/lib/commerce/license-engine");
+  const key = generateLicenseKey();
   ok(/^HALO-[A-Z2-9]{4}(-[A-Z2-9]{4}){3}$/.test(key), `key format ${key}`);
-  ok(verifyKey(key, "trader@example.com"), "correct key + holder verifies");
-  ok(verifyKey(canonicalKey(key.toLowerCase().replace(/-/g, " ")), "TRADER@EXAMPLE.COM"), "canonicalisation + case-insensitive holder");
-  ok(!verifyKey(key, "other@example.com"), "wrong holder rejected");
-  ok(!verifyKey(key.slice(0, 17) + (key.endsWith("A") ? "B" : "A"), "trader@example.com"), "tampered key rejected");
-  const key2 = mintKey("trader@example.com");
-  ok(key2 === key, "minting is deterministic (re-issue safe)");
-  delete process.env.HALO_LICENSE_SECRET;
+  ok(canonicalKey(key.toLowerCase().replace(/-/g, " ")) === key, "canonicalisation normalises case + separators");
+  const key2 = generateLicenseKey();
+  ok(key2 !== key, "keys are unique (CSPRNG, not sequential)");
 }
 {
   // owner mode: licensing off → activation endpoint is a friendly no-op
