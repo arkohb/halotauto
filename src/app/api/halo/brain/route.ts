@@ -5,6 +5,16 @@ import { botState, startBot, stopBot, closeOpenTrade, setPauseNew, updateBotConf
 import { buildSnapshot } from "@/lib/halo/assistant-snapshot";
 import { getAction, validateActionParams, ACTIONS, VIEWS } from "@/lib/halo/actions";
 import { getCalendar, getNews, getQuote, type CalendarDay } from "@/lib/halo/intel";
+import {
+  listPendingOrdersDetail,
+  cancelPendingOrderExec,
+  cancelAllPendingOrdersExec,
+  closeAllPositionsExec,
+  modifyPositionSltpExec,
+  resetEngineExec,
+  runMarketScanDetail,
+  jokeDetail,
+} from "@/lib/halo/operations";
 import { decimalsOf } from "@/lib/market-symbols";
 
 export const dynamic = "force-dynamic";
@@ -158,6 +168,19 @@ function detailFor(id: string, s: Snap): string {
 // ── external intel reads (live fetch at question time, never invented) ───
 const INTEL_ACTION_IDS = new Set(["get_economic_calendar", "get_market_news", "get_market_quote"]);
 
+// ── operation reads (orders / scan / humour — verified live, async) ──────
+const OP_READ_IDS = new Set(["list_pending_orders", "run_market_scan", "tell_joke"]);
+
+async function opReadDetail(id: string, params: Record<string, string | boolean>): Promise<string> {
+  try {
+    if (id === "list_pending_orders") return await listPendingOrdersDetail();
+    if (id === "run_market_scan") return await runMarketScanDetail();
+    if (id === "tell_joke") return jokeDetail(typeof params.style === "string" ? params.style : undefined);
+    return "";
+  } catch (e) {
+    return `That operation failed: ${(e as Error).message.slice(0, 140)}. I won't guess at the result.`;
+  }
+}
 /** friendly, honest spoken summaries of the external feeds */
 async function intelDetail(id: string, params: Record<string, string | boolean>, labelHint: string, brief: boolean): Promise<string> {
   try {
@@ -276,6 +299,27 @@ async function executeConsequential(p: PendingAction): Promise<{ ok: boolean; de
           : `Mode switch did not verify — still ${st.exec.executionMode}. ${st.exec.executionMode === "paper" && mode === "live" ? "A live broker account may be missing or unhealthy." : ""}`.trim(),
       };
     }
+    if (id === "cancel_pending_order") {
+      const orderId = typeof p.params.orderId === "string" && p.params.orderId.trim() ? p.params.orderId.trim() : undefined;
+      return cancelPendingOrderExec(orderId);
+    }
+    if (id === "cancel_all_pending_orders") {
+      return cancelAllPendingOrdersExec();
+    }
+    if (id === "close_all_positions") {
+      return closeAllPositionsExec();
+    }
+    if (id === "modify_position_sltp") {
+      const num = (v: string | boolean | undefined): number | undefined => {
+        if (typeof v !== "string") return undefined;
+        const n = Number(v);
+        return isFinite(n) && n > 0 ? n : undefined;
+      };
+      return modifyPositionSltpExec(num(p.params.sl), num(p.params.tp));
+    }
+    if (id === "reset_engine") {
+      return resetEngineExec();
+    }
     return { ok: false, detail: "That action is not executable." };
   } catch (e) {
     return { ok: false, detail: `Execution failed: ${(e as Error).message.slice(0, 160)}` };
@@ -298,7 +342,9 @@ const REGISTRY_BRIEF = ACTIONS.map((a) => {
 
 const VIEWS_BRIEF = VIEWS.map((v) => `${v.id} (${v.label.toLowerCase()}; also answers to: ${v.aliases.join(", ")})`).join("; ");
 
-const SYSTEM_RULES = `You are HALO — the AI OPERATOR core of the HALO 3EL Autotrader. You understand the trader's request and EITHER answer from the verified snapshot OR select actions from the Action Registry. You speak like a calm, precise JARVIS-style operator, lightly witty at most once, never during losses.
+const SYSTEM_RULES = `You are HALO — the AI OPERATOR core of the HALO 3EL Autotrader. You understand the trader's request and EITHER answer from the verified snapshot OR select actions from the Action Registry.
+
+PERSONALITY — you are a FRIENDLY co-pilot, not a cold terminal: warm, encouraging, lightly playful. Greet the trader by name, celebrate clean wins with one upbeat line, and on losses drop all jokes and be calm, factual and supportive. When the trader seems bored, stressed or just chats ("I'm bored", "rough day"), offer a joke or use tell_joke. Humour is never mixed into data answers and never targets the trader's mistakes.
 
 OUTPUT FORMAT — your ENTIRE reply must be ONE JSON object, nothing else:
 {"say": "<what HALO says out loud>", "actions": [{"id": "<registry id>", "params": {}}]}
@@ -318,7 +364,11 @@ OPERATING RULES (non-negotiable):
 12. Distinguish observed facts (snapshot), strategy mechanics (brief), and your interpretation (label it as your read).
 13. EXTERNAL INTEL: get_economic_calendar, get_market_news and get_market_quote pull LIVE data from ForexFactory, Bloomberg, Yahoo Finance at question time — their verified result replaces your "say". Cite the source when it matters. If a feed fails, the result says so; never invent events, headlines or prices, never fill missing actuals. Market data and calendar events are information, NOT trade advice — never tell the trader to buy or sell because of one.
 14. Calendar/news/quote requests in a combined command: order them AFTER navigation so the app is on the right section while the data is spoken.
-15. The trader may hand you a link or ask about a source you cannot reach (CNN, Reuters, a specific article URL...). You can ONLY pull the three curated feeds. Say so plainly — do NOT silently substitute a Bloomberg/Yahoo answer for a request you could not actually fulfill, and do not pretend to have read a page you cannot open.`;
+15. The trader may hand you a link or ask about a source you cannot reach (CNN, Reuters, a specific article URL...). You can ONLY pull the three curated feeds. Say so plainly — do NOT silently substitute a Bloomberg/Yahoo answer for a request you could not actually fulfill, and do not pretend to have read a page you cannot open.
+16. ORDERS: "cancel my order(s)" / "clean my order book" → cancel_pending_order (one, with its id) or cancel_all_pending_orders. If you don't know which order, use list_pending_orders FIRST and ask. "Amend my stop/target" → modify_position_sltp (sl/tp are price strings; at least one required). "Close everything" / "flatten the book" → close_all_positions — warn that manual trades close too. In PAPER mode these honestly report that no live broker book exists.
+17. ENGINE: "start the bot/EA" → resume_new_entries. "stop the bot/EA", "stop trading", "detach the EA" → emergency_stop — in EVERY variation, even softened like "stop the bot but keep my positions" (neither action closes positions; the words "pause" or "hold new entries" are the ONLY triggers for pause_new_entries). "reset the engine" → reset_engine. "Scan the market" → run_market_scan. Open positions only ever close via close_open_trade (the EA's own trade) or close_all_positions (everything).
+18. JOKES: "tell me a joke", "make me laugh", "cheer me up" → tell_joke (optionally with style). Keep your own humour to one light line; the joke itself comes from the action's verified result, which REPLACES your "say".
+19. NAVIGATION: every section of the app is reachable — when the trader names any screen, tab or section, use navigate_to_view with the matching id. "Show me X" usually means open X's section.`;
 
 const VOICE_RULES = `SPOKEN-MODE ADDENDUM: "say" will be read aloud by text-to-speech. Keep it under ~60 words. Plain conversational sentences only — no markdown, no bullet lists, no symbols like ⚠ or arrows. Numbers read naturally.`;
 
@@ -484,7 +534,11 @@ export async function POST(req: Request) {
         .map(async (a) => ({
           id: a.id,
           ok: true,
-          detail: INTEL_ACTION_IDS.has(a.id) ? await intelDetail(a.id, a.params, String(a.label ?? ""), voiceMode) : detailFor(a.id, snapshot),
+          detail: INTEL_ACTION_IDS.has(a.id)
+            ? await intelDetail(a.id, a.params, String(a.label ?? ""), voiceMode)
+            : OP_READ_IDS.has(a.id)
+              ? await opReadDetail(a.id, a.params)
+              : detailFor(a.id, snapshot),
         }))
     );
 

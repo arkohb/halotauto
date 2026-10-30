@@ -193,3 +193,24 @@ Stage Summary:
 - Deliverable: the five missing mockup features (pending orders, quick actions, position summary, performance analytics, market-conditions rail) are now real, data-honest and verified; two latent bugs (alerts test 404, .dark rebrand override) fixed; voice pause action now maps to the true pause gate
 - Key files: src/lib/brokers/{types,metaapi-core,metaapi,oanda,ig,binance,paper,bridge}.ts, src/app/api/brokers/live-account/route.ts, src/lib/bot.ts, src/app/api/bot/control/route.ts, src/components/halo/{trading-activity,quick-actions,performance-intel,market-conditions}.tsx, src/app/api/alerts/test/route.ts, src/app/globals.css, src/app/api/halo/brain/route.ts, src/lib/halo/actions.ts, prisma/schema.prisma
 - Verified: engine/broker/order/risk/voice logic unchanged except the intended additions; all suites green; no deployment performed
+
+---
+Task ID: voice-3
+Agent: main (Z.ai)
+Task: "extend the voice operator with cancel order commands and allow the bot to select any tab on every page... perform every task on the screen when commanded... a friendly bot who can also share jokes"
+
+Work Log:
+- AUDIT: voice registry already covered navigation to all 14 views + reads + intel + 5 consequential controls; the GAP was order-level broker ops (the live-account POST already had cancel-order/close-all/modify but the voice brain could not reach them), engine reset, scan-now and personality
+- NEW REGISTRY ACTIONS (8, total 31): list_pending_orders (read), run_market_scan (read), tell_joke (read, style param), close_all_positions, cancel_pending_order (optional orderId), cancel_all_pending_orders, modify_position_sltp (sl/tp), reset_engine (all consequential, confirm-gated like the rest)
+- NEW src/lib/halo/operations.ts: single trusted executor module — liveBroker() resolves exec settings → active broker (PAPER handled honestly); cancel one/all pending orders with post-cancel re-read verification; close-all (paper → closeOpenTrade through the engine, live → adapter.closePosition flatten + fresh position re-read); modify SL/TP (single-position only, never guesses across several, post-amend level verification); reset_engine (resetBot, refuses while a trade open); run_market_scan (scannerScanNow + honest status summary); jokeDetail (rotation without immediate repeat)
+- NEW src/lib/halo/jokes.ts: 17 curated clean jokes (trading/tech/motivation), ≤29 words, TTS-safe
+- brain route: opReadDetail dispatch for the three async reads; executeConsequential wired to the new executors; SYSTEM_RULES personality upgraded (friendly co-pilot, humour rules: never during losses, tell_joke on boredom/stress, jokes never mixed into data) + rules 16-19 (orders, engine, jokes, navigation coverage); emergency_stop/resume_new_entries descriptions now explicitly map "start/stop the bot"; pause_new_entries description explicitly NOT for "stop the bot"
+- jarvis-console chips: added OPEN POSITIONS, CANCEL ORDERS, MY ORDERS, CLOSE ALL, MODIFY SL/TP, SCAN NOW, START EA, STOP EA, TELL A JOKE (17 chips total)
+- VERIFICATION: scripts/test-voice-operations.ts 13/13 (paper honesty, invalid-price rejection first, joke rotation + style filter + TTS length); scripts/test-voice-brain.ts 15/15 live (registry=31, stale confirm token rejected, navigate trade-history + intel alias, tell_joke executed, cancel-all → confirm flow → honest paper result, scan summary, "start the bot"→resume confirm→verified, plain "stop the bot"→emergency_stop→verified + EA state restored incl. pauseNew, softened variant informational, empathy probe); voice-e2e 8/8 PASS; eslint clean on touched files; bun run build OK; console screenshot download/voice-ops-console.png (chips render, no layout break)
+- KNOWN NUANCE (documented, honest): the softened phrase "stop the bot, keep my positions" tends to select pause_new_entries — safe either way (both keep positions; the spoken confirm states the exact effect before execution)
+- Not touched: strategy engine v1.2, pine-ea.ts, risk logic, order execution paths (only NEW wrappers over existing adapters); nothing deployed
+
+Stage Summary:
+- Deliverable: voice operator can now cancel pending orders (one/all), close all positions, amend SL/TP, reset the engine, run scans, navigate every section, and share jokes — every write confirm-gated, every result verified before HALO speaks
+- Key files: src/lib/halo/{operations,jokes,actions}.ts, src/app/api/halo/brain/route.ts, src/components/halo/jarvis-console.tsx, scripts/{test-voice-operations,test-voice-brain}.ts
+- Verified: 13/13 unit + 15/15 live brain + 8/8 voice E2E; build + lint green; no deployment performed
