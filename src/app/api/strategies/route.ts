@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireLicensed } from "@/lib/license";
+import { requireStrategyAccess } from "@/lib/license";
 import { compileAndSave, toSummary } from "@/lib/strategy-store";
 import { selectedStrategyInfo } from "@/lib/pine-bot";
 
@@ -24,7 +24,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const gate = await requireLicensed();
+  const gate = await requireStrategyAccess();
   if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
   try {
     const body = (await req.json()) as Record<string, unknown>;

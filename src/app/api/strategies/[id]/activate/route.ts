@@ -5,7 +5,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
-import { requireLicensed } from "@/lib/license";
+import { requireStrategyAccess } from "@/lib/license";
 import { activatePineStrategy, deactivatePineStrategy, getPineBotInfo } from "@/lib/pine-bot";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
-  const gate = await requireLicensed();
+  const gate = await requireStrategyAccess();
   if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
   try {
     const body = (await req.json().catch(() => ({}))) as { active?: boolean };

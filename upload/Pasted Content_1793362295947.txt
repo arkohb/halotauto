@@ -1,0 +1,1122 @@
+# HALO 3EL AUTOTRADER
+# MASTER COMMERCIAL PLATFORM, LIFETIME LICENSING, PAYMENT & ADMINISTRATION IMPLEMENTATION PROMPT
+
+## 1. PROJECT VISION
+
+Transform my existing HALO 3EL Autotrader into a commercially distributable AI-powered trading software product.
+
+I intend to sell the application to customers in Ghana and internationally through a one-time payment model with different pricing tiers.
+
+The platform must have:
+
+- A premium futuristic customer login dashboard.
+- Customer registration and authentication.
+- Four configurable one-time payment plans.
+- Lifetime software licenses.
+- Secure license generation and validation.
+- Customer license activation.
+- Administrator approval of accounts and login access.
+- Automatic approval following verified payment, where configured.
+- A dedicated administrator dashboard.
+- Customer and license management.
+- Feature restrictions based on purchased plans.
+- Payment and revenue management.
+- Device activation management.
+- Security monitoring and audit logs.
+
+Use the attached HALO commercial dashboard concept image as the primary visual reference.
+
+The finished application must look like a premium international fintech and AI trading platform.
+
+**CRITICAL: This is an enhancement to my existing HALO 3EL Autotrader. Do not rebuild the application from scratch or destroy existing working functionality.**
+
+Preserve:
+- Existing trading strategies and rules.
+- MT5 integration and connectivity.
+- HALO AI voice assistant.
+- Wake-word functionality.
+- Voice-controlled application navigation.
+- Trading charts and market data.
+- Risk Guardian.
+- Automated trading execution.
+- Existing authentication functionality where suitable.
+- Existing application design components where suitable.
+
+First inspect the complete existing source code before making changes.
+
+---
+
+# 2. COMMERCIAL BUSINESS MODEL
+
+The application will use a one-time payment model.
+
+Customers pay once for their selected software plan and receive a lifetime license to the features included in that plan, subject to the published license agreement.
+
+There must be:
+
+- No compulsory monthly subscription.
+- No automatic recurring software-license billing.
+- Lifetime software access for valid lifetime licenses.
+- Unique license keys for customers.
+- Secure account authentication.
+- Secure license validation.
+- Plan-based feature access.
+- Configurable device limits.
+- License suspension and revocation controls.
+- Customer account management.
+- Administrator oversight.
+
+### Important distinction: Lifetime software access versus third-party service costs
+
+Lifetime access applies to the HALO software features covered by the purchased license.
+
+It must not imply that the business will pay unlimited third-party operating costs forever.
+
+For example:
+- Premium market-data feeds may have separate provider charges.
+- AI API usage may incur variable costs.
+- Broker services and VPS hosting may have separate costs.
+- Third-party services may change their availability or terms.
+
+Clearly disclose any separate charges before purchase.
+
+Do not introduce compulsory recurring software subscription fees into the lifetime license plans.
+
+The administrator should be able to configure optional separately billed services if required in the future.
+
+---
+
+# 3. PRICING PLANS
+
+Create four configurable commercial plans.
+
+These are proposed initial prices and must be editable from the administrator dashboard.
+
+### STARTER — Essential Trading Tools
+
+Proposed price: $199 one-time payment.
+
+Features:
+- Standard trading dashboard.
+- Live market data where available.
+- Basic HALO AI assistant.
+- Manual trading functionality.
+- Authorized automated trading access.
+- One trading instrument.
+- Basic trade history.
+- Standard alerts.
+- Standard customer support.
+
+### PRO — Advanced Trading
+
+Proposed price: $399 one-time payment.
+
+Includes Starter features plus:
+- Advanced HALO AI assistant.
+- Multi-instrument trading.
+- Advanced strategy tools.
+- Custom strategy configuration where supported.
+- Performance analytics.
+- Advanced trading alerts.
+- Enhanced reporting.
+- Priority support.
+
+### ELITE — Professional Trader
+
+Proposed price: $699 one-time payment.
+
+Includes Pro features plus:
+- Full Strategy Lab.
+- Advanced Risk Guardian.
+- Trade Replay.
+- Advanced performance analytics.
+- Additional supported instruments.
+- Advanced voice-control capabilities.
+- Multi-account support where technically supported.
+- Dedicated support.
+
+### ULTIMATE — Institutional Grade
+
+Proposed price: $1,199 one-time payment.
+
+Includes Elite features plus:
+- Advanced administration and management tools.
+- White-label options where supported.
+- Custom integrations.
+- API access where supported.
+- Expanded user and device allowances.
+- VIP support.
+
+### Pricing configuration
+
+The administrator must be able to:
+
+- Change prices.
+- Change currencies.
+- Edit plan names.
+- Edit descriptions.
+- Add or remove features.
+- Change device limits.
+- Change user limits.
+- Enable or disable plans.
+- Change promotional prices.
+- Change the order in which plans appear.
+
+Do not advertise features that are not implemented and tested.
+
+Changing a plan's future price must not automatically change the entitlements of existing customers.
+
+Preserve the original purchase record and purchased entitlements.
+
+---
+
+# 4. CUSTOMER LOGIN EXPERIENCE
+
+Create a beautiful futuristic login dashboard based on the attached concept image.
+
+Design direction:
+
+- Deep navy and black background.
+- Electric cyan and blue highlights.
+- Metallic gold accents.
+- Premium typography.
+- Futuristic AI visual.
+- Subtle animations.
+- Professional card layouts.
+- Responsive desktop, tablet and mobile experience.
+
+Login page requirements:
+
+- HALO 3EL Autotrader logo and branding.
+- Welcome Back heading.
+- Email or username field.
+- Password field.
+- Show/hide password.
+- Remember Me.
+- Forgot Password.
+- Sign In.
+- Create Account.
+- Get Started.
+- Secure Login indicator.
+- Encrypted Connection indicator.
+- Creator copyright attribution.
+
+Copyright:
+
+"HALO 3EL Autotrader was created by Bismark Arko-Ofori. All rights reserved."
+
+Do not overcrowd the login screen.
+
+The login experience should feel premium, trustworthy and welcoming.
+
+---
+
+# 5. CUSTOMER REGISTRATION
+
+Allow customers to create accounts.
+
+Collect:
+
+- Full name.
+- Email address.
+- Username where supported.
+- Password.
+- Password confirmation.
+- Country.
+- Acceptance of terms and conditions.
+- Acceptance of the software license agreement.
+
+Implement:
+
+- Email verification.
+- Secure password recovery.
+- Duplicate account detection.
+- Input validation.
+- Secure authentication.
+- Account status tracking.
+
+A newly registered account must not automatically receive premium access.
+
+The account must satisfy the configured payment, license and approval requirements.
+
+---
+
+# 6. PAYMENT SYSTEM — ONE-TIME PURCHASE
+
+Implement a secure one-time payment process.
+
+Evaluate payment providers suitable for Ghana and international customers.
+
+Consider:
+- Paystack.
+- Flutterwave.
+- Stripe, where account eligibility and supported payment methods permit.
+- Other suitable providers if justified.
+
+Prioritize providers that support:
+- International card payments.
+- Ghanaian payment methods.
+- Mobile Money where available.
+- Secure server-side payment verification.
+- Webhooks.
+- Refund processing or reconciliation.
+
+Do not assume every provider supports every payment method in every country.
+
+### Purchase workflow
+
+1. Customer selects a plan.
+2. Application displays the price, currency and benefits.
+3. Customer creates or signs into an account.
+4. Backend creates a unique payment transaction.
+5. Customer completes payment through the provider's secure checkout.
+6. Backend verifies the payment using a trusted webhook or provider API.
+7. Backend checks the transaction amount, currency, reference and status.
+8. Payment is recorded as verified.
+9. License is generated or activated.
+10. Account approval is handled according to the configured approval policy.
+11. Customer receives confirmation.
+12. Customer can activate the license and access the purchased features.
+
+Never treat a browser redirect or frontend success message as proof of payment.
+
+Prevent duplicate payment processing and duplicate license generation.
+
+Do not store raw payment-card details.
+
+### Payment failure handling
+
+Support:
+- Pending payments.
+- Successful payments.
+- Failed payments.
+- Cancelled payments.
+- Refunds.
+- Disputed payments where provider information is available.
+
+Do not issue an active paid license for an unverified payment.
+
+### Manual payment verification
+
+Allow an authorized administrator to record and verify an offline payment where the business permits it.
+
+Require:
+- Payment reference.
+- Amount.
+- Currency.
+- Customer identity.
+- Administrator identity.
+- Verification date.
+- Audit record.
+
+Do not allow ordinary administrators to mark arbitrary transactions as paid without permission.
+
+---
+
+# 7. LICENSE GENERATION ENGINE
+
+Build a genuine server-side license generation system.
+
+Every license must contain:
+
+- Unique license ID.
+- Secure license key.
+- Customer name.
+- Customer email.
+- Purchased plan.
+- Verified payment reference, where applicable.
+- License creation date.
+- Activation date.
+- License status.
+- Device allowance.
+- Activation count.
+- Expiration policy.
+- Purchased feature entitlements.
+
+Use a professional license format such as:
+
+HALO-XXXX-XXXX-XXXX-XXXX
+
+Generate license keys using cryptographically secure randomness on the trusted backend.
+
+Do not use predictable sequential numbers as license keys.
+
+Support:
+
+- Single-user licenses.
+- Authorized multi-user licenses.
+- Lifetime licenses.
+- Custom-expiry licenses where configured.
+- License activation.
+- License deactivation.
+- License transfer.
+- License suspension.
+- License revocation.
+- License replacement.
+- Device management.
+- License validation.
+- Activation history.
+
+### Complimentary licenses
+
+Allow the Super Administrator to issue complimentary licenses through a separate authorized process.
+
+Require:
+- Customer details.
+- Selected plan.
+- Reason for complimentary issuance.
+- Administrator identity.
+- Audit record.
+
+Clearly distinguish complimentary licenses from paid licenses in revenue reports.
+
+Do not create fake payment transactions for complimentary licenses.
+
+### License security
+
+- Keep signing keys and license-generation secrets on the backend.
+- Never expose privileged signing keys in frontend code.
+- Never store customer passwords inside license records.
+- Validate license status server-side.
+- Prevent duplicate activations beyond the permitted allowance.
+- Maintain activation and deactivation history.
+
+---
+
+# 8. LICENSE ACTIVATION SYSTEM
+
+Create a dedicated customer license activation interface.
+
+The customer should be able to:
+
+1. Register or log in.
+2. Enter their license key.
+3. Submit the key.
+4. Receive validation results.
+5. View the associated plan.
+6. Activate the license on an authorized device.
+7. View device usage.
+8. Access authorized features.
+
+Backend validation must check:
+
+- License existence.
+- License validity.
+- Payment verification.
+- Customer identity.
+- License status.
+- Expiration status.
+- Device allowance.
+- Activation history.
+- Account approval status.
+- Purchased entitlements.
+
+Provide clear messages for:
+
+- Invalid key.
+- Already activated key.
+- Revoked license.
+- Suspended license.
+- Expired license.
+- Device limit reached.
+- Unverified payment.
+- Pending account approval.
+
+Do not rely on frontend or browser storage to establish license validity.
+
+---
+
+# 9. DEVICE MANAGEMENT POLICY
+
+Create a configurable device activation policy.
+
+Suggested initial configuration:
+
+- Starter: 1 active device.
+- Pro: 2 active devices.
+- Elite: 3 active devices.
+- Ultimate: 5 active devices.
+
+These limits must be editable by the Super Administrator.
+
+Allow customers to view their activated devices.
+
+Where appropriate, permit customers to deactivate an old device and activate a replacement.
+
+Require administrator approval for exceptional transfers if configured.
+
+Use a practical device identity mechanism that respects privacy and avoids collecting unnecessary hardware identifiers.
+
+Do not use invasive fingerprinting.
+
+Provide an administrative override with an audit record.
+
+Do not automatically suspend a customer merely because their IP address changes.
+
+---
+
+# 10. ADMINISTRATOR DASHBOARD
+
+Build a separate and secure administration dashboard.
+
+It must use the HALO visual identity but have dedicated administrative navigation.
+
+Only authorized administrator accounts may access it.
+
+Create four roles:
+
+1. Super Administrator.
+2. License Administrator.
+3. Support Administrator.
+4. Customer.
+
+### A. Admin Overview
+
+Display actual database-backed information:
+
+- Total registered users.
+- Total active licenses.
+- Pending approvals.
+- Approved users.
+- Suspended users.
+- Revoked licenses.
+- Verified sales.
+- Revenue by plan.
+- Recent transactions.
+- System status.
+- Payment integration status.
+- License service status.
+- Application status.
+
+Never display invented statistics.
+
+### B. License Generation
+
+Create a dedicated license-generation page.
+
+Allow authorized administrators to:
+
+- Select plan.
+- Select single-user or multi-user license.
+- Enter customer name.
+- Enter customer email.
+- Select lifetime or custom expiry.
+- Configure device allowance.
+- Select permitted features where allowed.
+- Enter payment reference.
+- Add internal notes.
+- Generate license.
+- Preview license.
+- Copy license key.
+- Download license certificate.
+- Email license to the verified customer address when email service is configured.
+
+Require the appropriate payment or complimentary-license authorization.
+
+### C. User Management and Login Approval
+
+Create a searchable user table containing:
+
+- Customer name.
+- Email.
+- Username.
+- Country.
+- Purchased plan.
+- License status.
+- Approval status.
+- Registration date.
+- Last login.
+- Device activations.
+
+Filters:
+
+- All users.
+- Pending approval.
+- Approved.
+- Suspended.
+- Blocked.
+- Expired licenses.
+- Revoked licenses.
+
+Administrative actions:
+
+- View account.
+- Approve registration.
+- Reject registration.
+- Suspend account.
+- Reactivate account.
+- Block access.
+- View license.
+- Revoke license.
+- View activation history.
+- Reset activation.
+- View account activity.
+
+### D. Automatic and manual approval policy
+
+Provide configurable approval modes.
+
+Recommended default:
+
+**Automatic approval after verified payment and email verification.**
+
+Also support:
+
+**Manual approval mode**, where a new customer must be reviewed and approved by an administrator.
+
+The Super Administrator can change the approval mode.
+
+Allow manual approval or rejection even when automatic approval is enabled.
+
+Never allow a customer to approve their own account.
+
+### E. License Management
+
+Display:
+
+- License ID.
+- Masked license key.
+- Customer.
+- Plan.
+- Payment status.
+- License status.
+- Creation date.
+- Activation date.
+- Device count.
+- Expiry date or Lifetime.
+
+Actions:
+
+- View.
+- Suspend.
+- Reactivate.
+- Revoke.
+- Transfer.
+- Replace.
+- Adjust device allowance.
+- View activation history.
+
+Require confirmation for consequential actions.
+
+### F. Plans and Features
+
+Allow authorized administrators to configure:
+
+- Plan names.
+- Prices.
+- Currencies.
+- Benefits.
+- Feature entitlements.
+- Device limits.
+- User limits.
+- Availability.
+- Promotional pricing.
+- Display order.
+
+Preserve existing customers' purchased entitlements when future plan configurations change.
+
+### G. Transactions and Revenue
+
+Display:
+
+- Transaction reference.
+- Customer.
+- Plan.
+- Amount.
+- Currency.
+- Provider.
+- Payment status.
+- Date.
+- Refund status.
+
+Support filtering and export.
+
+Only count verified successful payments as revenue.
+
+Keep complimentary licenses separate from paid sales.
+
+### H. Audit Logs
+
+Record:
+
+- License generation.
+- License revocation.
+- License suspension.
+- Account approval.
+- Account rejection.
+- Account suspension.
+- Plan changes.
+- Manual payment verification.
+- Device changes.
+- Administrative login.
+- Security-sensitive changes.
+
+Include:
+- Timestamp.
+- Administrator identity.
+- Action.
+- Affected record.
+- Outcome.
+
+Ordinary administrators must not be able to alter audit records.
+
+### I. System Settings
+
+Provide controls for:
+
+- Registration availability.
+- Automatic or manual approvals.
+- Device policies.
+- License policies.
+- Payment configuration.
+- Email configuration.
+- Security policies.
+- Maintenance mode.
+- Administrator permissions.
+
+---
+
+# 11. ROLE-BASED ADMINISTRATOR PERMISSIONS
+
+Implement strict role-based access control.
+
+### Super Administrator
+
+Full system control:
+- Manage administrators.
+- Manage users.
+- Generate and revoke licenses.
+- Manage plans.
+- Manage payments and verification permissions.
+- Configure system policies.
+- View all audit logs.
+- Configure integrations.
+
+### License Administrator
+
+Can:
+- Generate authorized licenses.
+- View licenses.
+- Manage license activations.
+- Approve assigned license requests where permitted.
+
+Cannot:
+- Manage Super Administrators.
+- Change sensitive security settings.
+- Access privileged payment credentials.
+
+### Support Administrator
+
+Can:
+- View assigned customer accounts.
+- Review account issues.
+- View license status.
+- Assist with device activation.
+- Escalate cases.
+
+Cannot:
+- Change plan prices.
+- Issue complimentary licenses.
+- Mark payments as verified.
+- Revoke licenses unless specifically authorized.
+
+### Customer
+
+Can:
+- Manage their own account.
+- View their own license.
+- View purchased entitlements.
+- Manage permitted devices.
+- Access authorized HALO features.
+
+Never trust a frontend role value. Enforce permissions on the trusted backend.
+
+---
+
+# 12. CENTRALIZED FEATURE ENTITLEMENT SYSTEM
+
+Implement a centralized feature-access system.
+
+Every premium feature must be mapped to the customer's purchased license.
+
+Example:
+
+Starter receives Starter features.
+
+Pro receives Pro and Starter features.
+
+Elite receives Elite, Pro and Starter features.
+
+Ultimate receives Ultimate, Elite, Pro and Starter features.
+
+The backend must be authoritative.
+
+Do not allow a customer to unlock premium features by:
+
+- Changing frontend variables.
+- Editing browser storage.
+- Changing URLs.
+- Sending modified API requests.
+- Manipulating local state.
+
+When a customer tries to access an unavailable feature:
+
+- Show a professional upgrade message.
+- Explain which plan includes the feature.
+- Display the available upgrade option.
+- Keep the remaining authorized application features working.
+
+Create a flexible entitlement configuration so new premium features can be added without rewriting the licensing system.
+
+---
+
+# 13. CUSTOMER ACCOUNT DASHBOARD
+
+After successful authentication, payment verification, license validation and required approval, customers should access a personal account dashboard.
+
+Display:
+
+- Customer name.
+- Account information.
+- Purchased plan.
+- License status.
+- License activation date.
+- Lifetime or expiry status.
+- Device usage.
+- Available features.
+- Purchase history.
+- Security settings.
+- Support information.
+
+Allow customers to view their own license details and activation history.
+
+Do not expose another customer's information.
+
+Provide secure sign-out.
+
+---
+
+# 14. CRITICAL MT5 AND TRADING ENGINE PROTECTION
+
+This requirement is extremely important.
+
+The commercial licensing system must be independent of the MT5 trading execution engine.
+
+Do not connect license validation directly to the logic responsible for managing open broker positions.
+
+A license restriction may prevent unauthorized access to premium application features and new trading operations, but it must never accidentally interrupt protective management of existing trades.
+
+### Required behavior
+
+- If a license is invalid, prevent unauthorized application access.
+- If a license is suspended, apply the configured access restriction.
+- If a customer is not authorized, prevent new unauthorized trading commands.
+- Do not automatically close existing broker positions because of a license issue.
+- Do not disable protective stop-loss or take-profit management.
+- Do not interrupt existing EA position management.
+- Do not disable emergency-stop functions.
+- Do not delete existing trading history.
+- Do not corrupt strategy settings.
+
+Existing open positions must remain under the MT5 EA and broker-side protective mechanisms.
+
+The EA should continue to manage already-open positions and protective orders according to its existing authorized rules, even if the website is temporarily unavailable.
+
+If the business model requires restricting further use after license revocation, implement that restriction safely without interfering with broker-side position protection.
+
+Test this behavior explicitly using an MT5 demo account.
+
+---
+
+# 15. FUTURISTIC UI DESIGN
+
+Use the attached concept image as the main design reference.
+
+### Visual identity
+
+- Deep navy and near-black background.
+- Electric cyan.
+- Neon blue.
+- Metallic gold.
+- Professional typography.
+- Elegant glowing borders.
+- Subtle glass effects.
+- Premium cards.
+- Clear data tables.
+- Smooth transitions.
+- Responsive layouts.
+
+### Customer experience
+
+The login and pricing screens should feel premium and trustworthy.
+
+### Admin experience
+
+The admin dashboard should feel like a sophisticated AI software management command centre.
+
+Include:
+
+- Animated status indicators.
+- Clean statistics cards.
+- License-generation interface.
+- User approval tables.
+- Revenue charts.
+- Search and filtering.
+- Clear confirmation dialogs.
+- Responsive admin navigation.
+
+Avoid excessive animation, unreadable small text, unnecessary 3D dependencies and visual clutter.
+
+Keep the application fast on ordinary computers and mobile devices.
+
+---
+
+# 16. TECHNICAL ARCHITECTURE
+
+First inspect the existing project.
+
+Identify:
+
+- Frontend framework.
+- Backend architecture.
+- Database.
+- Authentication provider.
+- Hosting and deployment.
+- Existing MT5 communication.
+- Existing voice services.
+- Existing API structure.
+- Existing security rules.
+
+Reuse existing infrastructure where possible.
+
+If Firebase and Firestore are already used, inspect existing collections, indexes, authentication and security rules before extending them.
+
+If Cloudflare Workers or Pages are used, keep privileged licensing, payment and administrator operations on the backend.
+
+Create appropriate database collections or tables for:
+
+- users.
+- user_roles.
+- plans.
+- plan_entitlements.
+- licenses.
+- license_activations.
+- payments.
+- payment_events.
+- account_approvals.
+- administrator_audit_logs.
+- customer_notifications.
+- device_records.
+
+Use server-side authorization and validation.
+
+Do not silently migrate the database.
+
+Do not silently switch production configuration.
+
+Do not introduce a production demo mode.
+
+Create secure environment-variable placeholders for integrations requiring credentials.
+
+Provide a configuration guide.
+
+---
+
+# 17. LICENSE AND PAYMENT FAILURE HANDLING
+
+Build reliable recovery procedures.
+
+Examples:
+
+- Payment provider temporarily unavailable.
+- Duplicate webhook received.
+- Payment successful but license generation temporarily fails.
+- License activation interrupted.
+- Customer loses device access.
+- Email delivery fails.
+- Administrator approval remains pending.
+- Customer account is suspended.
+- Backend is temporarily unavailable.
+
+Use idempotent payment processing.
+
+If payment succeeds but license generation fails, preserve the verified payment record and allow safe recovery without charging the customer again.
+
+Do not mark a payment as failed simply because an email notification failed.
+
+Do not generate duplicate licenses from repeated payment events.
+
+Provide clear customer-facing error messages and administrative recovery tools.
+
+---
+
+# 18. SECURITY REQUIREMENTS
+
+Implement:
+
+- Secure authentication.
+- Role-based access control.
+- Server-side authorization.
+- Secure password hashing through the authentication provider.
+- Email verification.
+- Rate limiting.
+- Brute-force protection.
+- Secure session management.
+- Secure license generation.
+- Server-side entitlement validation.
+- Payment webhook signature verification.
+- Duplicate event prevention.
+- Input validation.
+- Audit logging.
+- Secret management.
+- Appropriate database security rules.
+- Secure administrator account management.
+
+Never expose:
+- Admin passwords.
+- Payment secrets.
+- License-signing keys.
+- Private API credentials.
+- Backend privileged tokens.
+
+Do not use a shared hardcoded administrator password.
+
+Create the initial Super Administrator through a secure provisioning process.
+
+Require additional authentication for sensitive administrator operations where practical.
+
+---
+
+# 19. TESTING AND ACCEPTANCE
+
+Test the complete commercial workflow.
+
+### Customer tests
+
+1. Customer registers.
+2. Customer verifies email.
+3. Customer chooses Starter.
+4. Customer completes a one-time payment.
+5. Payment is verified server-side.
+6. License is generated.
+7. Account is approved.
+8. Customer activates the license.
+9. Customer accesses Starter features.
+10. Customer cannot access unauthorized Elite features.
+
+### License tests
+
+11. Invalid license is rejected.
+12. Revoked license is rejected.
+13. Suspended license is restricted.
+14. Device limit is enforced.
+15. Authorized device transfer works.
+16. Complimentary license is properly recorded.
+17. Duplicate payment events do not create duplicate licenses.
+
+### Administrator tests
+
+18. Unauthorized user cannot access admin pages or endpoints.
+19. Super Administrator can generate licenses.
+20. License Administrator has only permitted privileges.
+21. Support Administrator cannot perform unauthorized financial actions.
+22. Pending registrations can be approved or rejected.
+23. Revoked licenses cannot be used to gain access.
+24. Audit records are generated correctly.
+
+### Trading protection tests
+
+25. License validation failure does not close open MT5 positions.
+26. Protective stop-loss and take-profit management remains functional.
+27. Existing EA management is not interrupted by website downtime.
+28. Unauthorized new trading commands are rejected.
+29. Emergency-stop functionality remains available.
+30. Existing trading strategy and execution tests still pass.
+
+### Commercial reliability tests
+
+31. Payment webhook is verified.
+32. Duplicate webhooks are handled safely.
+33. Payment and license recovery works.
+34. Historical purchase entitlements are preserved after plan changes.
+35. Revenue calculations exclude failed and pending payments.
+36. Mobile and desktop interfaces work correctly.
+
+Provide actual test results. Do not report a test as passed unless it was executed.
+
+---
+
+# 20. IMPLEMENTATION PHASES
+
+PHASE 1 — Existing source-code and infrastructure audit.
+
+PHASE 2 — Commercial architecture and database design.
+
+PHASE 3 — Customer registration, authentication and login.
+
+PHASE 4 — Pricing plans and entitlement configuration.
+
+PHASE 5 — Secure one-time payment integration.
+
+PHASE 6 — License generation, activation and validation.
+
+PHASE 7 — Administrator dashboard and permissions.
+
+PHASE 8 — Customer account and device management.
+
+PHASE 9 — Integrate licensing with the existing HALO application.
+
+PHASE 10 — Security testing and MT5 regression testing.
+
+PHASE 11 — Staging deployment and controlled pilot.
+
+PHASE 12 — Production readiness review and deployment only after my approval.
+
+Do not attempt an uncontrolled full rewrite.
+
+Commit or preserve a recoverable copy of the existing project before major changes.
+
+---
+
+# 21. FINAL BUSINESS REQUIREMENTS
+
+The completed commercial platform must allow me to:
+
+1. Sell HALO 3EL Autotrader internationally.
+2. Offer four configurable one-time payment plans.
+3. Collect and verify payments.
+4. Generate unique lifetime software licenses.
+5. Issue authorized complimentary licenses.
+6. Approve and manage customer accounts.
+7. Approve or reject login requests.
+8. Restrict access according to purchased plans.
+9. Manage customer devices.
+10. Suspend, revoke and transfer licenses.
+11. Monitor sales and revenue.
+12. Manage administrators.
+13. Review audit logs.
+14. Manage future pricing and features.
+15. Protect the existing trading engine and MT5 execution.
+
+## FINAL INSTRUCTION
+
+First audit my existing source code and present the proposed commercial architecture.
+
+Show me:
+
+- Existing architecture.
+- Database schema.
+- Pricing and feature matrix.
+- Payment provider recommendation.
+- License generation and validation workflow.
+- Administrator roles and permissions.
+- Device activation policy.
+- Security architecture.
+- MT5 protection strategy.
+- Implementation phases.
+
+After I review the architecture, implement the project incrementally.
+
+Do not issue real customer licenses, process real payments, change production accounts, deploy to production or alter live trading behavior without my explicit authorization.
+
+The final product must be a genuinely working commercial software platform, not a static dashboard, visual prototype or simulated licensing system.

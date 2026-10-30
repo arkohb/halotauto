@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { requireLicensed } from "@/lib/license";
+import { requireStrategyAccess } from "@/lib/license";
 import { compileAndSave, toSummary } from "@/lib/strategy-store";
 import { deactivatePineStrategy } from "@/lib/pine-bot";
 
@@ -27,7 +27,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
 export async function PATCH(req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
-  const gate = await requireLicensed();
+  const gate = await requireStrategyAccess();
   if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
   try {
     const body = (await req.json()) as Record<string, unknown>;
@@ -48,7 +48,7 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
-  const gate = await requireLicensed();
+  const gate = await requireStrategyAccess();
   if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
   try {
     const existing = await db.pineStrategy.findUnique({ where: { id } });
