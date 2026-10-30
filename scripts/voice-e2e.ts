@@ -266,6 +266,38 @@ const ok = (name: string, pass: boolean, detail = "") =>
   );
   await page.screenshot({ path: `${SHOT}/voice-e2e-9-tts-fallback.png` });
 
+  // ── 10. ARM-ON-LOAD: a reload with ZERO interaction must re-arm the mic ──
+  // (the reported bug: after any reload HALO showed "ARMED" but was deaf —
+  //  the wake standby was only ever armed as a side effect of the welcome
+  //  speech. Observable here: the provider itself must call rec.start() with
+  //  no clicks, no keys, no visibility events — injected before the reload.)
+  await page.addInitScript(() => {
+    const w = window as unknown as { __haloStarts: number };
+    w.__haloStarts = 0;
+    const W = window as unknown as {
+      SpeechRecognition?: { prototype: { start: () => void } };
+      webkitSpeechRecognition?: { prototype: { start: () => void } };
+    };
+    const Ctor = W.SpeechRecognition ?? W.webkitSpeechRecognition;
+    if (Ctor) {
+      const orig = Ctor.prototype.start;
+      Ctor.prototype.start = function (this: unknown) {
+        w.__haloStarts += 1;
+        return orig.call(this);
+      };
+    }
+  });
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForTimeout(1200); // hydrate; NO interaction of any kind
+  let startsOnLoad = 0;
+  for (let i = 0; i < 22; i++) {
+    startsOnLoad = await page.evaluate(() => (window as unknown as { __haloStarts: number }).__haloStarts);
+    if (startsOnLoad > 0) break;
+    await page.waitForTimeout(600);
+  }
+  ok("ARM-ON-LOAD: reload with zero interaction re-arms the wake mic by itself (< 15s)", startsOnLoad > 0, `rec.start() calls=${startsOnLoad}`);
+  await page.screenshot({ path: `${SHOT}/voice-e2e-10-arm-on-load.png` });
+
   ok("NO PAGE ERRORS: zero uncaught exceptions across all scenarios", errors.length === 0, errors.join(" | ").slice(0, 160));
 
   console.log(results.join("\n"));

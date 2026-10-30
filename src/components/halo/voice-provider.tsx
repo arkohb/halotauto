@@ -689,6 +689,13 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const speak = useCallback(
     (text: string, opts: SpeakOpts = {}): boolean => {
       const token = ++speakTokenRef.current;
+      // EVERY blocked utterance must surface the one-tap recovery banner.
+      // Conversational replies used to pass no onblocked, so when the browser
+      // blocked autoplay (fresh reload, no click yet — Chrome requires a user
+      // gesture before any audio) the reply died silently: text appeared in
+      // the console, but no voice ever played and nothing asked for a tap —
+      // the exact "the bot does not speak back" report.
+      const o: SpeakOpts = { ...opts, onblocked: opts.onblocked ?? (() => setBlocked(true)) };
       const finish = (fireEnd: boolean) => {
         if (token !== speakTokenRef.current) return;
         clearWatchdog();
@@ -703,7 +710,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             if (shouldWake()) startRec("wake");
           }, 800);
         }
-        if (fireEnd) opts.onend?.();
+        if (fireEnd) o.onend?.();
       };
 
       // any new utterance stops whatever was playing (single-voice semantics)
@@ -763,10 +770,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           console.warn(`[halo-voice] neural engine unavailable (${why}) — falling back to the browser voice`);
           if (!ttsAvailable()) {
             finish(false);
-            opts.onblocked?.();
+            o.onblocked?.();
             return;
           }
-          speakBrowser(clean, token, opts, finish);
+          speakBrowser(clean, token, o, finish);
         };
 
         void (async () => {
@@ -847,7 +854,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
                 handedOff = true;
                 if (playWatchdog) window.clearTimeout(playWatchdog);
                 finish(false);
-                opts.onblocked?.();
+                o.onblocked?.();
               }
             }
           } catch (e) {
@@ -868,7 +875,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
 
       // ── BROWSER engine ──
       if (!ttsAvailable()) return silentFinish();
-      speakBrowser(clean, token, opts, finish);
+      speakBrowser(clean, token, o, finish);
       return true;
     },
 
@@ -1509,6 +1516,26 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     const t = window.setTimeout(() => attemptGreeting(), 200);
     return () => window.clearTimeout(t);
   }, [profile.loaded, snapshot, attemptGreeting]);
+
+  // ── ALWAYS-ON arming: the mic must come up WITH the app ────────────────
+  //  The wake standby used to be armed only as a SIDE EFFECT of the welcome
+  //  speech finishing (or a visibility change). On every reload where the
+  //  session was already greeted the welcome stayed silent — so nothing
+  //  armed the mic and HALO looked online ("standby" pill) while being
+  //  completely deaf to "HALO …" until the trader clicked something. This
+  //  effect arms the standby directly from real state, so the assistant
+  //  listens from the moment it is enabled, welcome or not.
+  useEffect(() => {
+    if (!profile.loaded) return;
+    if (welcome.stage !== "hidden") return; // the welcome owns the audio flow
+    if (recModeRef.current !== "off" || convoRef.current || busyRef.current) return; // already armed / busy
+    if (!shouldWake()) return; // disabled, denied, unsupported or hidden tab
+    const t = window.setTimeout(() => {
+      if (welcomeRef.current.stage !== "hidden") return;
+      if (shouldWake() && recModeRef.current === "off") startRec("wake");
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [profile.loaded, profile.voiceEnabled, profile.wakeEnabled, welcome.stage, mic, shouldWake, startRec]);
 
   // ── autoplay blocked → one-tap retry on the next qualifying interaction ──
   useEffect(() => {

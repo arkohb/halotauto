@@ -1,11 +1,9 @@
 /* HALO 3EL Autotrader service worker */
-// v4: /_next/static/ switched from cache-first to STALE-WHILE-REVALIDATE.
-// Production chunk names are content-hashed so cache-first was safe there,
-// but dev (Turbopack) rewrites chunk files IN PLACE under stable names —
-// cache-first pinned stale code forever. SWR serves the cached copy
-// instantly, refreshes it in the background, and never goes stale past
-// one load. v4 purge also flushes every v3-poisoned entry.
-const CACHE = "halo3el-v4";
+// v5: purge flush after the voice-reply fix (mic arm-on-load + autoplay
+// blocked-banner). Same strategy as v4 — stale-while-revalidate keeps dev
+// and installed PWAs honest; the version bump guarantees every existing
+// install drops pre-fix chunks on its next visit.
+const CACHE = "halo3el-v5";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
