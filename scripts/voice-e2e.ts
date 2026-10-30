@@ -29,6 +29,31 @@ const ok = (name: string, pass: boolean, detail = "") =>
     args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required"],
   });
   const ctx = await browser.newContext({ viewport: { width: 1100, height: 800 } }); // < xl → floating console
+  // ── pre-login (commercial login-first mode): the app now always opens on
+  // /login, so the E2E context must carry a real session cookie before any
+  // navigation. Credentials come from the environment — never hardcoded.
+  const E2E_EMAIL = process.env.HALO_E2E_EMAIL ?? "";
+  const E2E_PASSWORD = process.env.HALO_E2E_PASSWORD ?? "";
+  if (!E2E_EMAIL || !E2E_PASSWORD) {
+    console.error("✗ set HALO_E2E_EMAIL and HALO_E2E_PASSWORD (login-first gate is active)");
+    await browser.close();
+    process.exit(1);
+  }
+  const loginRes = await fetch(`${URL}/api/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ identifier: E2E_EMAIL, password: E2E_PASSWORD, remember: true }),
+  });
+  const loginJson = (await loginRes.json().catch(() => ({ ok: false }))) as { ok: boolean; error?: string };
+  const setCookies = (loginRes.headers as unknown as { getSetCookie?: () => string[] }).getSetCookie?.() ?? [];
+  const sessionPair = setCookies.map((c) => c.split(";")[0]).find((c) => c.startsWith("halo_session="));
+  if (!loginJson.ok || !sessionPair) {
+    console.error(`✗ E2E pre-login failed: ${loginJson.error ?? "no halo_session cookie returned"}`);
+    await browser.close();
+    process.exit(1);
+  }
+  await ctx.addCookies([{ name: "halo_session", value: sessionPair.slice("halo_session=".length), domain: "localhost", path: "/" }]);
+  console.log("✓ E2E pre-login ok — session cookie injected");
   await ctx.grantPermissions(["microphone"], { origin: URL });
   const page = await ctx.newPage();
   const errors: string[] = [];
