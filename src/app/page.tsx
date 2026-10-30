@@ -50,6 +50,7 @@ import { HaloCore } from "@/components/halo/halo-core";
 import { JarvisConsole } from "@/components/halo/jarvis-console";
 import { HaloVoiceProvider } from "@/components/halo/voice-provider";
 import { WelcomeGreeting } from "@/components/halo/welcome-greeting";
+import { WelcomeOverlay } from "@/components/halo/welcome-overlay";
 import { VoiceSettingsCard } from "@/components/halo/voice-settings-card";
 import { MarketPulse } from "@/components/halo/market-pulse";
 import { RiskGuardian } from "@/components/halo/risk-guardian";
@@ -350,6 +351,10 @@ export default function Page() {
         <FxLayer />
         <BootSequence />
         <PwaRegister />
+        {/* personalized JARVIS welcome — raised by the voice provider once per
+            session (full on first opening, short welcome-back afterwards);
+            the dashboard renders and polls underneath the whole time */}
+        <WelcomeOverlay />
 
         <div className="flex min-w-0 flex-1 flex-col">
           <Header state={state} busy={busy} onSymbol={changeSymbol} onTf={changeTf} />
@@ -723,7 +728,7 @@ export default function Page() {
       <footer className="mt-auto border-t border-[#0F2E58] py-3">
         <div className="mx-auto flex w-full max-w-[1800px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8AA2C2] sm:flex-row">
           <span>
-            <span className="font-bold" style={{ color: C.goldDim }}>© {new Date().getFullYear()} · CREATED BY BISMARK ARKO-OFORI</span>
+            <span className="font-bold" style={{ color: C.goldDim }}>© {new Date().getFullYear()} · HALO 3EL AUTOTRADER · CREATED BY BISMARK ARKO-OFORI · ALL RIGHTS RESERVED</span>
             {" · "}
             HALO SUITE · 3EL v1.2 · {state.config.sigMode === "instant" ? "INSTANT" : "BAR CLOSE"} MODE ·{" "}
             <span style={{ color: state.exec.executionMode === "live" ? C.red : C.green }}>

@@ -204,3 +204,73 @@ export function welcomeBackLine(ctx: GreetCtx, v = 0): string {
       ];
   return variants[v % variants.length];
 }
+
+// ════════════════════════════════════════════════════════════════════════
+//  PERSONALIZED JARVIS WELCOME · the full welcome experience scripts
+//
+//  • welcomeTimeGreeting — morning / afternoon / evening strictly from the
+//    trader's LOCAL clock (the browser's clock, never the server's).
+//  • welcomeFullDisplay — the full welcome script, VERBATIM, for on-screen
+//    display (paragraphs stay in sync with the spoken segments).
+//  • welcomeFullSpoken — the same beats condensed to ~105 words so the
+//    spoken welcome lands naturally inside 30–40 s. The creator
+//    attribution sentence is spoken VERBATIM, exactly as specified.
+//  • welcomeBackMessage — the short welcome-back for subsequent sessions.
+//
+//  The name is NEVER invented: empty profile → "Trader" everywhere.
+// ════════════════════════════════════════════════════════════════════════
+
+/** Morning / afternoon / evening from the trader's local clock. */
+export function welcomeTimeGreeting(d: Date): string {
+  const h = d.getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+}
+
+/** The full welcome — exact on-screen script (spec §1), name substituted. */
+export function welcomeFullDisplay(ctx: GreetCtx): string[] {
+  const name = ctx.name || "Trader";
+  const g = welcomeTimeGreeting(ctx.now ?? new Date());
+  return [
+    `${g}, ${name}. Welcome to HALO 3EL Autotrader. It's great to have you here!`,
+    "Take a breath, relax and make yourself comfortable. The markets will always have opportunities, so there's no need to rush or chase every move. We'll approach each trading session with patience, discipline and confidence.",
+    "I'm HALO, your personal AI trading assistant. I'm here to keep you informed, monitor the markets, help you understand trading opportunities, watch over your risk and make your trading experience smoother.",
+    "Remember, protecting your capital is just as important as making a profit. We focus on quality setups, smart decisions and consistency.",
+    "HALO 3EL Autotrader was created by Bismark Arko-Ofori. All rights reserved.",
+    "Your trading command centre is ready. The systems are standing by, and I'm here whenever you need me.",
+    "So, how can I assist you today?",
+    "Welcome aboard. Let's trade smart, stay disciplined and make every decision count!",
+  ];
+}
+
+/**
+ * The full welcome, spoken — every beat of the display script condensed to
+ * ~105 words (≈35 s at the default natural rate). Segments map 1:1 onto the
+ * display paragraphs so the overlay can highlight what is being said.
+ * One honest engine clause is appended ONLY when the feed is degraded.
+ */
+export function welcomeFullSpoken(ctx: GreetCtx, s: BotStateRes | null = null): string[] {
+  const name = ctx.name || "Trader";
+  const g = welcomeTimeGreeting(ctx.now ?? new Date());
+  const segs = [
+    `${g}, ${name}. Welcome to HALO 3EL Autotrader — it's great to have you here.`,
+    "Take a breath, relax and get comfortable. The markets will always have opportunities, so there's no need to rush.",
+    "I'm HALO, your personal AI trading assistant — I keep you informed, monitor the markets and watch over your risk.",
+    "Remember, protecting your capital is just as important as making a profit.",
+    "HALO 3EL Autotrader was created by Bismark Arko-Ofori. All rights reserved.",
+    "Your command centre is ready — I'm here whenever you need me.",
+    "So, how can I assist you today? Welcome aboard — let's trade smart, stay disciplined and make every decision count.",
+  ];
+  const feedNote = (s?.feed.note || "").toLowerCase();
+  if (s && (s.feed.source === "simulator" || /slow|error|unreachable/i.test(feedNote))) {
+    segs.splice(5, 0, "One heads-up — the market feed is degraded right now, so please treat on-screen prices with care.");
+  }
+  return segs;
+}
+
+/** Short welcome-back for subsequent sessions (spec §4) — spoken + shown. */
+export function welcomeBackMessage(ctx: GreetCtx): string {
+  const name = ctx.name || "Trader";
+  return `Welcome back, ${name}. It's good to have you here again. I hope you're feeling refreshed. I've got everything ready for you. Let's stay focused, remain disciplined and take the market one opportunity at a time. How can I assist you today?`;
+}

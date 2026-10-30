@@ -77,6 +77,13 @@ const ok = (name: string, pass: boolean, detail = "") =>
   await page.screenshot({ path: `${SHOT}/voice-e2e-2-always-on.png` });
 
   // ── 3. SCREEN-WAKE: synthetic visibility cycle (handler-level) ──
+  // the personalized welcome overlay speaks once per session — a real trader
+  // has finished (or skipped) it before returning to the desk, so dismiss it
+  // here; HALO must never talk over the welcome with a return-ack either way
+  await page.evaluate(() => (document.querySelector('[data-testid="welcome-skip"]') as HTMLElement)?.click());
+  await page.waitForTimeout(1500);
+  const welcomeGone = await page.evaluate(() => !document.querySelector('[data-testid="welcome-skip"]'));
+  ok("WELCOME: session-start overlay dismissed before the screen-wake scenario", welcomeGone);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });

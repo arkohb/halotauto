@@ -38,7 +38,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { BotStateRes, VoiceState } from "@/lib/halo/ui-helpers";
-import { displayGreeting, standbyLine, wakeAck, welcomeBackLine, welcomeScript, type GreetCtx } from "@/lib/halo/greeting";
+import {
+  displayGreeting,
+  standbyLine,
+  wakeAck,
+  welcomeBackLine,
+  welcomeBackMessage,
+  welcomeFullDisplay,
+  welcomeFullSpoken,
+  type GreetCtx,
+} from "@/lib/halo/greeting";
 import { getSTTCtor, isEcho, ttsAvailable, wakeHit, type HaloSpeechRecognition } from "@/lib/halo/speech";
 import { voiceEnergy } from "@/lib/halo/voice-energy";
 
@@ -60,6 +69,10 @@ export interface VoicePrefs {
   muted: boolean;
   engine: "neural" | "browser"; // neural = natural server voice, browser = OS voices
   neuralVoice: string; // neural voice id (see NEURAL_VOICES)
+  /** welcome experience: auto = full once, then short welcome-back */
+  welcomeStyle: "auto" | "full" | "short";
+  /** spoken reply verbosity for regular conversation */
+  verbosity: "brief" | "balanced" | "detailed";
   // NOTE: the old liveMode/convoSeconds (silence auto-standby) settings were
   // removed — HALO now listens permanently. Old stored prefs carrying those
   // keys are sanitized on hydrate and dropped on the next persist.
@@ -69,6 +82,22 @@ export type MicState = "unsupported" | "denied" | "idle" | "listening";
 export type WakeState = "off" | "standby" | "listening" | "denied" | "unsupported";
 export type AssistantStatus = "initializing" | "online" | "offline";
 export type MsgKind = "normal" | "greeting" | "wake" | "system" | "action" | "confirm";
+
+/** Welcome overlay lifecycle: hidden → showing → (skipped/finished) fading → hidden */
+export type WelcomeStage = "hidden" | "showing" | "fading";
+/** full = first-opening welcome · back = short welcome-back (later sessions) */
+export type WelcomeKind = "full" | "back";
+
+export interface WelcomeState {
+  stage: WelcomeStage;
+  kind: WelcomeKind;
+  /** index of the paragraph currently being SPOKEN (-1 = none/not syncing) */
+  segment: number;
+  /** true once speech actually started (false = silent/visual-only variant) */
+  spoken: boolean;
+  /** true only when the LAST segment actually finished playing */
+  finished: boolean;
+}
 
 export interface Msg {
   role: "user" | "halo";
@@ -108,11 +137,26 @@ type RecMode = "off" | "wake" | "convo" | "barge";
 const PREFS_KEY = "halo-voice-prefs.v1";
 const TRANSCRIPT_KEY = "halo-jarvis-transcript"; // same key the console always used
 const GREET_KEY = "halo3el.voice.greeted.v1";
+const WELCOME_FULL_SEEN_KEY = "halo3el.welcome.full.v1"; // first full welcome delivered (persistent)
+
+// welcome pacing — the experience must never hold the dashboard hostage
+const WELCOME_SILENT_AUTO_MS = 9_000; // visual-only welcome → auto-enter after 9 s
+const WELCOME_END_HOLD_MS = 1_600; // after the last spoken segment → auto-enter
+const WELCOME_FADE_MS = 650; // fade-out duration (keep in sync with the overlay CSS)
 
 // ALWAYS LISTENING: silence never ends a session or the wake standby — HALO
 // only stops listening via an exit phrase ("goodbye HALO / stop listening /
 // go to sleep"), the console close button, mute, or voice off.
-const DEFAULT_PREFS: VoicePrefs = { volume: 0.9, rate: 1.04, voiceURI: "", muted: false, engine: "neural", neuralVoice: "jam" };
+const DEFAULT_PREFS: VoicePrefs = {
+  volume: 0.9,
+  rate: 1.04,
+  voiceURI: "",
+  muted: false,
+  engine: "neural",
+  neuralVoice: "jam",
+  welcomeStyle: "auto",
+  verbosity: "balanced",
+};
 
 // Natural neural voices served by /api/halo/tts — far more human than the
 // browser's robotic OS voices. jam is the English-accented default.
@@ -184,6 +228,14 @@ interface HaloVoiceCtx {
   enableWake: () => Promise<"granted" | "denied" | "unsupported">;
   disableWake: () => Promise<void>;
   greetingCopy: { headline: string; sub: string };
+  // ── welcome experience (overlay) ──
+  welcome: WelcomeState;
+  /** display paragraphs for the active welcome (verbatim full script or back line) */
+  welcomeParas: string[];
+  /** skip / enter the command centre — stops speech and fades the overlay */
+  dismissWelcome: () => void;
+  /** (re)start speaking the active welcome — used by the overlay's play/enable controls */
+  playWelcome: () => void;
   // ── operator actions ──
   registerActionRunner: (fn: ActionRunner | null) => void;
   pendingConfirm: PendingConfirm | null;
@@ -268,6 +320,13 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const neuralAbortRef = useRef<AbortController | null>(null);
   const neuralCacheRef = useRef<Map<string, string>>(new Map());
+
+  // ── welcome experience (overlay) state ──
+  const [welcome, setWelcome] = useState<WelcomeState>({ stage: "hidden", kind: "full", segment: -1, spoken: false, finished: false });
+  const welcomeRef = useRef<WelcomeState>(welcome);
+  welcomeRef.current = welcome;
+  const welcomeTimersRef = useRef<number[]>([]);
+  const welcomeAbortRef = useRef(false); // a run cancelled by skip/dismiss
 
   // ── helpers ──
   const greetCtx = useCallback((): GreetCtx => {
@@ -547,6 +606,13 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       } catch {
         // ignore
       }
+      // an engine with NO voices can only ever fake-play (instant onend with
+      // zero audio) — that must count as blocked, never as a played segment
+      if (synth.getVoices().length === 0) {
+        finish(false);
+        opts.onblocked?.();
+        return;
+      }
       const u = new SpeechSynthesisUtterance(text.slice(0, 1200));
       u.volume = Math.max(0, Math.min(1, prefsRef.current.volume));
       u.rate = Math.max(0.7, Math.min(1.4, prefsRef.current.rate));
@@ -573,7 +639,16 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         if (token !== speakTokenRef.current) return;
         voiceEnergy.bumpSpeech(); // real word event while the audio plays
       };
-      u.onend = () => finish(true);
+      u.onend = () => {
+        // an utterance that ends WITHOUT ever starting produced no audio —
+        // advancing a welcome chain on it would fast-cycle the script
+        if (!started) {
+          finish(false);
+          opts.onblocked?.();
+          return;
+        }
+        finish(true);
+      };
       u.onerror = () => finish(false);
 
       clearWatchdog();
@@ -922,7 +997,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         const r = await fetch("/api/halo/brain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, history, mode: "voice", source: origin }),
+          body: JSON.stringify({ message: text, history, mode: "voice", source: origin, verbosity: prefsRef.current.verbosity }),
           signal: ctrl.signal,
         });
         const j = (await r.json()) as {
@@ -1070,7 +1145,90 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     [stopRec, speak, shouldWake, startRec, greetCtx]
   );
 
-  // ── personalized greeting ──
+  // ── personalized welcome experience (overlay) ──────────────────────────
+  const clearWelcomeTimers = useCallback(() => {
+    for (const id of welcomeTimersRef.current) window.clearTimeout(id);
+    welcomeTimersRef.current = [];
+  }, []);
+
+  /** Skip / enter the command centre — stops speech, fades, hands the mic back. */
+  const dismissWelcome = useCallback(() => {
+    clearWelcomeTimers();
+    welcomeAbortRef.current = true;
+    stopSpeaking();
+    setWelcome((w) => (w.stage === "hidden" ? w : { ...w, stage: "fading", segment: -1 }));
+    welcomeTimersRef.current.push(
+      window.setTimeout(
+        () => {
+          welcomeAbortRef.current = false;
+          setWelcome((w) => ({ stage: "hidden", kind: w.kind, segment: -1, spoken: false, finished: false }));
+          // hand the mic back exactly as speak()'s finish() would — a skip
+          // mid-speech bumps the speak token, so its own hand-back never runs
+          if (convoRef.current && !busyRef.current) startRec("convo");
+          else if (shouldWake()) {
+            if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+            restartTimerRef.current = window.setTimeout(() => {
+              if (shouldWake()) startRec("wake");
+            }, 700);
+          }
+        },
+        WELCOME_FADE_MS
+      )
+    );
+  }, [clearWelcomeTimers, stopSpeaking, startRec, shouldWake]);
+
+  /** Run the welcome overlay: full script (first opening) or welcome-back. */
+  const runWelcome = useCallback(
+    (kind: WelcomeKind) => {
+      clearWelcomeTimers();
+      welcomeAbortRef.current = false;
+      const ctx = greetCtx();
+      const canSpeak = profileRef.current.voiceEnabled && !prefsRef.current.muted && ttsAvailable();
+      const segs = kind === "full" ? welcomeFullSpoken(ctx, snapshotRef.current) : [welcomeBackMessage(ctx)];
+      const spokenText = segs.join(" ");
+      lastGreetRef.current = spokenText;
+      setWelcome({ stage: "showing", kind, segment: -1, spoken: false, finished: false });
+      addMsg({ role: "halo", text: spokenText, at: Date.now(), kind: "greeting" });
+
+      if (!canSpeak) {
+        // Visual welcome with a text alternative — the overlay carries the
+        // "Enable HALO Voice" control. Never trap the trader: auto-enter.
+        welcomeTimersRef.current.push(window.setTimeout(() => dismissWelcome(), WELCOME_SILENT_AUTO_MS));
+        return;
+      }
+
+      spokenGreetRef.current = true;
+      pendingGreetRef.current = spokenText;
+      // speak segment by segment so the overlay highlights the REAL speech
+      const speakSeg = (i: number) => {
+        if (welcomeAbortRef.current) return;
+        if (i >= segs.length) {
+          pendingGreetRef.current = null;
+          setWelcome((w) => ({ ...w, segment: Math.max(0, segs.length - 1), spoken: true, finished: true }));
+          welcomeTimersRef.current.push(window.setTimeout(() => dismissWelcome(), WELCOME_END_HOLD_MS));
+          return;
+        }
+        setWelcome((w) => ({ ...w, segment: i, spoken: true, finished: false }));
+        lastSpokenRef.current = segs[i]; // echo guard for the wake standby
+        speak(segs[i], {
+          onend: () => speakSeg(i + 1),
+          onblocked: () => setBlocked(true),
+        });
+      };
+      speakSeg(0);
+    },
+    [addMsg, speak, greetCtx, clearWelcomeTimers, dismissWelcome]
+  );
+
+  /** (Re)start speaking the active welcome — overlay play/enable control. */
+  const playWelcome = useCallback(() => {
+    setBlocked(false);
+    runWelcome(welcomeRef.current.kind);
+  }, [runWelcome]);
+
+  // session-start trigger: full welcome on the first application opening,
+  // short welcome-back on subsequent sessions — once per session, never on
+  // tab switches or refreshes
   const attemptGreeting = useCallback(() => {
     const p = profileRef.current;
     greetedAttemptRef.current = true;
@@ -1080,24 +1238,34 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     } catch {
       // storage blocked (private mode) — in-memory guard still prevents dupes
     }
-    if (!p.voiceEnabled || !p.autoGreeting) return; // banner shows the onboarding control
-    if (!ttsAvailable()) return;
-
-    const script = welcomeScript(snapshotRef.current, greetCtx());
-    lastGreetRef.current = script;
-    spokenGreetRef.current = true;
-    pendingGreetRef.current = script;
-    addMsg({ role: "halo", text: script, at: Date.now(), kind: "greeting" });
-    // let the boot sequence clear, then speak without requiring a click
-    window.setTimeout(() => {
-      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
-      speak(script, { onblocked: () => setBlocked(true), onend: () => (pendingGreetRef.current = null) });
-    }, 2800);
-     
-  }, [addMsg, speak, greetCtx]);
+    if (!p.autoGreeting) return; // welcome on/off — the banner still greets
+    let fullSeen = false;
+    try {
+      fullSeen = window.localStorage.getItem(WELCOME_FULL_SEEN_KEY) === "1";
+    } catch {
+      // ignore
+    }
+    const style = prefsRef.current.welcomeStyle;
+    const wantFull = style === "full" || (style === "auto" && !fullSeen);
+    const kind: WelcomeKind = wantFull ? "full" : "back";
+    if (wantFull) {
+      try {
+        window.localStorage.setItem(WELCOME_FULL_SEEN_KEY, "1");
+      } catch {
+        // ignore
+      }
+    }
+    // let the boot sequence clear, then raise the overlay + speak
+    welcomeTimersRef.current.push(
+      window.setTimeout(() => {
+        if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+        runWelcome(kind);
+      }, 2600)
+    );
+  }, [runWelcome]);
 
   const replayWelcome = useCallback(() => {
-    const script = lastGreetRef.current || welcomeScript(snapshotRef.current, greetCtx());
+    const script = lastGreetRef.current || welcomeFullSpoken(greetCtx(), snapshotRef.current).join(" ");
     lastSpokenRef.current = script;
     speak(script);
      
@@ -1114,9 +1282,20 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const enableVoice = useCallback(async () => {
     const ok = await saveProfile({ voiceEnabled: true });
     if (!ok) return;
+    // the welcome overlay is up → (re)run the active welcome with voice,
+    // straight from its first segment (a user gesture, so autoplay allows it)
+    if (welcomeRef.current.stage === "showing") {
+      setBlocked(false);
+      runWelcome(welcomeRef.current.kind);
+      return;
+    }
     if (!spokenGreetRef.current && profileRef.current.autoGreeting) {
-      // first-time activation: deliver the welcome right away (user gesture → autoplay allowed)
-      const script = welcomeScript(snapshotRef.current, greetCtx());
+      // first-time activation: deliver the welcome right away — a pending
+      // silent auto-welcome timer must be cancelled so it never doubles up
+      clearWelcomeTimers();
+      const ctx = greetCtx();
+      const segs = welcomeRef.current.kind === "back" ? [welcomeBackMessage(ctx)] : welcomeFullSpoken(ctx, snapshotRef.current);
+      const script = segs.join(" ");
       lastGreetRef.current = script;
       spokenGreetRef.current = true;
       pendingGreetRef.current = null;
@@ -1129,7 +1308,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       speak(line);
     }
      
-  }, [speak, addMsg, greetCtx]);
+  }, [speak, addMsg, greetCtx, runWelcome, clearWelcomeTimers]);
 
   const disableVoice = useCallback(async () => {
     await saveProfile({ voiceEnabled: false, wakeEnabled: false });
@@ -1188,6 +1367,8 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             muted: p.muted === true,
             engine: p.engine === "browser" ? "browser" : "neural",
             neuralVoice: typeof p.neuralVoice === "string" && NEURAL_VOICES.some((nv) => nv.id === p.neuralVoice) ? p.neuralVoice : DEFAULT_PREFS.neuralVoice,
+            welcomeStyle: p.welcomeStyle === "full" || p.welcomeStyle === "short" ? p.welcomeStyle : "auto",
+            verbosity: p.verbosity === "brief" || p.verbosity === "detailed" ? p.verbosity : "balanced",
           });
         }
       } catch {
@@ -1298,6 +1479,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     if (!blocked) return;
     const retry = () => {
       setBlocked(false);
+      // while the welcome overlay is up it owns recovery through its own
+      // explicit play/enable controls — a stray click must not double-speak
+      if (welcomeRef.current.stage !== "hidden") return;
       const pending = pendingGreetRef.current;
       pendingGreetRef.current = null;
       const script = pending ?? lastGreetRef.current;
@@ -1340,6 +1524,8 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         p.autoGreeting &&
         ttsAvailable() &&
         !prefsRef.current.muted &&
+        prefsRef.current.verbosity !== "brief" && // brief → silent returns
+        welcomeRef.current.stage === "hidden" && // never talk over the welcome
         !busyRef.current &&
         voiceRef.current !== "speaking" &&
         hiddenFor >= WELCOME_BACK_MIN_HIDDEN_MS &&
@@ -1413,6 +1599,11 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
 
   const greetingCopy = useMemo(() => displayGreeting(snapshot, { name: profile.displayName || "Trader", hasName: profile.hasName, wakeEnabled: profile.voiceEnabled && profile.wakeEnabled, wakePhrase: profile.wakePhrase }), [snapshot, profile]);
 
+  const welcomeParas = useMemo(
+    () => (welcome.kind === "full" ? welcomeFullDisplay({ name: profile.displayName || "Trader", hasName: profile.hasName, wakeEnabled: profile.voiceEnabled && profile.wakeEnabled, wakePhrase: profile.wakePhrase }) : [welcomeBackMessage({ name: profile.displayName || "Trader", hasName: profile.hasName, wakeEnabled: profile.voiceEnabled && profile.wakeEnabled, wakePhrase: profile.wakePhrase })]),
+    [welcome.kind, profile]
+  );
+
   const value: HaloVoiceCtx = {
     profile,
     saveProfile,
@@ -1440,6 +1631,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     enableWake,
     disableWake,
     greetingCopy,
+    welcome,
+    welcomeParas,
+    dismissWelcome,
+    playWelcome,
     registerActionRunner,
     pendingConfirm,
     approvePending,

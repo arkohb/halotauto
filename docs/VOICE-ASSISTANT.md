@@ -36,11 +36,32 @@ only and talks exclusively to the pre-existing read-only assistant core.
 
 ## 3. Experience flow
 
-1. **First visit** — banner greets by stored name (or "Trader" + PERSONALIZE button), shows `ENABLE HALO VOICE`. No mic is touched.
-2. **Enable** — one click saves consent server-side and speaks the welcome immediately (user gesture ⇒ autoplay permitted).
-3. **Return visits** — greeting is spoken automatically ~2.8 s after load (after the boot sequence). If the browser blocks autoplay, a `TAP ONCE TO ENABLE VOICE` chip retries on the next interaction. No hidden repeat audio; mute/consent always respected; once per browser session (refresh-safe).
+1. **Session start — the welcome overlay** — a premium full-screen JARVIS-style welcome is raised once per browser session (refresh- and tab-switch-safe). It shows the animated HALO core (real states only), the time-band greeting with the trader's profile name, the **full verbatim welcome script** (see §3b), a sound-wave that moves only on real audio, honest status chips, the creator attribution, and always-available **SKIP INTRO / Enter** + **Enable HALO Voice** controls (Escape skips too). The dashboard renders and polls underneath the whole time — nothing about market data, MT5 checks or the engine waits for the welcome. The welcome-back variant auto-enters after 9 s when voice is off (visual + text alternative).
+2. **First opening vs later sessions** — the full welcome plays on the **first application opening** (per device, `halo3el.welcome.full.v1`); every later session gets the short **welcome-back** message. Welcome style can be forced (always full / always short) in Settings → HALO Voice & Profile.
+3. **Voice consent** — no mic or audio without consent: `ENABLE HALO VOICE` saves consent server-side and speaks the welcome immediately (user gesture ⇒ autoplay permitted). Blocked autoplay shows a `PLAY WELCOME` chip; the tap-retry on the dashboard is suppressed while the overlay owns recovery.
 4. **Wake word — always listening** — once enabled, the standby loop runs permanently: say "HALO" any time (configurable phrase; "hey HALO" also works) and HALO wakes instantly. "HALO, what's the gold price?" in one breath wakes AND carries the request. After every answer, error or closed session the mic re-arms by itself — ready for the next wake word. A session ends only via "goodbye HALO / stop listening / go to sleep", the console close button, mute or voice off — **never** a silence timeout (the old 12 s auto-standby was removed entirely).
-5. **Conversation** — grounded read-only answers, spoken (short voice-mode replies) and transcribed with timestamps + `grounded · verified` stamps. Speaking stops automatically when the trader talks over it (echo-filtered barge-in) or when any control is used.
+5. **Conversation** — grounded read-only answers, spoken (short voice-mode replies) and transcribed with timestamps + `grounded · verified` stamps. Speaking stops automatically when the trader talks over it (echo-filtered barge-in) or when any control is used. Reply verbosity (Brief / Balanced / Detailed) is a device preference; Brief also silences the throttled screen-return acks.
+
+### 3b. Welcome scripts (spec-exact)
+
+- **Full welcome (display, verbatim)** — time-band greeting + name, relax/patience beat, HALO's assistant duties, protect-capital beat, `HALO 3EL Autotrader was created by Bismark Arko-Ofori. All rights reserved.` (spoken verbatim too), command-centre-ready, how-can-I-assist, welcome-aboard closer.
+- **Full welcome (spoken)** — the same beats condensed to ~105 words (≈35–40 s at the default natural rate) so the spoken welcome respects the 30–40 s envelope; the overlay displays the full verbatim script in parallel and highlights the paragraph actually being spoken.
+- **Welcome-back (subsequent sessions)** — `Welcome back, {name}. It's good to have you here again… How can I assist you today?` (no attribution repeat).
+- **Time bands** — `Good morning` < 12:00, `Good afternoon` < 17:00, `Good evening` otherwise, always from the trader's **local** clock; no profile name → **"Trader"** (never invented).
+
+### 3c. Welcome experience — files created / modified (2026-10-30)
+
+**Created (welcome experience, 2026-10-30)**
+- `src/components/halo/welcome-overlay.tsx` — the full-screen welcome: animated HALO core (real states only: speaking/listening/thinking/offline), staged verbatim script synced to the REAL spoken segments, honest status chips, SKIP/Enter + Enable-voice + blocked-recovery controls, Escape to skip, reduced-motion variant (static core, no staged reveal, minimal fade), mobile layout (scrollable script, full-width controls)
+- `scripts/welcome-e2e.ts` — 16-test Playwright suite for the welcome experience (see §5)
+- `scripts/welcome-probe.ts` — skip-behaviour probe used while hardening the overlay
+
+**Modified (welcome experience, 2026-10-30)**
+- `src/lib/halo/greeting.ts` — `welcomeTimeGreeting` (local clock bands), `welcomeFullDisplay` (verbatim script), `welcomeFullSpoken` (≈35 s rendition, degraded-feed honesty clause), `welcomeBackMessage`
+- `src/components/halo/voice-provider.tsx` — welcome session machine (`WelcomeState` stage/kind/segment/finished, run/dismiss/play, segment-chained speech with echo-guard per segment), first-opening vs welcome-back decision (`halo3el.welcome.full.v1` + `welcomeStyle` pref), VoicePrefs gains `welcomeStyle` + `verbosity` (sanitized on hydrate), enable-voice during the overlay restarts the welcome with audio, browser-engine fallback now refuses to fake-play (zero-voice guard + onend-without-onstart ⇒ blocked, never "played")
+- `src/components/halo/voice-settings-card.tsx` — Welcome style (Auto/Full/Short), Reply verbosity (Brief/Balanced/Detailed), voice PREVIEW button
+- `src/app/page.tsx` — mounts `WelcomeOverlay` inside the voice provider; footer now reads `© … · HALO 3EL AUTOTRADER · CREATED BY BISMARK ARKO-OFORI · ALL RIGHTS RESERVED`
+- `scripts/voice-e2e.ts` — dismisses the session welcome before the screen-wake scenario (new assertion included)
 
 ## 4. Safety boundaries (unchanged, enforced)
 
@@ -50,6 +71,26 @@ only and talks exclusively to the pre-existing read-only assistant core.
 - Disabling voice also stops wake listening immediately; closing the tab tears down mic + audio.
 
 ## 5. Test results (executed 2026-10-29, headless Chromium 144 + curl; screenshots in `download/test-*.png`)
+
+### 5b. Welcome-experience E2E — `scripts/welcome-e2e.ts` (executed 2026-10-30: **16/16 PASS**, real Chromium on Xvfb; screenshots `download/welcome-e2e-*.png`)
+
+| Scenario | Result |
+|---|---|
+| First opening → full welcome overlay appears | ✅ |
+| Personalized `Good morning, Bismark` headline (09:00 local shim) | ✅ |
+| Creator attribution verbatim in the script (`…created by Bismark Arko-Ofori. All rights reserved.`) | ✅ |
+| Full welcome script beats shown (relax / protect-capital) | ✅ |
+| SKIP dismisses immediately (907 ms) and the dashboard underneath is live | ✅ |
+| Footer attribution `CREATED BY BISMARK ARKO-OFORI · ALL RIGHTS RESERVED` | ✅ |
+| Reload in the same session → NO replay (sessionStorage guard) | ✅ |
+| Next session (session cleared) → short welcome-back, no attribution repeat | ✅ |
+| 19:00 shim → `Good evening, Bismark` | ✅ |
+| Empty profile name → `Good morning, Trader` fallback | ✅ |
+| Device pref `welcomeStyle=short` forces welcome-back on first visit | ✅ |
+| `autoGreeting=false` → no overlay at all | ✅ |
+| Mobile 390×844: renders + skip works | ✅ |
+
+Voice-engine regression: `scripts/voice-e2e.ts` **9/9 PASS** (incl. the new "welcome dismissed before screen-wake" step); `bunx tsc` src/ 0 errors; eslint clean; `bun run build` ✓; `/api/bot/state` untouched (200, XAUUSD 1h yahoo feed).
 
 | # | Test | Result |
 |---|---|---|

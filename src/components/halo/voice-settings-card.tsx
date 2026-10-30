@@ -31,6 +31,23 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
+function Select({ value, onChange, options, ariaLabel }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[]; ariaLabel: string }) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 max-w-[190px] rounded-lg border border-[var(--hx-line2)] bg-[var(--hx-card2)] px-2 text-[10.5px] text-[var(--hx-txt)] outline-none"
+      aria-label={ariaLabel}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 export function VoiceSettingsCard() {
   const v = useHaloVoice();
   const [name, setName] = useState<string | null>(null);
@@ -48,6 +65,13 @@ export function VoiceSettingsCard() {
 
   const savePhrase = async () => {
     await v.saveProfile({ wakePhrase: phraseValue });
+  };
+
+  // hear the selected voice before committing to it — the sample is fixed
+  // text spoken with the CURRENT prefs (the select has already updated them)
+  const previewVoice = () => {
+    const label = NEURAL_VOICES.find((nv) => nv.id === v.prefs.neuralVoice)?.label ?? "HALO";
+    v.speak(`This is ${label}, your personal HALO voice.`, { ignoreMute: true });
   };
 
   const micChip =
@@ -111,12 +135,46 @@ export function VoiceSettingsCard() {
           <Switch checked={v.profile.voiceEnabled} onCheckedChange={(c) => (c ? void v.enableVoice() : void v.disableVoice())} aria-label="Enable HALO voice" />
         </Row>
 
-        <Row label="Automatic welcome" hint="Speak the personalized greeting on return visits without a click.">
+        <Row
+          label="Automatic welcome"
+          hint="Raise the personalized welcome when a session starts — spoken where the browser allows, with a text alternative when it doesn't."
+        >
           <Switch
             checked={v.profile.autoGreeting}
-            disabled={!v.profile.voiceEnabled}
             onCheckedChange={(c) => void v.saveProfile({ autoGreeting: c })}
             aria-label="Automatic spoken welcome"
+          />
+        </Row>
+
+        <Row
+          label="Welcome style"
+          hint="Auto plays the full welcome on your first opening, then the short welcome-back on later sessions. Full / Short force one style every time."
+        >
+          <Select
+            value={v.prefs.welcomeStyle}
+            onChange={(val) => v.setPrefs({ welcomeStyle: val as "auto" | "full" | "short" })}
+            options={[
+              { value: "auto", label: "Auto — full once, then short" },
+              { value: "full", label: "Always full welcome" },
+              { value: "short", label: "Always short welcome-back" },
+            ]}
+            ariaLabel="Welcome style"
+          />
+        </Row>
+
+        <Row
+          label="Reply verbosity"
+          hint="Brief keeps returns silent and trims chatter; Balanced is the default co-pilot; Detailed favours complete spoken summaries."
+        >
+          <Select
+            value={v.prefs.verbosity}
+            onChange={(val) => v.setPrefs({ verbosity: val as "brief" | "balanced" | "detailed" })}
+            options={[
+              { value: "brief", label: "Brief" },
+              { value: "balanced", label: "Balanced" },
+              { value: "detailed", label: "Detailed" },
+            ]}
+            ariaLabel="Reply verbosity"
           />
         </Row>
 
@@ -174,6 +232,15 @@ export function VoiceSettingsCard() {
                 </option>
               ))}
             </select>
+            <button
+              type="button"
+              onClick={previewVoice}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1.5 text-[9px] font-extrabold tracking-[0.1em]"
+              style={{ borderColor: A.cyan(0.45), background: A.cyan(0.08), color: C.cyan }}
+              title="Hear a short sample with this voice"
+            >
+              <Play size={10} /> PREVIEW
+            </button>
           </Row>
         )}
 
