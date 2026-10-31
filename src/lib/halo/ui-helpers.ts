@@ -128,6 +128,8 @@ export interface BotStateRes {
   engine: EngineSnapshot;
   exec: ExecRes;
   strategy?: StrategyRes;
+  /** GLOBAL TRADE LOCK — a trade is running somewhere; scanning is paused until TP/SL */
+  scanLock?: { source: string; symbol: string; tf: string; dir: number; entry: number; sl: number; tp: number; openedAt: number } | null;
 }
 
 export function decimalsOf(mintick: number): number {

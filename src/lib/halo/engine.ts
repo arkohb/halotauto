@@ -18,11 +18,9 @@
 //    fire is SKIPPED — the too-close level is burned, the skip is announced
 //    (log + range_skip event → bot alert/voice), and the engine keeps
 //    hunting for FRESH levels further away from the range to arm instead.
-//  • focusCurrent (default ON): a new C1/C2 pair REPLACES older fresh
-//    levels on its OWN side — one armed SUPPORT + one armed RESISTANCE
-//    stay live together, and whichever breaks & returns first takes the
-//    trade (no repaint: a trigger line's price is pinned at creation
-//    and never moves).
+//  • focusCurrent (default ON, LEGACY mode only): a new C1/C2 pair REPLACES
+//    older fresh levels on its OWN side — with levelPersist the new
+//    lifecycle rule wins instead: armed levels REMAIN until touched & fired.
 // ════════════════════════════════════════════════════════════════════════
 
 import {
@@ -51,6 +49,7 @@ interface InternalLevel {
   b2Time: number;
   b1Index: number;
   broke: boolean; // candle 3 already broke beyond the dotted line (break event fired once)
+  brokeIndex: number | null; // bar index of the break — anchors the re-test window ("price never returned" removal)
 }
 
 interface EngineState {
@@ -95,6 +94,7 @@ function freshState(): EngineState {
       skipped: 0,
       tooClose: 0,
       rangeSkipped: 0,
+      noReturnRemoved: 0,
       lastResult: { text: "—", kind: "none" },
     },
   };
@@ -171,6 +171,20 @@ export class HaloEngine {
   private pushLog(e: LogEntry): void {
     this.state.log.push(e);
     if (this.state.log.length > 60) this.state.log.splice(0, this.state.log.length - 60);
+  }
+
+  /**
+   * TRADE LOCK helper — burn EVERY fresh armed level at once. Called when a
+   * trade fires anywhere in the app: "all armed levels are deleted until a
+   * running trade hit TP or SL, then scanning activates". Returns how many
+   * levels were cleared.
+   */
+  clearArmedLevels(time: number): number {
+    const s = this.state;
+    const n = s.levels.length;
+    for (const L of s.levels) this.markLevel(L.id, "burned", time);
+    if (n > 0) s.levels = [];
+    return n;
   }
 
   /**
@@ -253,10 +267,28 @@ export class HaloEngine {
       let remove = false;
       let isFire = false;
 
-      if (curIndex - L.b1Index > cfg.expiryBars) {
+      if (!cfg.levelPersist && curIndex - L.b1Index > cfg.expiryBars) {
+        // LEGACY expiry (levelPersist OFF): fixed bar-count expiry for every fresh level
         remove = true;
         this.markLevel(L.id, "burned", bar.time);
         ev.push({ type: "expired", id: L.id });
+      } else if (
+        cfg.levelPersist &&
+        L.broke &&
+        L.brokeIndex !== null &&
+        curIndex - L.brokeIndex > Math.max(1, Math.round(cfg.retestBars))
+      ) {
+        // LEVEL LIFECYCLE: the level BROKE the dotted line but the price
+        // NEVER CAME BACK to it for entry within the re-test window —
+        // remove it and hunt a fresh level instead. (A level that is never
+        // touched or broken never reaches this branch: it REMAINS armed
+        // until it is touched and fired.)
+        s.stats.noReturnRemoved += 1;
+        const msg = `Level removed — ${L.side === -1 ? "resistance" : "support"} ${fmtPxOf(this.pt, L.ext)} broke the dotted line but the price never returned for entry within ${Math.round(cfg.retestBars)} bars. Hunting a fresh level.`;
+        this.pushLog({ time: bar.time, kind: "skip", dir: L.side, pips: 0, entry: L.ext, message: msg });
+        ev.push({ type: "level_removed", id: L.id, side: L.side, ext: L.ext, reason: "no_return", time: bar.time });
+        this.markLevel(L.id, "burned", bar.time);
+        remove = true;
       } else {
         // BREAK beyond the dotted wick line (C1/C2 extreme)
         const broke = L.side === -1 ? bar.high >= L.ext + brk : bar.low <= L.ext - brk;
@@ -265,6 +297,7 @@ export class HaloEngine {
             // FIRST tick beyond the dotted trigger line — the bot announces
             // this loudly ("candle 3 is breaking…") exactly once per level.
             L.broke = true;
+            L.brokeIndex = curIndex;
             ev.push({
               type: "break",
               id: L.id,
@@ -326,10 +359,15 @@ export class HaloEngine {
             }
             remove = true;
           } else if (confirmed) {
-            // broke the wick line but never returned by bar close → spent
-            s.stats.burned += 1;
-            ev.push({ type: "burned" });
-            remove = true;
+            // broke the wick line but never returned by bar close → spent.
+            // LEGACY (levelPersist OFF) only — with the new lifecycle the
+            // level stays armed awaiting the return within the re-test
+            // window (checked at the top of this loop).
+            if (!cfg.levelPersist) {
+              s.stats.burned += 1;
+              ev.push({ type: "burned" });
+              remove = true;
+            }
           }
         }
       }
@@ -368,6 +406,12 @@ export class HaloEngine {
         slModeLabel: cfg.slMode === "points" ? "Fixed points" : cfg.slMode === "atr" ? "ATR" : "Break extreme + buffer",
       };
       s.firedLvlId = fireL.id;
+      if (cfg.levelPersist) {
+        // ALL ARMED LEVELS ARE DELETED the moment a trade fires — the board
+        // stays empty until the running trade hits TP or SL, then scanning
+        // (level detection) re-activates. Backtests replay the same rule.
+        this.clearArmedLevels(bar.time);
+      }
       const msg = `HALO 3EL ${dir === -1 ? "SELL" : "BUY"} · WICK-LINE BREAK→RETURN · Entry ${fireEntry} · SL ${sl} · TP ${tp}`;
       this.pushLog({ time: bar.time, kind: "fire", dir, pips: 0, entry: fireEntry });
       const fireEv: FireEvent = {
@@ -390,8 +434,14 @@ export class HaloEngine {
 
     // ═════════════ 4. DETECT NEW C1 / C2 PAIR ═════════════
     if (confirmed) {
+      // LEVEL LIFECYCLE: while a trade is running the engine does NOT arm
+      // new levels — the board stays empty until TP/SL, then scanning
+      // re-activates ("…until a running trade hit TP or SL, then scanning
+      // activates"). prevBar tracking continues so detection resumes
+      // seamlessly on the close.
+      const armingLocked = cfg.levelPersist && s.trade !== null;
       const p1 = s.prevBar;
-      if (p1 && atrOK) {
+      if (p1 && atrOK && !armingLocked) {
         const c1Bull = p1.close > p1.open;
         const c1Bear = p1.close < p1.open;
         const c2Bull = bar.close > bar.open;
@@ -434,15 +484,24 @@ export class HaloEngine {
                 s.stats.tooClose += 1;
               }
             }
-            // cap fresh levels per side (drop oldest)
+            // cap fresh levels per side: LEGACY burns the oldest armed
+            // level; the new lifecycle KEEPS armed levels ("a level which
+            // is never touched or broken remains until it is touched and
+            // fired") and instead REJECTS the new formation while the side
+            // is at cap.
             let cnt = 0;
             for (const O of s.levels) if (O.side === newSide) cnt += 1;
             if (cnt >= cfg.maxLevels) {
-              for (let j = 0; j < s.levels.length; j++) {
-                if (s.levels[j].side === newSide) {
-                  this.markLevel(s.levels[j].id, "burned", bar.time);
-                  s.levels.splice(j, 1);
-                  break;
+              if (cfg.levelPersist) {
+                s.stats.tooClose += 1;
+                keepNew = false;
+              } else {
+                for (let j = 0; j < s.levels.length; j++) {
+                  if (s.levels[j].side === newSide) {
+                    this.markLevel(s.levels[j].id, "burned", bar.time);
+                    s.levels.splice(j, 1);
+                    break;
+                  }
                 }
               }
             }
@@ -459,6 +518,7 @@ export class HaloEngine {
               b2Time: bar.time,
               b1Index: curIndex - 1,
               broke: false,
+              brokeIndex: null,
             };
             s.levels.push(lvl);
             s.drawings.push({
@@ -477,13 +537,11 @@ export class HaloEngine {
             });
             if (s.drawings.length > 30) s.drawings.splice(0, s.drawings.length - 30);
 
-            // ── FOCUS CURRENT SIGNAL (per side) ── the new pair is now THE
-            // signal for its own side: older fresh levels OF THE SAME SIDE
-            // are discarded so the EA never acts on stale levels. The
-            // OPPOSITE side keeps its armed level, so one armed support +
-            // one armed resistance are live together and whichever C3
-            // triggers first fires the trade instantly.
-            if (cfg.focusCurrent) {
+            // ── FOCUS CURRENT SIGNAL (per side · LEGACY ONLY) ── with the
+            // new level lifecycle the armed levels REMAIN until touched and
+            // fired, so focusCurrent's replace-older-levels culling only
+            // applies when levelPersist is OFF.
+            if (cfg.focusCurrent && !cfg.levelPersist) {
               for (let j = s.levels.length - 1; j >= 0; j--) {
                 const O = s.levels[j];
                 if (O.id === lvl.id || O.side !== lvl.side) continue;

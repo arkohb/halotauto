@@ -70,6 +70,7 @@ export interface BtSummary {
   skipped: number;
   tooClose: number;
   rangeSkipped: number;
+  noReturnRemoved: number;
 }
 
 function parseBars(raw: number | string | undefined): number | null {
@@ -236,6 +237,7 @@ export async function POST(req: Request) {
       skipped: snap.stats.skipped,
       tooClose: snap.stats.tooClose,
       rangeSkipped: snap.stats.rangeSkipped,
+      noReturnRemoved: snap.stats.noReturnRemoved,
     };
 
     return NextResponse.json({

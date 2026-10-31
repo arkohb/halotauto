@@ -13,7 +13,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { ListPlus, ScanSearch, Table2 } from "lucide-react";
+import { ListPlus, Radar, ScanSearch, Table2 } from "lucide-react";
 import { C, type PillTone } from "@/lib/halo/ui-helpers";
 import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
 import type { Side } from "@/lib/halo/types";
@@ -39,6 +39,35 @@ interface RowState {
   warm: boolean;
 }
 
+interface SweepRowState {
+  symbol: string;
+  symbolLabel: string;
+  tf: string;
+  status: string;
+  price: number;
+  freshSell: number;
+  freshBuy: number;
+  nearest: { side: Side; distAtr: number } | null;
+  lastSignal: { dir: Side; kind: string; time: number } | null;
+  source: string;
+  error: string;
+  warm: boolean;
+}
+
+interface SweepState {
+  enabled: boolean;
+  autoTrade: boolean;
+  tfWindow: string[];
+  pairsTotal: number;
+  pairsWarm: number;
+  cursor: number;
+  fires: number;
+  lastRun: number;
+  lastFire: { symbol: string; tf: string; dir: Side; entry: number; time: number; traded: boolean } | null;
+  lock: { source: string; symbol: string; tf: string; dir: number; entry: number; sl: number; tp: number; openedAt: number } | null;
+  setups: SweepRowState[];
+}
+
 interface State {
   rows: RowState[];
   enabledCount: number;
@@ -46,6 +75,7 @@ interface State {
   totalSignals: number;
   lastRun: number;
   maxRows: number;
+  sweep?: SweepState;
 }
 
 interface Props {
@@ -151,6 +181,134 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
           <StatCell label="AUTO-TRADE" value={st ? String(st.autoTradeCount) : "—"} color={C.gold} />
           <StatCell label="SIGNALS" value={st ? String(st.totalSignals) : "—"} />
         </div>
+      </PanelCard>
+
+      {/* ── ALL-PAIRS SWEEP · 1h–4h ── */}
+      <PanelCard
+        title="ALL-PAIRS SWEEP · 1H–4H"
+        icon={Radar}
+        accent="gold"
+        right={
+          <Button
+            variant="outline"
+            onClick={() => void post({ action: "sweepNow" }, "sweepNow")}
+            disabled={busy !== null || !(st?.sweep?.enabled ?? true) || !!(st?.sweep?.lock)}
+            className="h-9 px-4 rounded-lg border-[#1C4478] text-[#EAF3FF] hover:border-[#E9B94E] hover:text-[#E9B94E] bg-transparent text-xs font-bold tracking-wider"
+          >
+            {busy === "sweepNow" ? "SWEEPING…" : "⟳ SWEEP NOW"}
+          </Button>
+        }
+        bodyClassName="p-4 space-y-3"
+      >
+        <p className="text-[11px]" style={{ color: C.muted }}>
+          The bot scans <span className="font-bold" style={{ color: C.txt }}>every pair in the catalog</span> on the
+          <span className="font-bold" style={{ color: C.gold }}> 1h and 4h timeframes only</span>. When a trade fires anywhere, all armed levels are
+          deleted and scanning pauses until the running trade hits TP or SL — then scanning re-activates.
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatCell label="PAIRS" value={st?.sweep ? `${st.sweep.pairsWarm}/${st.sweep.pairsTotal}` : "—"} />
+          <StatCell label="TF WINDOW" value={st?.sweep ? st.sweep.tfWindow.map((t) => t.toUpperCase()).join(" · ") : "—"} color={C.gold} />
+          <StatCell label="FIRES" value={st?.sweep ? String(st.sweep.fires) : "—"} color={C.green} />
+          <StatCell
+            label="STATUS"
+            value={st?.sweep?.lock ? "PAUSED · TRADE" : st?.sweep?.enabled ? "SCANNING" : "OFF"}
+            color={st?.sweep?.lock ? C.red : st?.sweep?.enabled ? C.green : C.muted}
+          />
+        </div>
+        {st?.sweep?.lock && (
+          <div className="rounded-lg border px-3 py-2 text-[11px]" style={{ borderColor: C.red, background: "rgba(255,77,94,0.08)", color: C.red }}>
+            SCANNING PAUSED — a {st.sweep.lock.dir === -1 ? "SELL" : "BUY"} trade is running on {st.sweep.lock.symbol} {st.sweep.lock.tf} @
+            {" "}{st.sweep.lock.entry} (SL {st.sweep.lock.sl} · TP {st.sweep.lock.tp}). All armed levels were deleted; the sweep re-activates the moment it hits TP or SL.
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-5">
+          <div className="flex items-center gap-2">
+            <Switch
+              id="sweep-enabled"
+              checked={st?.sweep?.enabled ?? true}
+              onCheckedChange={(c) => void post({ action: "sweep", enabled: c }, "sweepOn")}
+            />
+            <label htmlFor="sweep-enabled" className="text-[11px]" style={{ color: C.muted }}>scan all pairs</label>
+          </div>
+          <div className="flex items-center gap-2">
+            <Switch
+              id="sweep-auto"
+              checked={st?.sweep?.autoTrade ?? true}
+              onCheckedChange={(c) => void post({ action: "sweep", autoTrade: c }, "sweepAuto")}
+            />
+            <label htmlFor="sweep-auto" className="text-[11px]" style={{ color: C.muted }}>auto-trade on fire</label>
+          </div>
+          {st?.sweep?.lastFire && (
+            <span className="text-[10px] font-mono" style={{ color: C.dim }}>
+              last fire: {st.sweep.lastFire.dir === -1 ? "SELL" : "BUY"} {st.sweep.lastFire.symbol} {st.sweep.lastFire.tf} @ {st.sweep.lastFire.entry}{st.sweep.lastFire.traded ? " · traded" : ""} · {timeAgo(st.sweep.lastFire.time)}
+            </span>
+          )}
+        </div>
+        {st?.sweep?.setups && st.sweep.setups.length > 0 && (
+          <div className="overflow-x-auto" style={{ ["--row-hov" as string]: C.navy2 }}>
+            <table className="w-full text-left border-collapse min-w-[640px]">
+              <thead>
+                <tr className="border-b text-[9px] tracking-wider" style={{ borderBottomColor: C.line, color: C.muted }}>
+                  <Th>PAIR</Th>
+                  <Th>STATUS</Th>
+                  <Th className="text-right">PRICE</Th>
+                  <Th className="text-center">FRESH S / B</Th>
+                  <Th className="text-right">NEAREST</Th>
+                  <Th>LAST SIGNAL</Th>
+                  <Th className="text-right">FEED</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {st.sweep.setups.map((r) => (
+                  <tr key={`${r.symbol}:${r.tf}`} className="border-b transition-colors hover:bg-[var(--row-hov)]" style={{ borderBottomColor: C.divider }}>
+                    <Td>
+                      <button
+                        onClick={() => onJumpToSymbol?.(r.symbol)}
+                        className="font-bold text-xs text-[#EAF3FF] hover:text-[#E9B94E]"
+                        title="open in terminal"
+                      >
+                        {r.symbolLabel.split("·")[0].trim()}
+                      </button>
+                      <div className="text-[9px] font-mono" style={{ color: C.dim }}>{r.tf}</div>
+                    </Td>
+                    <Td><Pill tone={statusTone(r.status)}>{r.status}</Pill></Td>
+                    <Td className="text-right font-mono text-xs" style={{ color: C.txt }}>{r.price ? r.price.toLocaleString("en-US") : "—"}</Td>
+                    <Td className="text-center font-mono text-xs">
+                      <span style={{ color: C.red }}>{r.freshSell}</span>
+                      <span style={{ color: C.dim }}> / </span>
+                      <span style={{ color: C.green }}>{r.freshBuy}</span>
+                    </Td>
+                    <Td className="text-right font-mono text-[11px]">
+                      {r.nearest ? (
+                        <span style={{ color: r.nearest.distAtr <= 0.6 ? C.gold : C.muted }}>
+                          {r.nearest.side === -1 ? "R " : "S "}
+                          {r.nearest.distAtr.toFixed(2)}·ATR
+                        </span>
+                      ) : (
+                        <span style={{ color: C.dim }}>—</span>
+                      )}
+                    </Td>
+                    <Td>
+                      {r.lastSignal ? (
+                        <span className="text-[10px] font-bold tracking-wider" style={{ color: r.lastSignal.kind === "fire" ? (r.lastSignal.dir === -1 ? C.red : C.green) : C.gold }}>
+                          {r.lastSignal.kind === "fire" ? (r.lastSignal.dir === -1 ? "▼ FIRE" : "▲ FIRE") : r.lastSignal.kind.toUpperCase()}{" "}
+                          <span className="font-mono font-normal" style={{ color: C.dim }}>{timeAgo(r.lastSignal.time)}</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px]" style={{ color: C.dim }}>—</span>
+                      )}
+                    </Td>
+                    <Td className="text-right">
+                      <span className="text-[9px] font-mono uppercase" style={{ color: r.source === "simulator" ? C.gold : C.muted }}>
+                        {r.source}
+                      </span>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </PanelCard>
 
       {/* holographic strategy radar — real rows, real sweep discipline */}

@@ -89,6 +89,11 @@ export function DashboardPanel({ state }: { state: BotStateRes }) {
         <Row k="Net pips" v={fmtPips(net)} vc={net >= 0 ? C.green : C.red} />
         <Row k="Burned · Busy · Crowded" v={`${s.burned} · ${s.skipped} · ${s.tooClose}`} vc={C.muted} />
         <Row
+          k="Levels removed · never returned"
+          v={`${s.noReturnRemoved ?? 0}`}
+          vc={(s.noReturnRemoved ?? 0) > 0 ? C.warn : C.muted}
+        />
+        <Row
           k="Range skips · S/R too close"
           v={`${s.rangeSkipped}`}
           vc={s.rangeSkipped > 0 ? C.warn : C.muted}

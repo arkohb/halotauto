@@ -12,6 +12,7 @@ import { getAdapter, parseCreds } from "./brokers";
 import type { BrokerKind } from "./brokers/types";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf, getSymbolMeta } from "./market-symbols";
+import { engageTradeLock, getTradeLock, type TradeLockSource } from "./trade-lock";
 
 export interface ExecSettings {
   executionMode: "paper" | "live";
@@ -81,7 +82,7 @@ export async function resolveBroker(accountId: string): Promise<ActiveBroker | n
 }
 
 export interface FireJob {
-  source: "BOT" | "SCAN";
+  source: TradeLockSource;
   symbol: string;
   tf: string;
   fire: FireEvent;
@@ -91,9 +92,22 @@ export interface FireJob {
   exec: ExecSettings;
 }
 
-/** Execute a fire: returns the created Trade id, or null when nothing was opened. */
+/**
+ * Execute a fire: returns the created Trade id, or null when nothing was opened.
+ * A successful open engages the GLOBAL TRADE LOCK — every armed level in the
+ * app is deleted and scanning pauses until the running trade hits TP or SL.
+ */
 export async function executeFire(job: FireJob): Promise<string | null> {
   const { fire } = job;
+  if (getTradeLock()) {
+    // defensive: single-trade rule — the callers gate too, this is the backstop
+    void sendAlert({
+      kind: "status",
+      title: "HALO 3EL · FIRE REFUSED — TRADE ALREADY RUNNING",
+      body: `${job.symbol} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} was NOT executed: a trade is already running on ${getTradeLock()!.symbol} ${getTradeLock()!.tf}. Scanning resumes when it hits TP or SL.`,
+    });
+    return null;
+  }
   const base = {
     mode: job.source,
     symbol: job.symbol,
@@ -110,10 +124,10 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     openedAt: new Date(fire.time),
   };
 
-  // Scanner / auto-trade fires say it out loud too (the 3EL bot announces
+  // Scanner / all-pairs sweep fires say it out loud too (the 3EL bot announces
   // its own fires in bot.ts — source BOT must not announce twice here).
   const announce = (tradeId: string): void => {
-    if (job.source !== "SCAN") return;
+    if (job.source === "BOT") return;
     try {
       const meta = getSymbolMeta(job.symbol);
       const label = meta.label.split("·")[0].trim() || job.symbol;
@@ -137,6 +151,17 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     try {
       const tr = await db.trade.create({ data: { ...base, execMode: "PAPER", status: "OPEN" } });
       announce(tr.id);
+      engageTradeLock({
+        source: job.source,
+        symbol: job.symbol,
+        tf: job.tf,
+        dir: fire.dir,
+        entry: fire.entry,
+        sl: fire.sl,
+        tp: fire.tp,
+        tradeDbId: tr.id,
+        openedAt: Date.now(),
+      });
       return tr.id;
     } catch {
       return null;
@@ -207,6 +232,17 @@ export async function executeFire(job: FireJob): Promise<string | null> {
       },
     });
     announce(tr.id);
+    engageTradeLock({
+      source: job.source,
+      symbol: job.symbol,
+      tf: job.tf,
+      dir: fire.dir,
+      entry: fire.entry,
+      sl: fire.sl,
+      tp: fire.tp,
+      tradeDbId: tr.id,
+      openedAt: Date.now(),
+    });
     return tr.id;
   } catch {
     return null;

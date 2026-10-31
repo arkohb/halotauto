@@ -20,12 +20,20 @@ import { maybeAnnounceRangeOpportunities } from "./range-scan";
 import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf } from "./market-symbols";
+import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
 
 // register the live runtime probe for the Pine auto-trade loop (leaf module,
 // avoids a circular import between bot.ts and pine-bot.ts)
 registerBotProbe(() => {
   const b = getBot();
   return { enabled: b.enabled, pauseNew: b.pauseNew, symbol: b.symbol, tf: b.tf };
+});
+
+// GLOBAL TRADE LOCK participant — when a trade fires anywhere in the app the
+// lock wipes this engine's armed levels too ("all armed levels are deleted")
+registerLockParticipant({
+  key: "bot",
+  clearLevels: (time) => getBot().engine.clearArmedLevels(time),
 });
 
 export interface BotRuntime {
@@ -91,6 +99,8 @@ function clampConfig(cfg: HaloConfig): HaloConfig {
   c.minSepATR = Math.min(10, Math.max(0, Number(c.minSepATR) || 0));
   c.maxLevels = Math.min(10, Math.max(1, Math.round(Number(c.maxLevels) || 3)));
   c.expiryBars = Math.min(2000, Math.max(5, Math.round(Number(c.expiryBars) || 150)));
+  c.levelPersist = c.levelPersist !== false; // default ON — armed levels persist until touched & fired
+  c.retestBars = Math.min(1000, Math.max(1, Math.round(Number(c.retestBars) || 24)));
   c.rangeFilter = c.rangeFilter !== false; // default ON — ranging market + S/R too close → skip
   c.rangeSepATR = Math.min(20, Math.max(0.1, Number(c.rangeSepATR) || 1));
   c.focusCurrent = c.focusCurrent !== false; // default ON — one armed level per side (support + resistance live together)
@@ -260,6 +270,10 @@ function startTimer(): void {
 /** Instant mode: trial-run the live candle on a clone; commit only on fire/exit. */
 function liveTrial(live: Candle): void {
   const bot = getBot();
+  // GLOBAL TRADE LOCK: while a trade runs elsewhere the bot engine is frozen
+  // (no intrabar evaluation, no new levels, no fires). The lock holder keeps
+  // its full lifecycle.
+  if (!isLockHolder("BOT", bot.symbol, bot.tf)) return;
   // PAUSE NEW ENTRIES / PINE STRATEGY ACTIVE: while flat, new signals are not
   // evaluated at all — the engine can never emit a fire we would refuse to
   // execute. An open trade keeps its full lifecycle (win/loss detection).
@@ -294,6 +308,27 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
   const px = (v: number): string => v.toFixed(decimalsOf(meta.mintick));
   for (const e of events) {
     if (e.type === "fire") {
+      // GLOBAL TRADE LOCK — single trade at a time across the whole app: if a
+      // trade is already running (scanner / all-pairs sweep), this signal is
+      // honestly refused instead of silently dropped.
+      const lock = getTradeLock();
+      if (lock) {
+        void sendAlert({
+          kind: "status",
+          title: "HALO 3EL · FIRE SKIPPED — TRADE ALREADY RUNNING",
+          body: `${e.dir === -1 ? "SELL" : "BUY"} @ ${e.entry} on ${bot.symbol} ${bot.tf} was NOT executed: a trade is already running on ${lock.symbol} ${lock.tf}. Scanning resumes when it hits TP or SL.`,
+        });
+        publishBotEvent({
+          kind: "status",
+          prio: "low",
+          symbol: bot.symbol,
+          tf: bot.tf,
+          time: e.time,
+          title: `FIRE SKIPPED · TRADE RUNNING · ${symLabel}`,
+          spoken: `A ${e.dir === -1 ? "sell" : "buy"} signal appeared on ${symLabel}, but a trade is already running on ${lock.symbol} — it was skipped. Scanning resumes when that trade closes.`,
+        });
+        continue;
+      }
       // SINGLE ACTIVE STRATEGY — when a Pine strategy is selected in the
       // Strategy Studio, the 3EL engine stays armed for levels & charting but
       // its fires are NOT executed. Alerted honestly, never dropped silently.
@@ -389,6 +424,8 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
       bot.openTradeExec = "PAPER";
       bot.openTradeDir = 0;
       bot.liveBroker = null;
+      // GLOBAL TRADE LOCK release — scanning re-activates (announced on the bus)
+      maybeReleaseLock("BOT", bot.symbol, bot.tf, e.type, e.pips);
     } else if (e.type === "range_skip") {
       // the strategy refused the trade: market RANGING, marked support &
       // resistance too close for entry — state it honestly, then look for
@@ -430,6 +467,20 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
           ? `Both levels are armed on ${symLabel} — resistance trigger at ${px(res!.ext)}, support trigger at ${px(sup!.ext)}. Two live triggers on the board.`
           : `${sideWord} level armed on ${symLabel}, trigger line at ${px(e.ext)}. Watching for candle three to break the dotted line and return.`,
       });
+    } else if (e.type === "level_removed") {
+      // ── LEVEL INVALIDATED — broke the dotted line, price never came back ──
+      // for entry within the re-test window: removed, and the engine hunts a
+      // fresh level. The bot states the removal (and that a fresh hunt is on).
+      const sideWord = e.side === -1 ? "Resistance" : "Support";
+      publishBotEvent({
+        kind: "status",
+        prio: "low",
+        symbol: bot.symbol,
+        tf: bot.tf,
+        time: e.time,
+        title: `LEVEL REMOVED · ${sideWord.toUpperCase()} ${px(e.ext)} · ${symLabel}`,
+        spoken: `${sideWord} level at ${px(e.ext)} on ${symLabel} is invalidated — the price broke the dotted line and never returned for entry, so I removed it. I am hunting a fresh level to arm instead.`,
+      });
     } else if (e.type === "break") {
       // ── C3 BREAK — said LOUD (high priority): candle 3 pierced the dotted ──
       // wick trigger line; the trade fires if price returns to the line.
@@ -456,6 +507,11 @@ export async function tickBot(force = false): Promise<void> {
     await ensureBoot();
     if (!bot.bootstrapped) return;
   }
+  // GLOBAL TRADE LOCK: while a trade runs elsewhere (scanner / all-pairs
+  // sweep) the bot engine is FROZEN — no bar feeding, no arming, no fires.
+  // Only the price book stays fresh; scanning resumes when TP/SL releases
+  // the lock. When the BOT itself holds the trade it keeps ticking below.
+  const frozen = !isLockHolder("BOT", bot.symbol, bot.tf);
   try {
     const prevSource = bot.feedSource;
     const { candles, source, stale } = await getKlines(bot.symbol, bot.tf, 4, { fresh: true });
@@ -466,6 +522,11 @@ export async function tickBot(force = false): Promise<void> {
         : stale
           ? "Feed slow — using cached candles"
           : "";
+    if (frozen) {
+      const frozenLive = candles[candles.length - 1];
+      if (frozenLive) bot.lastPrice = frozenLive.close;
+      return;
+    }
     // feed upgraded (simulator → real OHLC): re-anchor the engine onto the
     // real series so levels/pips track actual market prices
     if (prevSource === "simulator" && source !== "simulator" && !bot.engine.snapshot().trade) {
@@ -553,6 +614,9 @@ export async function resetBot(): Promise<void> {
     throw new Error("Cannot reset while a trade is open — wait for SL/TP.");
   }
   await warmEngine();
+  // a rebuild re-arms levels from history — during a trade lock the board
+  // must stay empty until the running trade closes
+  if (getTradeLock()) bot.engine.clearArmedLevels(Date.now());
   await persistBot();
 }
 
@@ -621,6 +685,9 @@ export async function updateBotConfig(patch: ConfigPatch): Promise<void> {
     bot.symbol = nextSym;
     bot.tf = nextTf;
     await warmEngine();
+    // a rebuild re-arms levels from history — during a trade lock the board
+    // must stay empty until the running trade closes
+    if (getTradeLock()) bot.engine.clearArmedLevels(Date.now());
   }
   bot.cfg = nextCfg;
   bot.engine.cfg = nextCfg;
@@ -670,6 +737,7 @@ export async function botState(): Promise<{
   engine: ReturnType<HaloEngine["snapshot"]>;
   exec: ExecSummary;
   strategy: ReturnType<typeof getPineBotInfo> & { selected: { id: string | null; name: string; kind: "builtin" | "pine" } };
+  scanLock: import("./trade-lock").TradeLockState | null;
 }> {
   await ensureBoot();
   const bot = getBot();
@@ -713,5 +781,6 @@ export async function botState(): Promise<{
       broker,
     },
     strategy: { ...getPineBotInfo(), selected: getPineBotInfo().active ? { id: getPineBotInfo().id, name: getPineBotInfo().name, kind: "pine" } : { id: null, name: "HALO 3EL v1.2", kind: "builtin" } },
+    scanLock: getTradeLock(),
   };
 }

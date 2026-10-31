@@ -58,11 +58,17 @@ console.log("── engine · armed + break (barclose flow) ──");
   check("break names the dotted line (ext)", brk?.ext === 103.2, `ext=${brk?.ext}`);
   check("break carries the break extreme", !!brk && brk.price === brkNeed + 0.5, `price=${brk?.price}`);
   check("no fire (never returned)", !ev3.some((e) => e.type === "fire"));
-  check("level burned after break-without-return on confirmed bar", ev3.some((e) => e.type === "burned"));
+  // NEW LIFECYCLE: the level REMAINS armed after a break-without-return —
+  // it waits for the return within the re-test window and is only removed
+  // (level_removed) once the window elapses with no return.
+  check(
+    "level REMAINS armed after break-without-return (re-test window)",
+    eng.snapshot().levels.length === 1 && !ev3.some((e) => e.type === "burned")
+  );
 
-  // a SECOND confirmed bar cannot re-announce the same break (level already gone)
+  // a SECOND confirmed bar cannot re-announce the same break (broke flag sticks)
   const ev4 = eng.processBar(bar(103.5, 104, 104.4, 103.2), true);
-  check("no duplicate break after burn", !ev4.some((e) => e.type === "break"));
+  check("no duplicate break on later bars", !ev4.some((e) => e.type === "break"));
 }
 
 // ── 2b. BREAK intrabar (instant-mode live trial on a clone) ─────────────

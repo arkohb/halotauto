@@ -11,6 +11,13 @@
 //    resistance are TOO CLOSE (S/R midpoint gap < rangeSepATR × ATR) the
 //    fire is SKIPPED — the level is burned and the engine keeps hunting for
 //    fresh levels further away from the range to arm instead.
+//  • LEVEL LIFECYCLE (levelPersist): a level that is NEVER TOUCHED or
+//    BROKEN remains armed until it is touched and fired — no expiry, no
+//    replacement. A level that IS broken and whose price NEVER RETURNS to
+//    the dotted line for entry is REMOVED (after a re-test window) and the
+//    engine hunts a fresh level instead. When a trade FIRES, ALL armed
+//    levels are deleted and nothing new is armed until the running trade
+//    hits TP or SL — then scanning re-activates.
 // ════════════════════════════════════════════════════════════════════════
 
 export type Side = -1 | 1; // -1 = resistance (SELL) · +1 = support (BUY)
@@ -33,7 +40,10 @@ export interface HaloConfig {
   pairTolATR: number; // Max gap C1 close ↔ C2 open (× ATR) (0.10)
   minSepATR: number; // Too-close distance (× ATR) (1.0)
   maxLevels: number; // Max fresh levels per side (3)
-  expiryBars: number; // Level expiry (bars) (150)
+  expiryBars: number; // LEGACY (levelPersist=false): level expiry (bars) (150)
+  // ①c LEVEL LIFECYCLE — armed levels persist until touched & fired
+  levelPersist: boolean; // never-touched/never-broken levels REMAIN until fired; a broken level that never returns is removed (true)
+  retestBars: number; // Bars a BROKEN level waits for the return to the dotted line before it is removed (24)
   // ①b RANGE FILTER — ranging market guard
   rangeFilter: boolean; // Skip fires while the market ranges & the marked S/R are too close (true)
   rangeSepATR: number; // Min support↔resistance separation (× ATR) — below it the box is "too close" (1.0)
@@ -60,6 +70,8 @@ export const DEFAULT_CONFIG: HaloConfig = {
   minSepATR: 1.0,
   maxLevels: 3,
   expiryBars: 150,
+  levelPersist: true,
+  retestBars: 24,
   rangeFilter: true,
   rangeSepATR: 1.0,
   focusCurrent: true,
@@ -117,6 +129,7 @@ export interface Stats {
   skipped: number;
   tooClose: number;
   rangeSkipped: number; // fires skipped by the ranging-market / too-close S/R filter
+  noReturnRemoved: number; // armed levels removed because price broke the dotted line and NEVER returned for entry
   lastResult: { text: string; kind: "win" | "loss" | "none" };
 }
 
@@ -176,6 +189,20 @@ export interface BreakEvent {
   time: number;
 }
 
+/**
+ * An ARMED level was REMOVED because price broke the dotted line and never
+ * returned for entry within the re-test window — the engine hunts a fresh
+ * level instead.
+ */
+export interface LevelRemovedEvent {
+  type: "level_removed";
+  id: number;
+  side: Side;
+  ext: number; // the dotted trigger line that never saw the return
+  reason: "no_return";
+  time: number;
+}
+
 /** A would-be fire refused by the ranging-market / too-close S/R filter. */
 export interface RangeSkipEvent {
   type: "range_skip";
@@ -195,6 +222,7 @@ export type EngineEvent =
   | RangeSkipEvent
   | LevelEvent
   | BreakEvent
+  | LevelRemovedEvent
   | { type: "burned" }
   | { type: "skipped" }
   | { type: "expired"; id: number };

@@ -33,7 +33,9 @@ minSepATR  = input.float(0.5, "Min level separation (xATR)", minval=0, step=0.05
 rangeFilter = input.bool(true, "Range filter — skip when support & resistance are too close (ranging)", group="Signal")
 rangeSepATR = input.float(1.0, "Range filter · min support↔resistance separation (xATR)", minval=0.1, step=0.1, group="Signal")
 maxLevels  = input.int(3, "Max fresh levels per side", minval=1, maxval=10, group="Signal")
-expiryBars = input.int(150, "Level expiry (bars)", minval=5, group="Signal")
+levelPersist = input.bool(true, "Levels persist — a level never touched or broken remains until it is touched and fired", group="Signal")
+retestBars = input.int(24, "Re-test window after a break (bars)", minval=1, group="Signal")
+expiryBars = input.int(150, "Level expiry (bars · legacy mode only)", minval=5, group="Signal")
 sigMode    = input.string("Instant", "Trigger mode", options=["Instant", "Bar close"], group="Signal")
 
 // ── C3 trigger filter (wick-line break → return) ──
@@ -64,6 +66,8 @@ var L_TOP  = array.new_float()
 var L_BOT  = array.new_float()
 var L_EXT  = array.new_float()
 var L_IDX  = array.new_int()
+var L_BROKE = array.new_bool()
+var L_BIDX  = array.new_int()
 var L_LN   = array.new_line()
 var L_WK   = array.new_line()
 
@@ -98,12 +102,22 @@ if array.size(L_SIDE) > 0
         ext  = array.get(L_EXT, i)
         b1i  = array.get(L_IDX, i)
         bool remove = false
-        if bar_index - b1i > expiryBars
+        bool brkFlag = array.get(L_BROKE, i)
+        if not levelPersist and bar_index - b1i > expiryBars
+            remove := true
+        else if levelPersist and brkFlag and bar_index - array.get(L_BIDX, i) > retestBars
+            // LEVEL LIFECYCLE: the level BROKE the dotted line but the price
+            // NEVER CAME BACK for entry within the re-test window → remove
+            // it and hunt a fresh level instead. A level that is never
+            // touched or broken never reaches this branch — it REMAINS.
             remove := true
         else
             // BREAK beyond the dotted wick line (C1/C2 extreme)
             broke = side == -1 ? high >= ext + brk : low <= ext - brk
             if broke and atrOK
+                if not brkFlag
+                    array.set(L_BROKE, i, true)
+                    array.set(L_BIDX, i, bar_index)
                 // RETURN to the dotted line → fire instantly
                 back = side == -1 ? close <= ext + eqTol : close >= ext - eqTol
                 if back and canFire and na(fireEntry) and strategy.position_size == 0
@@ -127,7 +141,7 @@ if array.size(L_SIDE) > 0
                         fireLn    := array.get(L_LN, i)
                         fireWk    := array.get(L_WK, i)
                         remove    := true
-                else if barstate.isconfirmed
+                else if barstate.isconfirmed and not levelPersist
                     remove := true
         if remove
             line.delete(array.get(L_LN, i))
@@ -137,6 +151,8 @@ if array.size(L_SIDE) > 0
             array.remove(L_BOT, i)
             array.remove(L_EXT, i)
             array.remove(L_IDX, i)
+            array.remove(L_BROKE, i)
+            array.remove(L_BIDX, i)
             array.remove(L_LN, i)
             array.remove(L_WK, i)
 
@@ -160,9 +176,27 @@ if not na(fireEntry) and atrOK
         line.set_x2(fireWk, bar_index)
         line.set_extend(fireWk, extend.none)
     alert(tvMsg(fireDir == -1 ? "sell" : "buy", dirTxt, fireEntry, slP, tpP, risk / pip), alert.freq_all)
+    // LEVEL LIFECYCLE — ALL armed levels are deleted the moment a trade
+    // fires; nothing new arms until the position closes (TP or SL), then
+    // the EA scans again.
+    if levelPersist and array.size(L_SIDE) > 0
+        for i = array.size(L_SIDE) - 1 to 0
+            line.delete(array.get(L_LN, i))
+            line.delete(array.get(L_WK, i))
+            array.remove(L_SIDE, i)
+            array.remove(L_TOP, i)
+            array.remove(L_BOT, i)
+            array.remove(L_EXT, i)
+            array.remove(L_IDX, i)
+            array.remove(L_BROKE, i)
+            array.remove(L_BIDX, i)
+            array.remove(L_LN, i)
+            array.remove(L_WK, i)
 
 // ═══ 3 · DETECT NEW C1 / C2 EQUAL-LEVEL PAIR (confirmed bars) ═══
-if barstate.isconfirmed and atrOK
+// LEVEL LIFECYCLE: while a trade runs nothing new is armed — the board
+// stays empty until TP/SL, then scanning re-activates.
+if barstate.isconfirmed and atrOK and (not levelPersist or strategy.position_size == 0)
     c1Bull = close[1] > open[1]
     c1Bear = close[1] < open[1]
     c2Bull = close > open
@@ -194,6 +228,8 @@ if barstate.isconfirmed and atrOK
                         array.remove(L_BOT, i)
                         array.remove(L_EXT, i)
                         array.remove(L_IDX, i)
+                        array.remove(L_BROKE, i)
+                        array.remove(L_BIDX, i)
                         array.remove(L_LN, i)
                         array.remove(L_WK, i)
             cnt = 0
@@ -202,18 +238,28 @@ if barstate.isconfirmed and atrOK
                     if array.get(L_SIDE, i) == newSide
                         cnt += 1
             if cnt >= maxLevels
-                for i = 0 to array.size(L_SIDE) - 1
-                    if array.get(L_SIDE, i) == newSide
-                        line.delete(array.get(L_LN, i))
-                        line.delete(array.get(L_WK, i))
-                        array.remove(L_SIDE, i)
-                        array.remove(L_TOP, i)
-                        array.remove(L_BOT, i)
-                        array.remove(L_EXT, i)
-                        array.remove(L_IDX, i)
-                        array.remove(L_LN, i)
-                        array.remove(L_WK, i)
-                        break
+                if levelPersist
+                    // LEVEL LIFECYCLE: armed levels REMAIN — the side is at
+                    // cap, so the NEW formation is rejected, never the old
+                    // levels ("a level which is never touched or broken
+                    // remains until it is touched and fired").
+                    keepNew := false
+                else
+                    for i = 0 to array.size(L_SIDE) - 1
+                        if array.get(L_SIDE, i) == newSide
+                            line.delete(array.get(L_LN, i))
+                            line.delete(array.get(L_WK, i))
+                            array.remove(L_SIDE, i)
+                            array.remove(L_TOP, i)
+                            array.remove(L_BOT, i)
+                            array.remove(L_EXT, i)
+                            array.remove(L_IDX, i)
+                            array.remove(L_BROKE, i)
+                            array.remove(L_BIDX, i)
+                            array.remove(L_LN, i)
+                            array.remove(L_WK, i)
+                            break
+        if keepNew
             lnCol = newSide == -1 ? color.new(#F23645, 25) : color.new(#089981, 25)
             ln = line.new(bar_index - 1, nMid, bar_index + 20, nMid, color=lnCol, width=2, extend=extend.right)
             // the DOTTED TRIGGER line — highest wick of candle 1 & 2
@@ -223,6 +269,8 @@ if barstate.isconfirmed and atrOK
             array.push(L_BOT, nBot)
             array.push(L_EXT, nExt)
             array.push(L_IDX, bar_index - 1)
+            array.push(L_BROKE, false)
+            array.push(L_BIDX, 0)
             array.push(L_LN, ln)
             array.push(L_WK, wk)
 `;

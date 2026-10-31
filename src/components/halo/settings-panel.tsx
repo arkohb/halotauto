@@ -82,7 +82,15 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
             <NumRow label="Max gap C1↔C2 (×ATR)" k="pairTolATR" step="0.01" draft={shown} onChange={num("pairTolATR")} />
             <NumRow label="Too-close distance (×ATR)" k="minSepATR" step="0.1" draft={shown} onChange={num("minSepATR")} />
             <NumRow label="Max fresh levels / side" k="maxLevels" draft={shown} onChange={num("maxLevels")} />
-            <NumRow label="Level expiry (bars)" k="expiryBars" draft={shown} onChange={num("expiryBars")} />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] text-[var(--hx-muted)] leading-tight">
+                Levels persist — a level that is never touched or broken REMAINS until it is touched and fired; a broken level whose price never
+                returns to the dotted line is removed and a fresh one is hunted instead
+              </span>
+              <Switch checked={shown.levelPersist !== false} onCheckedChange={(v) => edit({ levelPersist: v })} />
+            </div>
+            <NumRow label="Re-test window after break (bars)" k="retestBars" draft={shown} onChange={num("retestBars")} />
+            <NumRow label="Level expiry (bars · legacy mode only)" k="expiryBars" draft={shown} onChange={num("expiryBars")} />
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] text-[var(--hx-muted)] leading-tight">
                 Range filter — when the market RANGES and the marked support &amp; resistance are closer than the separation below, the trade is
@@ -93,7 +101,7 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
             <NumRow label="Min S/R separation (×ATR)" k="rangeSepATR" step="0.1" draft={shown} onChange={num("rangeSepATR")} />
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] text-[var(--hx-muted)] leading-tight">
-                Focus current signal — a new C1/C2 replaces older levels, the EA follows the latest signal only
+                Focus current signal (legacy mode only) — a new C1/C2 replaces older levels; with levels persisting this culling is off
               </span>
               <Switch checked={shown.focusCurrent} onCheckedChange={(v) => edit({ focusCurrent: v })} />
             </div>

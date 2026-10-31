@@ -14,8 +14,21 @@ import { clampConfig } from "./bot";
 import { DEFAULT_CONFIG, type HaloConfig } from "./halo/types";
 import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } from "./execution";
 import { sendAlert } from "./alerts";
+import { publishBotEvent } from "./halo/event-bus";
+import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
 
 export const MAX_ROWS = 12;
+
+// GLOBAL TRADE LOCK participant — when a trade fires anywhere in the app the
+// lock wipes every watchlist engine's armed levels ("all armed levels are deleted")
+registerLockParticipant({
+  key: "scanner",
+  clearLevels: (time) => {
+    let n = 0;
+    for (const row of rt().rows.values()) n += row.engine.clearArmedLevels(time);
+    return n;
+  },
+});
 
 interface ScannerRow {
   dbId: string;
@@ -204,6 +217,25 @@ async function handleEvents(row: ScannerRow, events: EngineEvent[]): Promise<voi
   const symLabel = meta.label.split("·")[0].trim() || row.symbol;
   for (const e of events) {
     if (e.type === "fire") {
+      // GLOBAL TRADE LOCK — one running trade at a time across the whole app
+      const lock = getTradeLock();
+      if (lock) {
+        void sendAlert({
+          kind: "status",
+          title: `SCANNER · SIGNAL SKIPPED — TRADE ALREADY RUNNING · ${symLabel}`,
+          body: `${e.dir === -1 ? "SELL" : "BUY"} @ ${e.entry} on ${row.symbol} ${row.tf} was NOT executed: a trade is already running on ${lock.symbol} ${lock.tf}. Scanning resumes when it hits TP or SL.`,
+        });
+        publishBotEvent({
+          kind: "status",
+          prio: "low",
+          symbol: row.symbol,
+          tf: row.tf,
+          time: e.time,
+          title: `SCAN SIGNAL SKIPPED · TRADE RUNNING · ${symLabel}`,
+          spoken: `A ${e.dir === -1 ? "sell" : "buy"} signal appeared on ${symLabel} on the scanner, but a trade is already running on ${lock.symbol} — skipped until it closes.`,
+        });
+        continue;
+      }
       R_signals(row);
       const exec = await loadExecSettings();
       const live = exec.executionMode === "live";
@@ -258,6 +290,8 @@ async function handleEvents(row: ScannerRow, events: EngineEvent[]): Promise<voi
         row.openTradeDbId = null;
         row.liveBrokerId = null;
       }
+      // GLOBAL TRADE LOCK release — the running trade closed (TP/SL)
+      maybeReleaseLock("SCAN", row.symbol, row.tf, e.type, e.pips);
       void sendAlert({
         kind: e.type,
         title: `SCANNER ${e.type === "win" ? "TP +" : "SL −"}${e.pips.toFixed(1)} PIPS · ${symLabel}`,
@@ -282,6 +316,11 @@ async function tickRow(row: ScannerRow): Promise<void> {
   const now = Date.now();
   row.lastTickAt = now;
   const secMs = tfSec(row.tf) * 1000;
+
+  // GLOBAL TRADE LOCK: while a trade runs elsewhere the row is FROZEN (no
+  // bar feeding, no arming, no fires) — only the lock's own row keeps
+  // ticking so the running trade's TP/SL are detected.
+  if (!isLockHolder("SCAN", row.symbol, row.tf)) return;
 
   if (!row.bootstrapped) {
     const { candles, source } = await getKlines(row.symbol, row.tf, 500, { deep: true });

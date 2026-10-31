@@ -25,6 +25,8 @@ const BASE: HaloConfig = {
   minSepATR: 0.5,
   maxLevels: 3,
   expiryBars: 150,
+  levelPersist: true,
+  retestBars: 24,
   rangeFilter: true,
   rangeSepATR: 2.0,
   focusCurrent: true,

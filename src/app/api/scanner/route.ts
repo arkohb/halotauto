@@ -6,6 +6,7 @@ import {
   scannerScanNow,
   scannerState,
 } from "@/lib/scanner";
+import { configSweep, sweepNow, sweepState } from "@/lib/sweep";
 import { SYMBOLS, TIMEFRAMES } from "@/lib/market";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const state = await scannerState();
-    return NextResponse.json({ ok: true, ...state });
+    const sweep = await sweepState();
+    return NextResponse.json({ ok: true, ...state, sweep });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
@@ -22,7 +24,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as {
-      action: "add" | "remove" | "patch" | "scan";
+      action: "add" | "remove" | "patch" | "scan" | "sweep" | "sweepNow";
       symbol?: string;
       tf?: string;
       autoTrade?: boolean;
@@ -32,6 +34,11 @@ export async function POST(req: Request) {
 
     if (body.action === "scan") {
       await scannerScanNow();
+    } else if (body.action === "sweep") {
+      // all-pairs sweep switches (enabled / auto-trade)
+      await configSweep({ enabled: body.enabled, autoTrade: body.autoTrade });
+    } else if (body.action === "sweepNow") {
+      await sweepNow();
     } else if (body.action === "add") {
       const symbol = SYMBOLS.some((s) => s.id === body.symbol) ? String(body.symbol) : "";
       const tf = (TIMEFRAMES as readonly string[]).includes(String(body.tf)) ? String(body.tf) : "5m";
@@ -50,7 +57,8 @@ export async function POST(req: Request) {
     }
 
     const state = await scannerState();
-    return NextResponse.json({ ok: true, ...state });
+    const sweep = await sweepState();
+    return NextResponse.json({ ok: true, ...state, sweep });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 400 });
   }
