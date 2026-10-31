@@ -218,6 +218,9 @@ interface HaloVoiceCtx {
   blocked: boolean; // autoplay blocked → "Tap once to enable voice"
   msgs: Msg[];
   clearMsgs: () => void;
+  /** append a HALO-side system line to the chat transcript (used by the
+   *  Timeframe Scanner Bot — additive; never touches conversation flow) */
+  pushBotMsg: (text: string) => void;
   send: (text: string) => Promise<void>;
   startConvo: (fromWake?: boolean, command?: string) => void;
   closeConvo: (spoken?: boolean) => void;
@@ -1683,6 +1686,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     convoOpen,
     blocked,
     msgs,
+    pushBotMsg: (text: string) => addMsg({ role: "halo", text, at: Date.now(), kind: "system" }),
     clearMsgs,
     send,
     startConvo,

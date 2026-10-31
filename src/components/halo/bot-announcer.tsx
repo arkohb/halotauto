@@ -48,7 +48,7 @@ const LINE_WATCHDOG_MS = 25_000; // a stuck line must never wedge the queue
 const DRAIN_GAP_MS = 350; // small breath between spoken lines
 
 export function BotAnnouncer(): null {
-  const { speak } = useHaloVoice();
+  const { speak, pushBotMsg } = useHaloVoice();
   const { toast } = useToast();
 
   const qRef = useRef<Envelope[]>([]);
@@ -91,6 +91,13 @@ export function BotAnnouncer(): null {
     const announce = (e: Envelope): void => {
       if (e.seq <= lastSeqRef.current) return;
       lastSeqRef.current = e.seq;
+      // Timeframe Scanner Bot lines are CHAT-ONLY: they land in the HALO
+      // chat transcript (persisted with the rest of the conversation) and
+      // never fire toasts or voice — the EA keeps the voice channel.
+      if (e.kind === "tf_scan") {
+        if (e.title && Date.now() - e.time <= STALE_MS) pushBotMsg(e.title);
+        return;
+      }
       // every event is also visible as a toast — voice is additive, not the
       // only channel (muted sessions, autoplay blocks, noisy rooms)
       try {
@@ -157,7 +164,7 @@ export function BotAnnouncer(): null {
       busyRef.current = false;
       curKindRef.current = "";
     };
-  }, [speak, toast]);
+  }, [speak, toast, pushBotMsg]);
 
   return null;
 }

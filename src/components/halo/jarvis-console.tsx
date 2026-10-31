@@ -23,6 +23,7 @@ import { useEffect, useRef } from "react";
 import { Mic, MicOff, Send, Trash2, Volume2, VolumeX, X } from "lucide-react";
 import { C } from "@/lib/halo/ui-helpers";
 import { useHaloVoice } from "./voice-provider";
+import { ScannerBotCard } from "./scanner-bot-card";
 
 function fmtClock(at: number): string {
   return new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
@@ -205,6 +206,10 @@ export function JarvisConsole({ variant = "floating" }: { variant?: "floating" |
               )}
             </div>
           </div>
+
+          {/* Timeframe Scanner Bot — additional scanning assistant card
+              (collapsible; signal-only; design per the owner's mockup) */}
+          <ScannerBotCard />
 
           {/* transcript */}
           <div ref={scrollRef} role="log" aria-live="polite" className="halo-scroll flex-1 space-y-2 overflow-y-auto px-3 py-2.5">

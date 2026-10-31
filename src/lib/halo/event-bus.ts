@@ -9,6 +9,9 @@
 //    range_skip — the strategy refused the trade (ranging market, the
 //                 marked support & resistance are too close for entry)
 //    status     — honest state notes (e.g. fire skipped: Pine active)
+//    tf_scan    — Timeframe Scanner Bot chat line (chat transcript only —
+//                 the announcer routes these into the HALO chat, never
+//                 speaks them over the EA voice)
 //
 //  /api/bot/events streams this bus to the browser over Server-Sent
 //  Events; the dashboard announcer speaks each event out loud. The bus
@@ -16,7 +19,7 @@
 //  Last-Event-ID can resume exactly where it left off.
 // ════════════════════════════════════════════════════════════════════════
 
-export type BotEventKind = "armed" | "break" | "fire" | "win" | "loss" | "range_skip" | "status";
+export type BotEventKind = "armed" | "break" | "fire" | "win" | "loss" | "range_skip" | "status" | "tf_scan";
 
 export interface BotEventEnvelope {
   seq: number; // monotonic — doubles as the SSE event id
