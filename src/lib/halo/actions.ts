@@ -458,6 +458,29 @@ const SYMBOL_ALIASES: Record<string, string> = {
   euro: "EURUSD", eur: "EURUSD", cable: "GBPUSD", pound: "GBPUSD", gbp: "GBPUSD",
   yen: "USDJPY", aussie: "AUDUSD", kiwi: "NZDUSD", loonie: "USDCAD",
   swissy: "USDCHF", franc: "USDCHF",
+  // ── Deriv synthetic indices (spoken forms) ──
+  volatility5: "V5", volatility10: "V10", volatility15: "V15", volatility25: "V25",
+  volatility30: "V30", volatility50: "V50", volatility75: "V75", volatility90: "V90",
+  volatility100: "V100",
+  volatility5s: "V5S", volatility10s: "V10S", volatility15s: "V15S", volatility25s: "V25S",
+  volatility30s: "V30S", volatility50s: "V50S", volatility75s: "V75S", volatility100s: "V100S",
+  volatility51s: "V5S", volatility101s: "V10S", volatility151s: "V15S", volatility251s: "V25S",
+  volatility301s: "V30S", volatility501s: "V50S", volatility751s: "V75S", volatility901s: "V90S",
+  volatility1001s: "V100S",
+  boom: "BOOM1000", boom1000: "BOOM1000", boom500: "BOOM500", boom600: "BOOM600",
+  boom300: "BOOM300", boom900: "BOOM900", booms: "BOOM1000",
+  crash: "CRASH1000", crash1000: "CRASH1000", crash500: "CRASH500", crash600: "CRASH600",
+  crash300: "CRASH300", crash900: "CRASH900", crashies: "CRASH1000",
+  stepindex: "STEP", step: "STEP", skewstep: "SKEWSTEP", multistep: "MS2",
+  jump25: "JUMP25", jump50: "JUMP50", jump75: "JUMP75", jump10: "JUMP10", jump100: "JUMP100",
+  rangebreak: "RB100", rangebreak100: "RB100", rangebreak200: "RB200",
+  hfvol: "HFVOL75", hfvol75: "HFVOL75", volswitch: "VSWMED", driftswitch: "DS10",
+  ladder: "LADDERUP", trek: "TREKUP", dex: "DEX900UP", cbf: "CBF500",
+  // ── Deriv stock indices & energy ──
+  wallstreet: "US30", nasdaq100: "US100", us500: "US500", russell: "US2000",
+  dax40: "GER40", cac40: "FRA40", eurostoxx: "EU50", nikkei225: "JPN225",
+  asx: "AUS200", hangseng: "HK50", wti: "USOIL", brentoil: "UKOIL",
+  crudeoil: "USOIL", naturalgas: "NGAS",
 };
 
 /** Resolve a spoken/typed symbol to a supported catalog id, or null. */

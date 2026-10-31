@@ -6,7 +6,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
-import { SYMBOLS, getSymbolMeta } from "./market-symbols";
+import { SYMBOLS, SYMBOL_BY_TV, getSymbolMeta } from "./market-symbols";
 import { getKlines } from "./market";
 import { getAdapter, parseCreds } from "./brokers";
 import { loadExecSettings, resolveBroker, type ActiveBroker } from "./execution";
@@ -142,16 +142,25 @@ const BUY_RE = /^(buy|long|enter[_-]?long|bull|open[_-]?long)/i;
 const SELL_RE = /^(sell|short|enter[_-]?short|bear|open[_-]?short)/i;
 const CLOSE_RE = /^(close|flat|exit|cover)/i;
 
-/** map any broker/TV symbol spelling ("OANDA:XAUUSD", "xauusd.a", "EURUSD") to an internal id */
+/** map any broker/TV symbol spelling ("OANDA:XAUUSD", "xauusd.a", "EURUSD",
+ *  "DERIV:VOLATILITY_75_INDEX") to an internal id */
 export function resolveSymbol(raw: string): string | null {
   const t = String(raw ?? "").trim().toUpperCase();
   if (!t) return null;
   const tail = t.includes(":") ? (t.split(":").pop() as string) : t;
+  // full pro symbol first — TradingView alerts for Deriv synthetics arrive as
+  // "DERIV:VOLATILITY_75_INDEX", "DERIV:BOOM_1000_INDEX", …
+  if (t.includes(":")) {
+    const tvHit = SYMBOL_BY_TV[t];
+    if (tvHit) return tvHit;
+  }
   for (const cand of [t, tail]) {
     const hit = SYMBOLS.find((s) => s.id === cand);
     if (hit) return hit.id;
   }
   const base = tail.replace(/[^A-Z0-9]/g, "");
+  const tvBase = SYMBOL_BY_TV[`DERIV:${tail}`] ?? SYMBOL_BY_TV[base];
+  if (tvBase) return tvBase;
   const hit2 = SYMBOLS.find((s) => base.startsWith(s.id));
   return hit2 ? hit2.id : null;
 }
@@ -164,7 +173,7 @@ export function parseTvAlert(payload: Record<string, unknown>): { alert?: TvAler
   const symbol = resolveSymbol(rawSymbol);
   if (!symbol) {
     return {
-      error: `Unknown symbol "${rawSymbol}" — add it in HALO first (FOREX majors/crosses, metals and crypto are supported).`,
+      error: `Unknown symbol "${rawSymbol}" — add it in HALO first (Deriv synthetics, forex majors/crosses/exotics, stock indices, metals and crypto are supported).`,
     };
   }
 

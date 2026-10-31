@@ -11,7 +11,7 @@ export interface SymbolMeta {
   tv: string;
 }
 
-export type SymbolGroup = "CRYPTO" | "FOREX" | "METALS";
+export type SymbolGroup = "CRYPTO" | "FOREX" | "METALS" | "SYNTHETICS" | "INDICES";
 
 export interface SymbolGroupMeta {
   key: SymbolGroup;
@@ -19,7 +19,9 @@ export interface SymbolGroupMeta {
 }
 
 export const SYMBOL_GROUPS: SymbolGroupMeta[] = [
+  { key: "SYNTHETICS", label: "Deriv · Synthetic Indices" },
   { key: "FOREX", label: "Forex · Majors & Crosses" },
+  { key: "INDICES", label: "Deriv · Stock Indices & Energy" },
   { key: "METALS", label: "Metals · Gold Silver Platinum" },
   { key: "CRYPTO", label: "Crypto · Binance" },
 ];
@@ -59,6 +61,206 @@ const FX_CROSSES: Array<[string, string, number, number]> = [
   ["CHFJPY", "CHF/JPY", 0.001, 191.3],
 ];
 
+// ── FOREX · Deriv exotics (20) — traded on Deriv MT5, real Yahoo FX data ──
+const FX_EXOTICS: Array<[string, string, number]> = [
+  // id, label, base (simulator anchor when Yahoo is unreachable)
+  ["USDZAR", "USD/ZAR", 17.42],
+  ["USDTRY", "USD/TRY", 48.9],
+  ["USDMXN", "USD/MXN", 18.31],
+  ["USDNOK", "USD/NOK", 10.12],
+  ["USDSEK", "USD/SEK", 9.45],
+  ["USDSGD", "USD/SGD", 1.29],
+  ["USDHKD", "USD/HKD", 7.78],
+  ["USDPLN", "USD/PLN", 3.62],
+  ["USDCNH", "USD/CNH", 7.09],
+  ["USDILS", "USD/ILS", 3.35],
+  ["USDINR", "USD/INR", 88.4],
+  ["USDTHB", "USD/THB", 32.2],
+  ["USDBRL", "USD/BRL", 5.35],
+  ["USDCZK", "USD/CZK", 20.9],
+  ["USDDKK", "USD/DKK", 6.36],
+  ["USDHUF", "USD/HUF", 332.0],
+  ["EURTRY", "EUR/TRY", 56.8],
+  ["EURPLN", "EUR/PLN", 4.21],
+  ["EURNOK", "EUR/NOK", 11.72],
+  ["EURSEK", "EUR/SEK", 10.95],
+];
+
+// ── DERIV · SYNTHETIC INDICES — the full official catalog ──
+// Sources: deriv.com/markets/derived-indices/synthetic-indices (family
+// membership, 2026) + per-symbol TradingView pages (DERIV: pro names and
+// live anchor prices). `base` feeds the built-in simulator ONLY — synthetics
+// have no public OHLC feed, so charts/candles for this group come from the
+// seeded simulator and are always labelled "SIM". Entries marked `est` use a
+// family interpolation where no public price exists.
+interface DerivSpec {
+  id: string;
+  label: string;
+  mintick: number;
+  base: number;
+  tv?: string; // TradingView pro symbol — omitted when TV carries no feed
+}
+
+const DERIV_VOLS: DerivSpec[] = [
+  // continuous volatility indices
+  { id: "V5", label: "VOL 5", mintick: 0.001, base: 100796.904, tv: "DERIV:VOLATILITY_5_INDEX" },
+  { id: "V10", label: "VOL 10", mintick: 0.001, base: 4902.879, tv: "DERIV:VOLATILITY_10_INDEX" },
+  { id: "V15", label: "VOL 15", mintick: 0.01, base: 103598.56, tv: "DERIV:VOLATILITY_15_INDEX" },
+  { id: "V25", label: "VOL 25", mintick: 0.001, base: 2928.4, tv: "DERIV:VOLATILITY_25_INDEX" },
+  { id: "V30", label: "VOL 30", mintick: 0.001, base: 96113.0, tv: "DERIV:VOLATILITY_30_INDEX" },
+  { id: "V50", label: "VOL 50", mintick: 0.0001, base: 87.5246, tv: "DERIV:VOLATILITY_50_INDEX" },
+  { id: "V75", label: "VOL 75", mintick: 0.01, base: 39040.51, tv: "DERIV:VOLATILITY_75_INDEX" },
+  { id: "V90", label: "VOL 90", mintick: 0.01, base: 140918.09, tv: "DERIV:VOLATILITY_90_INDEX" },
+  { id: "V100", label: "VOL 100", mintick: 0.01, base: 565.17, tv: "DERIV:VOLATILITY_100_INDEX" },
+  // 1-second variants
+  { id: "V5S", label: "VOL 5 (1S)", mintick: 0.01, base: 97010.1, tv: "DERIV:VOLATILITY_5_1S_INDEX" },
+  { id: "V10S", label: "VOL 10 (1S)", mintick: 0.01, base: 9567.33, tv: "DERIV:VOLATILITY_10_1S_INDEX" },
+  { id: "V15S", label: "VOL 15 (1S)", mintick: 0.001, base: 13372.009, tv: "DERIV:VOLATILITY_15_1S_INDEX" },
+  { id: "V25S", label: "VOL 25 (1S)", mintick: 0.01, base: 943115.12, tv: "DERIV:VOLATILITY_25_1S_INDEX" },
+  { id: "V30S", label: "VOL 30 (1S)", mintick: 0.01, base: 6070.579, tv: "DERIV:VOLATILITY_30_1S_INDEX" },
+  { id: "V50S", label: "VOL 50 (1S)", mintick: 0.01, base: 201007.72, tv: "DERIV:VOLATILITY_50_1S_INDEX" },
+  { id: "V75S", label: "VOL 75 (1S)", mintick: 0.01, base: 4874.37, tv: "DERIV:VOLATILITY_75_1S_INDEX" },
+  { id: "V90S", label: "VOL 90 (1S)", mintick: 0.01, base: 28598.041, tv: "DERIV:VOLATILITY_90_1S_INDEX" },
+  { id: "V100S", label: "VOL 100 (1S)", mintick: 0.01, base: 1232.31, tv: "DERIV:VOLATILITY_100_1S_INDEX" },
+  { id: "V150S", label: "VOL 150 (1S)", mintick: 0.01, base: 50.45, tv: "DERIV:VOLATILITY_150_1S_INDEX" },
+  { id: "V250S", label: "VOL 250 (1S)", mintick: 0.00001, base: 0.29329, tv: "DERIV:VOLATILITY_250_1S_INDEX" },
+];
+
+function boomCrash(family: "BOOM" | "CRASH", n: number, mintick: number, base: number, tv?: string): DerivSpec {
+  const fam = family === "BOOM" ? "BOOM" : "CRASH";
+  return { id: `${fam}${n}`, label: `${fam} ${n}`, mintick, base, tv };
+}
+
+const DERIV_BOOM_CRASH: DerivSpec[] = [
+  boomCrash("BOOM", 50, 0.001, 104737.206, "DERIV:BOOM_50_INDEX"),
+  boomCrash("BOOM", 99, 0.001, 106885.083, "DERIV:BOOM_99_INDEX"),
+  boomCrash("BOOM", 100, 0.001, 95479.79, "DERIV:BOOM_100_INDEX"),
+  boomCrash("BOOM", 150, 0.0001, 9608.0491, "DERIV:BOOM_150_INDEX"),
+  boomCrash("BOOM", 200, 0.001, 101064.156, "DERIV:BOOM_200_INDEX"),
+  boomCrash("BOOM", 300, 0.001, 341.356, "DERIV:BOOM_300_INDEX"),
+  boomCrash("BOOM", 400, 0.001, 4100.0), // est — no public feed
+  boomCrash("BOOM", 500, 0.001, 5907.892, "DERIV:BOOM_500_INDEX"),
+  boomCrash("BOOM", 550, 0.001, 7100.0), // est — no public feed
+  boomCrash("BOOM", 600, 0.001, 5486.801, "DERIV:BOOM_600_INDEX"),
+  boomCrash("BOOM", 750, 0.001, 9500.0), // est — no public feed
+  boomCrash("BOOM", 900, 0.001, 9006.224, "DERIV:BOOM_900_INDEX"),
+  boomCrash("BOOM", 1000, 0.0001, 14955.1072, "DERIV:BOOM_1000_INDEX"),
+  boomCrash("CRASH", 50, 0.001, 98849.082, "DERIV:CRASH_50_INDEX"),
+  boomCrash("CRASH", 99, 0.001, 95393.09, "DERIV:CRASH_99_INDEX"),
+  boomCrash("CRASH", 100, 0.001, 94052.944, "DERIV:CRASH_100_INDEX"),
+  boomCrash("CRASH", 150, 0.0001, 9395.5279, "DERIV:CRASH_150_INDEX"),
+  boomCrash("CRASH", 200, 0.001, 101823.14, "DERIV:CRASH_200_INDEX"),
+  boomCrash("CRASH", 300, 0.001, 2364.405, "DERIV:CRASH_300_INDEX"),
+  boomCrash("CRASH", 400, 0.001, 8900.0), // est — no public feed
+  boomCrash("CRASH", 500, 0.001, 2975.0, "DERIV:CRASH_500_INDEX"),
+  boomCrash("CRASH", 550, 0.001, 13500.0), // est — no public feed
+  boomCrash("CRASH", 600, 0.001, 23806.149, "DERIV:CRASH_600_INDEX"),
+  boomCrash("CRASH", 750, 0.001, 20278.0), // est — no public feed
+  boomCrash("CRASH", 900, 0.001, 16750.199, "DERIV:CRASH_900_INDEX"),
+  boomCrash("CRASH", 1000, 0.0001, 6165.1989, "DERIV:CRASH_1000_INDEX"),
+];
+
+const DERIV_EXTRA: DerivSpec[] = [
+  // volatility-flavoured boom/crash
+  { id: "VBOOM400", label: "VOL BOOM 400", mintick: 0.001, base: 14367.65, tv: "DERIV:VOLATILITY_BOOM_400_INDEX" },
+  { id: "VBOOM550", label: "VOL BOOM 550", mintick: 0.001, base: 5572.59, tv: "DERIV:VOLATILITY_BOOM_550_INDEX" },
+  { id: "VBOOM750", label: "VOL BOOM 750", mintick: 0.001, base: 11911.94, tv: "DERIV:VOLATILITY_BOOM_750_INDEX" },
+  { id: "VCRASH400", label: "VOL CRASH 400", mintick: 0.001, base: 4488.5, tv: "DERIV:VOLATILITY_CRASH_400_INDEX" },
+  { id: "VCRASH550", label: "VOL CRASH 550", mintick: 0.01, base: 997.68, tv: "DERIV:VOLATILITY_CRASH_550_INDEX" },
+  { id: "VCRASH750", label: "VOL CRASH 750", mintick: 0.001, base: 12008.96, tv: "DERIV:VOLATILITY_CRASH_750_INDEX" },
+  // crash/boom flip
+  { id: "CBF150", label: "CBF 150", mintick: 0.0001, base: 10161.3268, tv: "DERIV:CRASH_BOOM_FLIP_150_INDEX" },
+  { id: "CBF300", label: "CBF 300", mintick: 0.0001, base: 7429.4133, tv: "DERIV:CRASH_BOOM_FLIP_300_INDEX" },
+  { id: "CBF500", label: "CBF 500", mintick: 0.0001, base: 10945.7194, tv: "DERIV:CRASH_BOOM_FLIP_500_INDEX" },
+  { id: "CBF1000", label: "CBF 1000", mintick: 0.0001, base: 10388.6604, tv: "DERIV:CRASH_BOOM_FLIP_1000_INDEX" },
+  // step family
+  { id: "STEP", label: "STEP", mintick: 0.1, base: 7383.7, tv: "DERIV:STEP_INDEX" },
+  { id: "SKEWSTEP", label: "SKEW STEP", mintick: 0.1, base: 7100.0 }, // est — no public feed
+  { id: "MS2", label: "MULTI STEP 2", mintick: 0.01, base: 11765.87, tv: "DERIV:MULTI_STEP_2_INDEX" },
+  { id: "MS3", label: "MULTI STEP 3", mintick: 0.01, base: 10848.0, tv: "DERIV:MULTI_STEP_3_INDEX" },
+  { id: "MS4", label: "MULTI STEP 4", mintick: 0.01, base: 10271.3, tv: "DERIV:MULTI_STEP_4_INDEX" },
+  // jumps (3 jumps per hour)
+  { id: "JUMP10", label: "JUMP 10", mintick: 0.01, base: 93927.77, tv: "DERIV:JUMP_10_INDEX" },
+  { id: "JUMP25", label: "JUMP 25", mintick: 0.01, base: 143796.27, tv: "DERIV:JUMP_25_INDEX" },
+  { id: "JUMP50", label: "JUMP 50", mintick: 0.01, base: 70739.59, tv: "DERIV:JUMP_50_INDEX" },
+  { id: "JUMP75", label: "JUMP 75", mintick: 0.01, base: 5006.87, tv: "DERIV:JUMP_75_INDEX" },
+  { id: "JUMP100", label: "JUMP 100", mintick: 0.01, base: 100.95, tv: "DERIV:JUMP_100_INDEX" },
+  // range break
+  { id: "RB100", label: "RANGE BREAK 100", mintick: 0.1, base: 52189.7, tv: "DERIV:RANGE_BREAK_100_INDEX" },
+  { id: "RB200", label: "RANGE BREAK 200", mintick: 0.1, base: 68237.0, tv: "DERIV:RANGE_BREAK_200_INDEX" },
+  // high-frequency volatility
+  { id: "HFVOL10", label: "HF VOL 10", mintick: 0.01, base: 91565.53, tv: "DERIV:HIGH_FREQUENCY_VOL_10_INDEX" },
+  { id: "HFVOL25", label: "HF VOL 25", mintick: 0.01, base: 114974.49, tv: "DERIV:HIGH_FREQUENCY_VOL_25_INDEX" },
+  { id: "HFVOL50", label: "HF VOL 50", mintick: 0.01, base: 125041.19, tv: "DERIV:HIGH_FREQUENCY_VOL_50_INDEX" },
+  { id: "HFVOL75", label: "HF VOL 75", mintick: 0.01, base: 36096.07, tv: "DERIV:HIGH_FREQUENCY_VOL_75_INDEX" },
+  { id: "HFVOL100", label: "HF VOL 100", mintick: 0.01, base: 48739.19, tv: "DERIV:HIGH_FREQUENCY_VOL_100_INDEX" },
+  // drift switch (est anchors — no public feed)
+  { id: "DS10", label: "DRIFT SWITCH 10", mintick: 0.01, base: 9800.0 },
+  { id: "DS20", label: "DRIFT SWITCH 20", mintick: 0.01, base: 7600.0 },
+  { id: "DS30", label: "DRIFT SWITCH 30", mintick: 0.01, base: 5200.0 },
+  // vol switch
+  { id: "VSWLOW", label: "VOLSWITCH LOW", mintick: 0.01, base: 9410.37, tv: "DERIV:VOLSWITCH_LOW_VOL_INDEX" },
+  { id: "VSWMED", label: "VOLSWITCH MED", mintick: 0.01, base: 7694.22, tv: "DERIV:VOLSWITCH_MEDIUM_VOL_INDEX" },
+  { id: "VSWHIGH", label: "VOLSWITCH HIGH", mintick: 0.01, base: 610.76, tv: "DERIV:VOLSWITCH_HIGH_VOL_INDEX" },
+  // ladder / trek / DEX (Deriv X & dtrader families)
+  { id: "LADDERUP", label: "LADDER UP", mintick: 0.01, base: 6064.9, tv: "DERIV:LADDER_VOLATILITY_UP_INDEX" },
+  { id: "LADDERDOWN", label: "LADDER DOWN", mintick: 0.01, base: 18915.53, tv: "DERIV:LADDER_VOLATILITY_DOWN_INDEX" },
+  { id: "TREKUP", label: "TREK UP", mintick: 0.01, base: 13512.32, tv: "DERIV:TREK_UP_INDEX" },
+  { id: "TREKDOWN", label: "TREK DOWN", mintick: 0.01, base: 8696.44, tv: "DERIV:TREK_DOWN_INDEX" },
+  { id: "DEX600UP", label: "DEX 600 UP", mintick: 0.01, base: 1939.43, tv: "DERIV:DEX_600_UP_INDEX" },
+  { id: "DEX600DOWN", label: "DEX 600 DOWN", mintick: 0.01, base: 1604.81, tv: "DERIV:DEX_600_DOWN_INDEX" },
+  { id: "DEX900UP", label: "DEX 900 UP", mintick: 0.01, base: 2526.75, tv: "DERIV:DEX_900_UP_INDEX" },
+  { id: "DEX900DOWN", label: "DEX 900 DOWN", mintick: 0.01, base: 32017.68, tv: "DERIV:DEX_900_DOWN_INDEX" },
+  { id: "DEX1500UP", label: "DEX 1500 UP", mintick: 0.01, base: 4586.62, tv: "DERIV:DEX_1500_UP_INDEX" },
+  { id: "DEX1500DOWN", label: "DEX 1500 DOWN", mintick: 0.01, base: 31033.05, tv: "DERIV:DEX_1500_DOWN_INDEX" },
+];
+
+const DERIV_SYNTHETICS: DerivSpec[] = [...DERIV_VOLS, ...DERIV_BOOM_CRASH, ...DERIV_EXTRA];
+
+/**
+ * Simulator flavour for a synthetic symbol. Boom/Crash families spike/drop on
+ * average once every N 1-second ticks (N = the number in the id), CBF does
+ * both, JUMP jumps 3×/hour, STEP walks a fixed 0.1 lattice.
+ */
+export interface SimStyle {
+  kind: "walk" | "boom" | "crash" | "cbf" | "jump" | "step";
+  /** average seconds between spike/drop events (boom/crash/cbf families) */
+  k: number;
+}
+
+export function simStyleOf(id: string): SimStyle {
+  const s = id.toUpperCase();
+  const m = /((?:VBOOM|VCRASH|BOOM|CRASH|CBF))(\d+)/.exec(s);
+  if (m) {
+    const n = Math.max(30, parseInt(m[2], 10) || 1000);
+    if (m[1] === "BOOM" || m[1] === "VBOOM") return { kind: "boom", k: n };
+    if (m[1] === "CRASH" || m[1] === "VCRASH") return { kind: "crash", k: n };
+    return { kind: "cbf", k: n }; // CBF
+  }
+  if (s.startsWith("JUMP")) return { kind: "jump", k: 1200 }; // 3 jumps / hour
+  if (s === "STEP" || s === "SKEWSTEP" || s.startsWith("MS")) return { kind: "step", k: 0 };
+  return { kind: "walk", k: 0 };
+}
+
+// ── DERIV · STOCK INDICES & ENERGY (MT5 CFDs — real Yahoo OHLC feed) ──
+// [id, label, mintick, base (sim anchor), Yahoo ticker, TradingView symbol]
+const DERIV_INDICES: Array<[string, string, number, number, string, string]> = [
+  ["US30", "US 30 · Wall Street", 0.1, 51770, "^DJI", "DJ:DJI"],
+  ["US100", "US 100 · Nasdaq", 0.1, 28385, "^NDX", "NASDAQ:NDX"],
+  ["US500", "US 500 · S&P", 0.1, 7580, "^GSPC", "SP:SPX"],
+  ["US2000", "US 2000 · Russell", 0.1, 2812, "^RUT", "DJ:RUT"],
+  ["GER40", "GER 40 · DAX", 0.1, 25818, "^GDAXI", "XETR:DAX"],
+  ["UK100", "UK 100 · FTSE", 0.1, 10730, "^FTSE", "TVC:UKX"],
+  ["FRA40", "FRA 40 · CAC", 0.1, 7969, "^FCHI", "EURONEXT:PX1"],
+  ["EU50", "EU 50 · Euro Stoxx", 0.1, 6131, "^STOXX50E", "EURONEXT:STOXX50E"],
+  ["JPN225", "JPN 225 · Nikkei", 0.1, 63290, "^N225", "TVC:NI225"],
+  ["AUS200", "AUS 200 · ASX", 0.1, 8908, "^AXJO", "SP:XJO"],
+  ["HK50", "HK 50 · Hang Seng", 0.1, 23294, "^HSI", "HSI:HSI"],
+  ["USOIL", "WTI CRUDE OIL", 0.01, 102.95, "CL=F", "TVC:USOIL"],
+  ["UKOIL", "BRENT CRUDE OIL", 0.01, 112.33, "BZ=F", "TVC:UKOIL"],
+  ["NGAS", "NATURAL GAS", 0.001, 2.88, "NG=F", "NYMEX:NG1!"],
+];
+
 // ── METALS (5) ──
 const METALS: Array<[string, string, number, number, string]> = [
   // id, label, mintick, base, tv suffix (OANDA)
@@ -88,6 +290,16 @@ function build(): SymbolMeta[] {
   for (const [id, label, mintick, base] of FX_CROSSES) {
     out.push({ id, label, mintick, base, group: "FOREX", tv: `OANDA:${id}` });
   }
+  for (const [id, label, base] of FX_EXOTICS) {
+    out.push({ id, label, mintick: 0.00001, base, group: "FOREX", tv: `FX_IDC:${id}` });
+  }
+  for (const s of DERIV_SYNTHETICS) {
+    out.push({ id: s.id, label: s.label, mintick: s.mintick, base: s.base, group: "SYNTHETICS", tv: s.tv ?? "" });
+  }
+  for (const [id, label, mintick, base, ytk, tvs] of DERIV_INDICES) {
+    out.push({ id, label, mintick, base, group: "INDICES", tv: tvs });
+    YAHOO_INDEX_MAP[id] = ytk;
+  }
   for (const [id, label, mintick, base, tvs] of METALS) {
     out.push({ id, label, mintick, base, group: "METALS", tv: `OANDA:${tvs}` });
   }
@@ -97,7 +309,21 @@ function build(): SymbolMeta[] {
   return out;
 }
 
+/** index/energy ids → Yahoo chart tickers (used by market.ts + market-history.ts) */
+export const YAHOO_INDEX_MAP: Record<string, string> = {};
+
+/** true when the group's candles come from the built-in simulator (no public OHLC) */
+export function isSimOnlyGroup(g: SymbolGroup): boolean {
+  return g === "SYNTHETICS";
+}
+
 export const SYMBOLS: SymbolMeta[] = build();
+
+/** TradingView pro symbol → internal id (e.g. "DERIV:BOOM_1000_INDEX" → "BOOM1000") */
+export const SYMBOL_BY_TV: Record<string, string> = {};
+for (const s of SYMBOLS) {
+  if (s.tv) SYMBOL_BY_TV[s.tv.toUpperCase()] = s.id;
+}
 
 export function symbolsByGroup(g: SymbolGroup): SymbolMeta[] {
   return SYMBOLS.filter((s) => s.group === g);

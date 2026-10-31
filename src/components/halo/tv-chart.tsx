@@ -83,6 +83,16 @@ export function TvChart({ symbol, tf, height, onUnavailable }: Props) {
 
     const mount = async () => {
       try {
+        // symbols without a TradingView feed (Deriv synthetics without TV
+        // coverage) fall straight back to the built-in HALO engine chart
+        const tvSym = tvSymbolOf(symbol);
+        if (!tvSym) {
+          if (!cancelled) {
+            setStatus("error");
+            cbRef.current?.("No TradingView feed for this instrument — HALO chart shown");
+          }
+          return;
+        }
         await loadTvScript();
         if (cancelled || !holderRef.current) return;
         const holder = holderRef.current;
@@ -95,7 +105,7 @@ export function TvChart({ symbol, tf, height, onUnavailable }: Props) {
 
         new window.TradingView!.widget({
           autosize: true,
-          symbol: tvSymbolOf(symbol),
+          symbol: tvSym,
           interval: tvInterval(tf),
           timezone: "Etc/UTC",
           theme: "dark",

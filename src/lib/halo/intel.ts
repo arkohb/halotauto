@@ -17,7 +17,8 @@
 //  or broker state.
 // ════════════════════════════════════════════════════════════════════════
 
-import { yahooTicker } from "@/lib/market";
+import { getKlines, getSymbolMeta, yahooTicker } from "@/lib/market";
+import { isSimOnlyGroup } from "@/lib/market-symbols";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -360,6 +361,13 @@ export function canonicalToYahoo(canonical: string): string | null {
 }
 
 export async function getQuote(canonical: string, label: string): Promise<QuoteResult> {
+  // Deriv synthetic indices have no Yahoo/external quote anywhere — go straight
+  // to HALO's own feed (seeded simulator, honestly labelled). Real instruments
+  // keep Yahoo as the primary source with the internal feed as fallback.
+  const meta = getSymbolMeta(canonical);
+  if (meta && isSimOnlyGroup(meta.group)) {
+    return feedQuote(canonical, meta.label.split("·")[0].trim() || label);
+  }
   const ticker = canonicalToYahoo(canonical);
   if (!ticker) {
     return emptyQuote(canonical, label, `no ticker mapping for "${canonical}"`);
@@ -439,8 +447,44 @@ export async function getQuote(canonical: string, label: string): Promise<QuoteR
   } catch (e) {
     const staleEntry = gStore.__haloIntelQuote?.get(cacheKey);
     if (staleEntry) return { ...staleEntry.data, stale: true, error: `quote feed degraded (${(e as Error).message}) — last good read shown` };
-    return emptyQuote(ticker, label, `Yahoo Finance quote unreachable: ${(e as Error).message.slice(0, 120)}`);
+    // real instrument, external feed down → fall back to HALO's own feed so
+    // the trader always gets an answer (labelled with its true source)
+    try {
+      return await feedQuote(canonical, label);
+    } catch {
+      return emptyQuote(ticker, label, `Yahoo Finance quote unreachable: ${(e as Error).message.slice(0, 120)}`);
+    }
   }
+}
+
+/**
+ * Quote built from HALO's own candle feed (simulator for synthetics, last
+ * cached real candles for anything else). Always answers; source is honest.
+ */
+async function feedQuote(canonical: string, label: string): Promise<QuoteResult> {
+  const res = await getKlines(canonical, "5m", 3, { fresh: false });
+  const cs = res.candles;
+  if (!cs.length) throw new Error("no feed data");
+  const last = cs[cs.length - 1];
+  const prev = cs.length >= 2 ? cs[cs.length - 2] : null;
+  const changePct = prev && prev.close !== 0 ? ((last.close - prev.close) / prev.close) * 100 : null;
+  const out: QuoteResult = {
+    ok: true,
+    ticker: canonical,
+    label,
+    price: last.close,
+    previousClose: prev ? prev.close : null,
+    changePct: changePct != null ? Math.round(changePct * 100) / 100 : null,
+    dayHigh: last.high,
+    dayLow: last.low,
+    currency: "USD",
+    exchange: res.source === "simulator" ? "HALO SIM" : "HALO FEED",
+    marketTime: new Date(last.time).toISOString(),
+    fetchedAt: new Date().toISOString(),
+    stale: false,
+  };
+  (gStore.__haloIntelQuote ??= new Map()).set(`feed:${canonical}`, { data: out, at: Date.now() });
+  return { ...out, label };
 }
 
 function emptyQuote(ticker: string, label: string, error: string): QuoteResult {

@@ -20,7 +20,7 @@ interface QuoteRow {
   changePct: number | null;
 }
 
-const WATCH = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"];
+const WATCH = ["V75", "BOOM1000", "XAUUSD", "EURUSD", "GBPUSD"];
 
 function MarketOverviewInner({ state }: { state: BotStateRes }) {
   const [quotes, setQuotes] = useState<Record<string, QuoteRow>>({});

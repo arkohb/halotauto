@@ -11,13 +11,16 @@
 //     period1/period2 windows (1m→30d back, 5m–30m→60d, 1h→730d, 1d→full)
 //  Bar sizes a feed doesn't natively serve (M2/M10/H3/H8/D3…) are built by
 //  grid-aggregating a native base interval fetched the same paginated way.
-//  Demo/simulator data is NEVER produced here — if every real feed fails,
-//  the call throws and the dashboard reports NO_LIVE_DATA.
+//  Demo/simulator data is NEVER produced for real instruments — if every
+//  real feed fails, the call throws and the dashboard reports NO_LIVE_DATA.
+//  (Exception: Deriv SYNTHETIC indices have no public feed anywhere, so they
+//  get an honestly-labelled deterministic simulator run — see getDeepHistory.)
 // ════════════════════════════════════════════════════════════════════════
 
 import { Candle } from "./halo/types";
-import { SYMBOLS, tfSec, isBtTf } from "./market-symbols";
+import { SYMBOLS, tfSec, isBtTf, YAHOO_INDEX_MAP } from "./market-symbols";
 import type { SymbolMeta, SymbolGroup } from "./market-symbols";
+import { simulateCandles } from "./market";
 
 // ───────────────────────── public surface ─────────────────────────
 
@@ -133,13 +136,17 @@ const CRYPTO_BASES = new Set([
   "HBAR", "VET", "ALGO", "FTM", "GRT", "SAND", "MANA", "AXS", "GALA", "CRV", "MKR", "RUNE",
 ]);
 
-export type SymClass = "crypto" | "fx" | "any";
+export type SymClass = "crypto" | "fx" | "synth" | "any";
 
 /** Best-effort routing of an ARBITRARY user-typed symbol to the right feeds. */
 export function classifySymbol(raw: string): SymClass {
   const s = raw.toUpperCase().trim();
   const known = SYMBOLS.find((k) => k.id === s);
-  if (known) return known.group === "CRYPTO" ? "crypto" : "fx";
+  if (known) {
+    if (known.group === "CRYPTO") return "crypto";
+    if (known.group === "SYNTHETICS") return "synth"; // simulated feed (no public OHLC exists)
+    return "fx"; // forex, metals, stock indices, energy → Yahoo
+  }
   if (/^(USDT|USDC|FDUSD|TUSD|BUSD|USDP|DAI)/.test(s) && s.length > 4) return "crypto";
   if (/(USDT|USDC|FDUSD|TUSD|BUSD)$/.test(s)) return "crypto";
   const m6 = /^([A-Z]{2,10})(USD)$/.exec(s);
@@ -161,6 +168,7 @@ const YAHOO_METAL: Record<string, string> = {
   XPTUSD: "PL=F",
   XPDUSD: "PA=F",
   XCUUSD: "HG=F",
+  ...YAHOO_INDEX_MAP, // Deriv stock indices & energy (US30 → ^DJI, NGAS → NG=F …)
 };
 
 function yahooTickerOf(sym: string): string {
@@ -193,7 +201,7 @@ function inferMintick(refPx: number): number {
 }
 
 /**
- * Exact metadata for the 31 known HALO symbols; for ANY other user-typed
+ * Exact metadata for the known HALO symbols; for ANY other user-typed
  * ticker, infer a sensible SymbolMeta from the fetched price itself.
  */
 export function resolveAnySymbol(sym: string, refPx: number, clsHint?: SymClass): SymbolMeta {
@@ -201,7 +209,8 @@ export function resolveAnySymbol(sym: string, refPx: number, clsHint?: SymClass)
   const known = SYMBOLS.find((k) => k.id === s);
   if (known) return known;
   const cls = clsHint ?? classifySymbol(s);
-  const group: SymbolGroup = cls === "crypto" ? "CRYPTO" : YAHOO_METAL[s] ? "METALS" : "FOREX";
+  const group: SymbolGroup =
+    cls === "crypto" ? "CRYPTO" : cls === "synth" ? "SYNTHETICS" : YAHOO_METAL[s] ? "METALS" : "FOREX";
   const tv = cls === "crypto" ? `BINANCE:${cryptoTickers(s).binance}` : /^[A-Z]{6}$/.test(s) ? `OANDA:${s}` : s;
   return {
     id: s,
@@ -559,6 +568,26 @@ export async function getDeepHistory(req: DeepRequest): Promise<DeepResult> {
   const cacheKey = `${sym}:${tf}:${want ?? "all"}:${fromMs ?? 0}`;
   const hit = deepCache.get(cacheKey);
   if (hit && Date.now() - hit.at < DEEP_TTL) return hit.res;
+
+  // ── Deriv synthetic indices: no public OHLC feed exists anywhere ──
+  // (Deriv generates these prices internally and exposes no history API).
+  // Serve a deterministic seeded simulator run, honestly labelled
+  // "simulator", so backtests stay functional instead of erroring.
+  if (classifySymbol(sym) === "synth") {
+    const knownMeta = SYMBOLS.find((k) => k.id === sym);
+    if (knownMeta) {
+      const candles = simulateCandles(sym, tf, want ?? 50_000, Date.now()).filter(
+        (c) => !fromMs || c.time >= fromMs
+      );
+      const res: DeepResult = { candles, source: "simulator", complete: true, meta: knownMeta };
+      deepCache.set(cacheKey, { res, at: Date.now() });
+      if (deepCache.size > 8) {
+        const oldest = [...deepCache.entries()].sort((x, y) => x[1].at - y[1].at)[0];
+        if (oldest) deepCache.delete(oldest[0]);
+      }
+      return res;
+    }
+  }
 
   const cls = classifySymbol(sym);
   const opts: WalkOpts = { want, fromMs, deadline: Date.now() + ALL_RUN_DEADLINE_MS + 30_000 };

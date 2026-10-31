@@ -5,7 +5,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { Candle } from "./halo/types";
-import { decimalsOf, getSymbolMeta, tfSec, type SymbolMeta } from "./market-symbols";
+import { decimalsOf, getSymbolMeta, isSimOnlyGroup, simStyleOf, tfSec, YAHOO_INDEX_MAP, type SymbolMeta } from "./market-symbols";
 
 export { getSymbolMeta, SYMBOLS, tfSec, TIMEFRAMES, decimalsOf } from "./market-symbols";
 export type { SymbolMeta, Timeframe } from "./market-symbols";
@@ -105,6 +105,7 @@ const YAHOO_MAP: Record<string, string> = {
   XPTUSD: "PL=F", // platinum
   XPDUSD: "PA=F", // palladium
   XCUUSD: "HG=F", // copper
+  ...YAHOO_INDEX_MAP, // Deriv stock indices & energy (US30 → ^DJI, USOIL → CL=F …)
 };
 
 export function yahooTicker(sym: string): string {
@@ -209,8 +210,15 @@ async function fYahoo(sym: string, tf: string, limit: number): Promise<{ candles
 }
 
 async function fetchFromSources(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
-  // forex / metals: real OHLC from Yahoo Finance's chart API (majors, crosses,
-  // XAU/XAG/XPT/XPD + copper) — falls through to the simulator when blocked.
+  // Deriv synthetic indices: no public OHLC feed exists anywhere (the prices
+  // are generated inside Deriv), so serve the seeded simulator directly —
+  // never touch Yahoo (it has no such tickers and would just burn requests).
+  if (isSimOnlyGroup(getSymbolMeta(sym).group)) {
+    return { candles: simGet(sym, tf, limit, Date.now()), source: "simulator" };
+  }
+  // forex / metals / stock indices / energy: real OHLC from Yahoo Finance's
+  // chart API (majors, crosses, exotics, XAU/XAG, ^DJI, CL=F …) — falls
+  // through to the simulator when blocked.
   if (getSymbolMeta(sym).group !== "CRYPTO") {
     return await fYahoo(sym, tf, limit);
   }
@@ -276,13 +284,57 @@ function simBar(st: SimState, time: number, sec: number, meta: SymbolMeta): Cand
   let low = open;
   let close = open;
   const steps = 12;
+
+  // ── Deriv synthetic flavour (pre-computed) ──────────────────────────
+  // Boom indices drift down and spike up on average once every N 1-second
+  // ticks; Crash mirror it; CBF does both; JUMP jumps 3×/hour; STEP walks
+  // a fixed 0.1 lattice. Purely cosmetic — makes SIM charts read like the
+  // real instruments without touching any trading behaviour.
+  const style = simStyleOf(meta.id);
+  let spikeP = 0;
+  let drift = 0; // per-step compensating drift so spikes don't decay the price
+  if (style.kind === "boom" || style.kind === "crash" || style.kind === "cbf") {
+    // k = average seconds between spikes/drops (N ticks × 1s tick)
+    spikeP = Math.min(0.5, sec / style.k);
+    // real Boom/Crash spikes move 0.5–2% in a single tick; between spikes the
+    // price drifts the other way so the expected move per bar is ~zero
+    if (style.kind === "boom") drift = -(spikeP * meta.base * 0.012) / steps;
+    else if (style.kind === "crash") drift = (spikeP * meta.base * 0.012) / steps;
+  }
+
   for (let i = 0; i < steps; i++) {
-    close = close + simStep(st, vol);
+    close = close + simStep(st, vol) + drift;
+    // gentle mean reversion keeps long-lived simulator state anchored near
+    // the real instrument level instead of wandering over days of uptime
+    close += (meta.base - close) * 0.0005;
     if (close < meta.base * 0.2) close = meta.base * 0.2;
     high = Math.max(high, close);
     low = Math.min(low, close);
   }
   st.price = close;
+
+  if (spikeP > 0) {
+    if (st.rng() < spikeP) {
+      const mag = meta.base * (0.006 + st.rng() * 0.012);
+      const dir = style.kind === "boom" ? 1 : style.kind === "crash" ? -1 : st.rng() < 0.5 ? 1 : -1;
+      close = Math.max(close + dir * mag, meta.base * 0.2);
+      high = Math.max(high, close);
+      low = Math.min(low, close);
+      st.price = close;
+    }
+  } else if (style.kind === "jump") {
+    if (st.rng() < Math.min(0.5, sec / 1200)) {
+      close += (st.rng() < 0.5 ? -1 : 1) * meta.base * (0.0015 + st.rng() * 0.003);
+      high = Math.max(high, close);
+      low = Math.min(low, close);
+      st.price = close;
+    }
+  } else if (style.kind === "step") {
+    // Step Index moves in fixed 0.1 ticks — snap the close to the lattice
+    close = Math.round(close / 0.1) * 0.1;
+    st.price = close;
+  }
+
   return { time, open, high, low, close, volume: 0 };
 }
 
@@ -317,6 +369,8 @@ function simGet(sym: string, tf: string, limit: number, now: number): Candle[] {
     const vol = meta.base * 0.0005;
     const move = simStep(st, vol);
     st.price = Math.max(st.price + move, meta.base * 0.2);
+    // step-style symbols must stay on their fixed lattice even while ticking
+    if (simStyleOf(meta.id).kind === "step") st.price = Math.round(st.price / 0.1) * 0.1;
     last.close = st.price;
     last.high = Math.max(last.high, st.price);
     last.low = Math.min(last.low, st.price);
@@ -411,10 +465,12 @@ export async function getKlines(
     return { candles: r.candles.slice(-want), source: r.source };
   }
 
-  // refresh cadence: crypto ticks every ~3.5s (exchange feeds tolerate it);
-  // Yahoo's FX/metals chart API rate-limits aggressively, so refresh at most
-  // every 30s — confirmed-bar engines and charts don't need faster FX ticks.
-  const isFx = getSymbolMeta(sym).group !== "CRYPTO";
+  // refresh cadence: crypto and synthetic indices tick every ~3.5s (exchange
+  // feeds tolerate it, and the simulator is free); Yahoo's FX/metals/indices
+  // chart API rate-limits aggressively, so refresh at most every 30s —
+  // confirmed-bar engines and charts don't need faster FX ticks.
+  const group = getSymbolMeta(sym).group;
+  const isFx = group !== "CRYPTO" && group !== "SYNTHETICS";
   const refreshMs = isFx ? 30_000 : 3500;
   if (
     entry &&
@@ -446,4 +502,31 @@ export async function getKlines(
 
 export function fmtPrice(px: number, mintick: number): string {
   return px.toFixed(decimalsOf(mintick));
+}
+
+/**
+ * Pure deterministic simulator run for BACKTEST deep history: generates
+ * `count` bars of `sym`/`tf` ending at the current grid point, seeded by the
+ * symbol+tf. Used by market-history.ts for synthetic indices, which have no
+ * public OHLC feed anywhere — the result is always surfaced with source
+ * "simulator" so dashboards can label it honestly.
+ */
+export function simulateCandles(sym: string, tf: string, count: number, now: number): Candle[] {
+  const meta = getSymbolMeta(sym);
+  const sec = tfSec(tf);
+  const n = Math.max(50, Math.min(Math.round(count), 50_000));
+  const st: SimState = {
+    candles: [],
+    price: meta.base,
+    momentum: 0,
+    rng: mulberry32(hashStr(`deep:${sym}:${tf}`)),
+  };
+  const secMs = sec * 1000;
+  let t = Math.floor(now / secMs) * secMs - n * secMs;
+  const out: Candle[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push(simBar(st, t, sec, meta));
+    t += secMs;
+  }
+  return out;
 }
