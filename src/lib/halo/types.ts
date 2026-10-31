@@ -7,6 +7,10 @@
 //    is marked with a DOTTED line — LevelSnapshot.ext is that price.
 //  • Candle 3 must BREAK beyond the dotted wick line, and the moment price
 //    COMES BACK to the dotted line the trade fires instantly — no delay.
+//  • RANGE FILTER: when the market is RANGING and the marked support &
+//    resistance are TOO CLOSE (S/R midpoint gap < rangeSepATR × ATR) the
+//    fire is SKIPPED — the level is burned and the engine keeps hunting for
+//    fresh levels further away from the range to arm instead.
 // ════════════════════════════════════════════════════════════════════════
 
 export type Side = -1 | 1; // -1 = resistance (SELL) · +1 = support (BUY)
@@ -30,6 +34,9 @@ export interface HaloConfig {
   minSepATR: number; // Too-close distance (× ATR) (1.0)
   maxLevels: number; // Max fresh levels per side (3)
   expiryBars: number; // Level expiry (bars) (150)
+  // ①b RANGE FILTER — ranging market guard
+  rangeFilter: boolean; // Skip fires while the market ranges & the marked S/R are too close (true)
+  rangeSepATR: number; // Min support↔resistance separation (× ATR) — below it the box is "too close" (1.0)
   focusCurrent: boolean; // EA follows the CURRENT signal PER SIDE — a new C1/C2 pair replaces older fresh levels on ITS OWN side; one armed support + one armed resistance stay live together (true)
   // ② CANDLE 3 TRIGGER — WICK-LINE BREAK → RETURN
   sigMode: SignalMode; // Instant (intrabar) | Bar close
@@ -53,6 +60,8 @@ export const DEFAULT_CONFIG: HaloConfig = {
   minSepATR: 1.0,
   maxLevels: 3,
   expiryBars: 150,
+  rangeFilter: true,
+  rangeSepATR: 1.0,
   focusCurrent: true,
   sigMode: "instant",
   breakATR: 0.02,
@@ -107,16 +116,18 @@ export interface Stats {
   burned: number;
   skipped: number;
   tooClose: number;
+  rangeSkipped: number; // fires skipped by the ranging-market / too-close S/R filter
   lastResult: { text: string; kind: "win" | "loss" | "none" };
 }
 
-export type LogKind = "fire" | "win" | "loss";
+export type LogKind = "fire" | "win" | "loss" | "skip";
 export interface LogEntry {
   time: number;
   kind: LogKind;
   dir: Side;
-  pips: number; // pips at close for win/loss
+  pips: number; // pips at close for win/loss · S/R gap in pips for "skip"
   entry: number;
+  message?: string; // full human-readable reason (skip entries)
 }
 
 export interface FireEvent {
@@ -145,9 +156,23 @@ export interface CloseEvent {
   message: string;
 }
 
+/** A would-be fire refused by the ranging-market / too-close S/R filter. */
+export interface RangeSkipEvent {
+  type: "range_skip";
+  dir: Side; // direction the trade WOULD have taken
+  entry: number; // would-be trigger price (the dotted wick line)
+  gapPips: number; // actual support↔resistance midpoint gap (pips)
+  minGapPips: number; // required minimum (rangeSepATR × ATR, pips)
+  supportPx: number; // the marked support (ext line)
+  resistancePx: number; // the marked resistance (ext line)
+  time: number;
+  message: string;
+}
+
 export type EngineEvent =
   | FireEvent
   | CloseEvent
+  | RangeSkipEvent
   | { type: "burned" }
   | { type: "skipped" }
   | { type: "expired"; id: number }

@@ -233,6 +233,13 @@ async function handleEvents(row: ScannerRow, events: EngineEvent[]): Promise<voi
           row.autoTrade ? (traded ? `AUTO-TRADED (${live ? "live" : "paper"})` : "auto-trade ON but execution rejected") : "signal only — auto-trade OFF"
         }\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips`,
       });
+    } else if (e.type === "range_skip") {
+      // range filter refused the fire on this watchlist row — announce it
+      void sendAlert({
+        kind: "skip",
+        title: `SCANNER · TRADE SKIPPED — RANGING MARKET (${e.dir === -1 ? "SELL" : "BUY"}) · ${symLabel}`,
+        body: `${e.message}\nSymbol: ${row.symbol} · TF ${row.tf}\nThe too-close level is burned — the engine keeps hunting fresh levels further from the range.`,
+      });
     } else if (e.type === "win" || e.type === "loss") {
       R_signals_close(row, e.type);
       if (row.openTradeDbId) {
@@ -312,7 +319,9 @@ async function tickRow(row: ScannerRow): Promise<void> {
     if (row.engine.cfg.sigMode === "instant") {
       const clone = row.engine.clone();
       const ev = clone.processBar(live, false);
-      const commit = ev.some((x) => x.type === "fire" || x.type === "win" || x.type === "loss");
+      // a range_skip consumes the level (burned) — commit it like a fire so
+      // the intrabar trial never re-evaluates the same skip every tick
+      const commit = ev.some((x) => x.type === "fire" || x.type === "win" || x.type === "loss" || x.type === "range_skip");
       if (commit) {
         row.engine = clone;
         await handleEvents(row, ev);

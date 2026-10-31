@@ -328,6 +328,16 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
           );
           return;
         }
+        if (top.kind === "skip") {
+          // the strategy refused the trade: ranging market, marked S/R too close
+          setMood("scan");
+          speak(
+            "Trade skipped — the market is ranging and the marked support and resistance are too close for entry. I burned those levels and I'm arming fresher ones further from the range.",
+            "info",
+            { stickFor: 9500 }
+          );
+          return;
+        }
       }
 
       // 2) EA on/off transitions

@@ -1191,7 +1191,7 @@ export function BacktestLive({ symbol, tf, config }: Props) {
               {statusObj.text}
             </div>
             <div className="mt-0.5 font-mono text-[9.5px] text-[#8AA2C2]">
-              {eng ? `ATR ${eng.state.atr !== null ? eng.state.atr.toFixed(mt < 0.05 ? 4 : 2) : "warming up"} · burned ${statsE?.burned ?? 0} · skipped ${statsE?.skipped ?? 0} · crowded ${statsE?.tooClose ?? 0}` : "engine idle"}
+              {eng ? `ATR ${eng.state.atr !== null ? eng.state.atr.toFixed(mt < 0.05 ? 4 : 2) : "warming up"} · burned ${statsE?.burned ?? 0} · skipped ${statsE?.skipped ?? 0} · crowded ${statsE?.tooClose ?? 0} · range skips ${statsE?.rangeSkipped ?? 0}` : "engine idle"}
             </div>
           </div>
 

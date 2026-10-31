@@ -69,6 +69,7 @@ export interface BtSummary {
   burned: number;
   skipped: number;
   tooClose: number;
+  rangeSkipped: number;
 }
 
 function parseBars(raw: number | string | undefined): number | null {
@@ -234,6 +235,7 @@ export async function POST(req: Request) {
       burned: snap.stats.burned,
       skipped: snap.stats.skipped,
       tooClose: snap.stats.tooClose,
+      rangeSkipped: snap.stats.rangeSkipped,
     };
 
     return NextResponse.json({
@@ -260,6 +262,8 @@ export async function POST(req: Request) {
         rrMult: cfg.rrMult,
         breakATR: cfg.breakATR,
         eqTolATR: cfg.eqTolATR,
+        rangeFilter: cfg.rangeFilter,
+        rangeSepATR: cfg.rangeSepATR,
       },
       stats,
       equity: { final: acc, maxDrawdown: maxDd },

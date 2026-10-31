@@ -30,6 +30,8 @@ atrLen     = input.int(14, "ATR length", minval=1, group="Signal")
 bodyMinATR = input.float(0.0, "Min body size (xATR)", minval=0, step=0.05, group="Signal")
 pairTolATR = input.float(0.25, "C1·C2 gap tolerance (xATR)", minval=0, step=0.05, group="Signal")
 minSepATR  = input.float(0.5, "Min level separation (xATR)", minval=0, step=0.05, group="Signal")
+rangeFilter = input.bool(true, "Range filter — skip when support & resistance are too close (ranging)", group="Signal")
+rangeSepATR = input.float(1.0, "Range filter · min support↔resistance separation (xATR)", minval=0.1, step=0.1, group="Signal")
 maxLevels  = input.int(3, "Max fresh levels per side", minval=1, maxval=10, group="Signal")
 expiryBars = input.int(150, "Level expiry (bars)", minval=5, group="Signal")
 sigMode    = input.string("Instant", "Trigger mode", options=["Instant", "Bar close"], group="Signal")
@@ -105,12 +107,26 @@ if array.size(L_SIDE) > 0
                 // RETURN to the dotted line → fire instantly
                 back = side == -1 ? close <= ext + eqTol : close >= ext - eqTol
                 if back and canFire and na(fireEntry) and strategy.position_size == 0
-                    fireDir   := side
-                    fireEntry := ext
-                    fireExt   := side == -1 ? high : low
-                    fireLn    := array.get(L_LN, i)
-                    fireWk    := array.get(L_WK, i)
-                    remove    := true
+                    // RANGE FILTER — when the market is RANGING and the marked
+                    // support & resistance are TOO CLOSE (midpoint gap <
+                    // rangeSepATR × ATR) the trade is SKIPPED: the too-close
+                    // level is burned and fresh levels further away arm later.
+                    float minGap = na
+                    if array.size(L_SIDE) > 0
+                        for j = 0 to array.size(L_SIDE) - 1
+                            if array.get(L_SIDE, j) != side
+                                g = math.abs((array.get(L_TOP, j) + array.get(L_BOT, j)) / 2 - (array.get(L_TOP, i) + array.get(L_BOT, i)) / 2)
+                                if na(minGap) or g < minGap
+                                    minGap := g
+                    if rangeFilter and not na(minGap) and minGap < rangeSepATR * a
+                        remove := true
+                    else
+                        fireDir   := side
+                        fireEntry := ext
+                        fireExt   := side == -1 ? high : low
+                        fireLn    := array.get(L_LN, i)
+                        fireWk    := array.get(L_WK, i)
+                        remove    := true
                 else if barstate.isconfirmed
                     remove := true
         if remove

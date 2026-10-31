@@ -66,6 +66,7 @@ interface BtStats {
   burned: number;
   skipped: number;
   tooClose: number;
+  rangeSkipped: number;
 }
 
 interface BtResult {
@@ -426,6 +427,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
                 <span>gross loss <span className="font-mono" style={{ color: C.red }}>−{num(s.grossLossPips)}p</span></span>
                 <span>levels burned <span className="font-mono">{s.burned}</span></span>
                 <span>crowded/skipped <span className="font-mono">{s.skipped} · {s.tooClose}</span></span>
+                <span>range skips (S/R too close) <span className="font-mono">{s.rangeSkipped}</span></span>
                 <span>
                   strategy <span className="font-mono">{res.cfgEcho.sigMode.toUpperCase()} · SL {res.cfgEcho.slMode === "wick" ? "BREAK EXTREME" : res.cfgEcho.slMode.toUpperCase()} · RR 1:{num(res.cfgEcho.rrMult)}</span>
                 </span>
@@ -499,7 +501,7 @@ function emptyStats(): BtStats {
     closed: 0, open: 0, wins: 0, losses: 0, winRate: null, netPips: 0, grossWinPips: 0, grossLossPips: 0,
     profitFactor: null, expectancyPips: null, avgWinPips: null, avgLossPips: null, bestPips: null,
     worstPips: null, maxDrawdownPips: 0, maxConsecLosses: 0, maxConsecWins: 0, avgHoldMin: null,
-    burned: 0, skipped: 0, tooClose: 0,
+    burned: 0, skipped: 0, tooClose: 0, rangeSkipped: 0,
   };
 }
 

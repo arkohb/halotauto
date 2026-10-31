@@ -85,6 +85,14 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
             <NumRow label="Level expiry (bars)" k="expiryBars" draft={shown} onChange={num("expiryBars")} />
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] text-[var(--hx-muted)] leading-tight">
+                Range filter — when the market RANGES and the marked support &amp; resistance are closer than the separation below, the trade is
+                skipped and fresher levels further from the range are armed instead
+              </span>
+              <Switch checked={shown.rangeFilter} onCheckedChange={(v) => edit({ rangeFilter: v })} />
+            </div>
+            <NumRow label="Min S/R separation (×ATR)" k="rangeSepATR" step="0.1" draft={shown} onChange={num("rangeSepATR")} />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[11px] text-[var(--hx-muted)] leading-tight">
                 Focus current signal — a new C1/C2 replaces older levels, the EA follows the latest signal only
               </span>
               <Switch checked={shown.focusCurrent} onCheckedChange={(v) => edit({ focusCurrent: v })} />

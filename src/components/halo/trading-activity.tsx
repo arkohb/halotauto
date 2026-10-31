@@ -358,16 +358,18 @@ export function TradingActivity({ state, histKey }: { state: BotStateRes; histKe
                 <span
                   className="w-14 shrink-0 rounded-sm px-1 py-px text-center text-[7.5px] font-extrabold"
                   style={{
-                    background: l.kind === "fire" ? A.cyan(0.12) : l.kind === "win" ? A.green(0.14) : l.kind === "loss" ? A.red(0.14) : "rgba(140,152,174,0.12)",
-                    color: l.kind === "fire" ? C.cyan : l.kind === "win" ? C.green : l.kind === "loss" ? C.red : C.muted,
+                    background: l.kind === "fire" ? A.cyan(0.12) : l.kind === "win" ? A.green(0.14) : l.kind === "loss" ? A.red(0.14) : l.kind === "skip" ? A.warn(0.14) : "rgba(140,152,174,0.12)",
+                    color: l.kind === "fire" ? C.cyan : l.kind === "win" ? C.green : l.kind === "loss" ? C.red : l.kind === "skip" ? C.warn : C.muted,
                   }}
                 >
                   {l.kind.toUpperCase()}
                 </span>
-                <span className="truncate" style={{ color: C.txt2 }}>
+                <span className="truncate" title={l.message ?? undefined} style={{ color: C.txt2 }}>
                   {l.kind === "fire"
                     ? `${l.dir === -1 ? "SELL" : "BUY"} @ ${fmtPx(l.entry, state.mintick)}`
-                    : `${l.pips >= 0 ? "+" : "−"}${Math.abs(l.pips).toFixed(1)} pips`}
+                    : l.kind === "skip"
+                      ? l.message ?? `RANGING · S/R gap ${l.pips.toFixed(1)}p`
+                      : `${l.pips >= 0 ? "+" : "−"}${Math.abs(l.pips).toFixed(1)} pips`}
                 </span>
                 <span className="ml-auto shrink-0" style={{ color: C.label }}>
                   {new Date(l.time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}

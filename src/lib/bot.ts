@@ -16,6 +16,7 @@ import { getKlines, getSymbolMeta, tfSec } from "./market";
 import { closeBrokerPosition, clampExec, executeFire, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
 import { sendAlert } from "./alerts";
 import { registerBotProbe } from "./strategy-select";
+import { maybeAnnounceRangeOpportunities } from "./range-scan";
 import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
 
 // register the live runtime probe for the Pine auto-trade loop (leaf module,
@@ -88,6 +89,8 @@ function clampConfig(cfg: HaloConfig): HaloConfig {
   c.minSepATR = Math.min(10, Math.max(0, Number(c.minSepATR) || 0));
   c.maxLevels = Math.min(10, Math.max(1, Math.round(Number(c.maxLevels) || 3)));
   c.expiryBars = Math.min(2000, Math.max(5, Math.round(Number(c.expiryBars) || 150)));
+  c.rangeFilter = c.rangeFilter !== false; // default ON — ranging market + S/R too close → skip
+  c.rangeSepATR = Math.min(20, Math.max(0.1, Number(c.rangeSepATR) || 1));
   c.focusCurrent = c.focusCurrent !== false; // default ON — one armed level per side (support + resistance live together)
   c.sigMode = c.sigMode === "barclose" ? "barclose" : "instant";
   c.breakATR = Math.min(3, Math.max(0, Number(c.breakATR) || 0));
@@ -262,7 +265,12 @@ function liveTrial(live: Candle): void {
   if (bot.cfg.sigMode !== "instant") return;
   const clone = bot.engine.clone();
   const events = clone.processBar(live, false);
-  const commit = events.some((e) => e.type === "fire" || e.type === "win" || e.type === "loss");
+  // commit when a fire/exit HAPPENS — a range_skip also consumes the level
+  // (the too-close trigger is burned) so it must persist too, or the live
+  // trial would re-evaluate the same skip on every feed tick
+  const commit = events.some(
+    (e) => e.type === "fire" || e.type === "win" || e.type === "loss" || e.type === "range_skip"
+  );
   if (commit) {
     bot.engine = clone;
     void handleEvents(events, live);
@@ -340,6 +348,16 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
       bot.openTradeExec = "PAPER";
       bot.openTradeDir = 0;
       bot.liveBroker = null;
+    } else if (e.type === "range_skip") {
+      // the strategy refused the trade: market RANGING, marked support &
+      // resistance too close for entry — state it honestly, then look for
+      // fresh levels further away from the range to arm instead
+      void sendAlert({
+        kind: "skip",
+        title: `HALO 3EL · TRADE SKIPPED — RANGING MARKET (${e.dir === -1 ? "SELL" : "BUY"})`,
+        body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nThe too-close level is burned — the EA keeps hunting fresh levels further from the range.`,
+      });
+      void maybeAnnounceRangeOpportunities({ symbol: bot.symbol, tf: bot.tf, cfg: bot.cfg }).catch(() => {});
     }
   }
   void bar;

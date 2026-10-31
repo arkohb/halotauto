@@ -9,7 +9,7 @@ import type { AlertSettings } from "@prisma/client";
 import nodemailer from "nodemailer";
 import webpush from "web-push";
 
-export type AlertKind = "fire" | "win" | "loss" | "scanner" | "broker" | "status" | "test";
+export type AlertKind = "fire" | "win" | "loss" | "scanner" | "broker" | "status" | "test" | "skip";
 
 export interface AlertPayload {
   kind: AlertKind;
@@ -24,6 +24,7 @@ export interface EventsCfg {
   scanner: boolean;
   broker: boolean;
   status: boolean;
+  skip: boolean; // ranging-market / too-close S/R skips + the opportunity scan report
 }
 
 const DEFAULT_EVENTS: EventsCfg = {
@@ -33,6 +34,7 @@ const DEFAULT_EVENTS: EventsCfg = {
   scanner: true,
   broker: true,
   status: false,
+  skip: true,
 };
 
 export function parseEvents(json: string): EventsCfg {

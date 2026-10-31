@@ -13,6 +13,11 @@
 //    mode evaluates the live candle on every feed tick).
 //  • Same-bar SL+TP counts as SL (conservative).
 //  • Pairs forming too close: only the farther one is kept.
+//  • RANGE FILTER: when the market is RANGING and the marked support &
+//    resistance are TOO CLOSE (S/R midpoint gap < rangeSepATR × ATR) the
+//    fire is SKIPPED — the too-close level is burned, the skip is announced
+//    (log + range_skip event → bot alert/voice), and the engine keeps
+//    hunting for FRESH levels further away from the range to arm instead.
 //  • focusCurrent (default ON): a new C1/C2 pair REPLACES older fresh
 //    levels on its OWN side — one armed SUPPORT + one armed RESISTANCE
 //    stay live together, and whichever breaks & returns first takes the
@@ -88,9 +93,16 @@ function freshState(): EngineState {
       burned: 0,
       skipped: 0,
       tooClose: 0,
+      rangeSkipped: 0,
       lastResult: { text: "—", kind: "none" },
     },
   };
+}
+
+/** Price formatting for log/alert strings (mintick-driven decimals). */
+function fmtPxOf(pt: number, px: number): string {
+  const d = pt > 0 && isFinite(pt) ? Math.min(8, Math.max(0, Math.round(-Math.log10(pt)))) : 2;
+  return px.toFixed(d);
 }
 
 export class HaloEngine {
@@ -158,6 +170,22 @@ export class HaloEngine {
   private pushLog(e: LogEntry): void {
     this.state.log.push(e);
     if (this.state.log.length > 60) this.state.log.splice(0, this.state.log.length - 60);
+  }
+
+  /**
+   * RANGE FILTER helper — the closest OPPOSITE-side fresh level to `L`
+   * (midpoint distance, same convention as the minSepATR crowd check).
+   * A tight support↔resistance box means the market is ranging and the
+   * marked S/R are too close for a worthwhile entry.
+   */
+  private rangeGapOf(L: InternalLevel): { gap: number; opp: InternalLevel } | null {
+    let best: { gap: number; opp: InternalLevel } | null = null;
+    for (const O of this.state.levels) {
+      if (O.id === L.id || O.side === L.side) continue;
+      const gap = Math.abs((O.top + O.bot) / 2 - (L.top + L.bot) / 2);
+      if (!best || gap < best.gap) best = { gap, opp: O };
+    }
+    return best;
   }
 
   /**
@@ -236,11 +264,48 @@ export class HaloEngine {
           const back = L.side === -1 ? bar.close <= L.ext + eqTol : bar.close >= L.ext - eqTol;
           if (back && canFire) {
             if (!s.trade && fireDir === 0) {
-              fireDir = L.side;
-              fireEntry = L.ext; // entry AT the dotted trigger line
-              fireExt = L.side === -1 ? bar.high : bar.low; // C3 break extreme
-              fireL = L;
-              isFire = true;
+              // ── RANGE FILTER · ranging market + marked S/R too close ──
+              // An armed support AND resistance sit closer than
+              // rangeSepATR×ATR apart: the break→return is chop inside a
+              // tight box, not a setup. Skip the trade, burn the too-close
+              // level, announce WHY, and keep hunting for fresh levels
+              // further away from the range (a far-enough fresh pair arms
+              // and trades as usual).
+              const rg = cfg.rangeFilter ? this.rangeGapOf(L) : null;
+              if (rg && rg.gap < cfg.rangeSepATR * a) {
+                const gapPips = rg.gap / this.pip;
+                const minPips = (cfg.rangeSepATR * a) / this.pip;
+                const sup = L.side === 1 ? L : rg.opp;
+                const res = L.side === -1 ? L : rg.opp;
+                const msg =
+                  `Skipped ${L.side === -1 ? "SELL" : "BUY"} — market is RANGING: the marked support ${fmtPxOf(this.pt, sup.ext)} and resistance ${fmtPxOf(
+                    this.pt,
+                    res.ext
+                  )} are only ${gapPips.toFixed(1)} pips apart (min ${minPips.toFixed(1)}). Too close for entry — hunting fresh levels further from the range.`;
+                s.stats.rangeSkipped += 1;
+                s.stats.lastResult = {
+                  text: `RANGE SKIP · S/R ${gapPips.toFixed(1)}p < ${minPips.toFixed(1)}p`,
+                  kind: "none",
+                };
+                this.pushLog({ time: bar.time, kind: "skip", dir: L.side, pips: gapPips, entry: L.ext, message: msg });
+                ev.push({
+                  type: "range_skip",
+                  dir: L.side,
+                  entry: L.ext,
+                  gapPips,
+                  minGapPips: minPips,
+                  supportPx: sup.ext,
+                  resistancePx: res.ext,
+                  time: bar.time,
+                  message: msg,
+                });
+              } else {
+                fireDir = L.side;
+                fireEntry = L.ext; // entry AT the dotted trigger line
+                fireExt = L.side === -1 ? bar.high : bar.low; // C3 break extreme
+                fireL = L;
+                isFire = true;
+              }
             } else {
               s.stats.skipped += 1;
               ev.push({ type: "skipped" });

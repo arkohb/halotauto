@@ -19,6 +19,15 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
   const hasRes = e.levels.some((l) => l.side === -1);
   const dec = state.mintick >= 0.01 ? 2 : 4;
 
+  // ── RANGE FILTER live check: are the armed support & resistance too close? ──
+  const supLv = e.levels.find((l) => l.side === 1);
+  const resLv = e.levels.find((l) => l.side === -1);
+  const srGapAtr =
+    cfg.rangeFilter && supLv && resLv && e.atr && e.atr > 0
+      ? Math.abs(supLv.top + supLv.bot - resLv.top - resLv.bot) / 2 / e.atr
+      : null;
+  const rangeBlocked = srGapAtr !== null && srGapAtr < cfg.rangeSepATR;
+
   // ── conditions evaluated against REAL state ──
   const met: string[] = [];
   const missing: string[] = [];
@@ -34,6 +43,11 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
     met.push(`Equal-level zone armed at ${fmtPx(e.levels[0].ext, state.mintick)} (dotted trigger frozen)`);
     missing.push(`Waiting for the C3 break — price must push ≥ ${(cfg.breakATR * (e.atr ?? 0)).toFixed(dec)} beyond the dotted line (${cfg.breakATR}× ATR)`);
     missing.push("Waiting for the return to the level — the retest fires the entry the moment price touches it");
+    if (rangeBlocked) {
+      missing.push(
+        `Range filter ACTIVE — the armed support & resistance are only ${srGapAtr?.toFixed(1)}× ATR apart (< ${cfg.rangeSepATR}× ATR): fires are SKIPPED as ranging until fresh levels further apart form`
+      );
+    }
   } else {
     missing.push("No fresh C1/C2 pair yet — two candles must form an equal-level zone before anything arms");
     missing.push(`Pair tolerance in force: gap ≤ ${cfg.pairTolATR}× ATR, separation ≥ ${cfg.minSepATR}× ATR`);
@@ -45,6 +59,9 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
         `Level expires after ${cfg.expiryBars} bars of age`,
         "Opposite extreme invalidates (burns) the zone",
         "Levels too close to price stay crowded and are skipped",
+        cfg.rangeFilter
+          ? `Ranging market with support & resistance closer than ${cfg.rangeSepATR}× ATR — the fire is skipped and fresher levels further out are armed`
+          : "Range filter is OFF — tight S/R boxes trade unfiltered",
       ];
 
   const headline = t
@@ -73,6 +90,7 @@ export function StrategyExplainer({ state }: { state: BotStateRes }) {
         <Chip label={`BREAK ${cfg.breakATR}×ATR`} />
         <Chip label={`EQ TOL ${cfg.eqTolATR}×ATR`} />
         <Chip label={`EXPIRY ${cfg.expiryBars}b`} />
+        <Chip label={cfg.rangeFilter ? `RANGE FILTER ${cfg.rangeSepATR}×ATR` : "RANGE FILTER OFF"} />
       </div>
     </PanelCard>
   );

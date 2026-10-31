@@ -277,8 +277,8 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
                   <span
                     className="rounded-sm px-1 py-px text-[7.5px] font-extrabold"
                     style={{
-                      background: l.kind === "fire" ? A.cyan(0.12) : l.kind === "win" ? A.green(0.14) : A.red(0.14),
-                      color: l.kind === "fire" ? C.cyan : l.kind === "win" ? C.green : C.red,
+                      background: l.kind === "fire" ? A.cyan(0.12) : l.kind === "win" ? A.green(0.14) : l.kind === "skip" ? A.warn(0.14) : A.red(0.14),
+                      color: l.kind === "fire" ? C.cyan : l.kind === "win" ? C.green : l.kind === "skip" ? C.warn : C.red,
                     }}
                   >
                     {l.kind.toUpperCase()}
@@ -286,7 +286,9 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
                   <span className="truncate" style={{ color: C.muted }}>
                     {l.kind === "fire"
                       ? `${l.dir === -1 ? "SELL" : "BUY"} @ ${fmtPx(l.entry, st.mintick)}`
-                      : `${l.pips >= 0 ? "+" : "−"}${Math.abs(l.pips).toFixed(1)} pips`}
+                      : l.kind === "skip"
+                        ? l.message ?? `RANGING · S/R gap ${l.pips.toFixed(1)}p`
+                        : `${l.pips >= 0 ? "+" : "−"}${Math.abs(l.pips).toFixed(1)} pips`}
                   </span>
                   <span className="ml-auto shrink-0" style={{ color: C.dim }}>
                     {new Date(l.time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}
