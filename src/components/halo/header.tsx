@@ -158,7 +158,7 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
           <div className="hidden items-center gap-2 sm:flex">
             <Select value={venue ?? "all"} onValueChange={(val) => switchVenue(val === "all" ? null : (val as Venue))} disabled={busy !== null}>
               <SelectTrigger
-                className="h-9 w-[118px] text-[10px] font-bold uppercase"
+                className="h-9 w-[134px] text-[10px] font-bold uppercase"
                 style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}
                 aria-label="Broker — filters the pair list"
                 title="Broker — the pair list shows this broker's catalog"

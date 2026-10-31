@@ -273,7 +273,9 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/tf-scanner", { cache: "no-store" });
+      // hard 8 s ceiling — a hung request must resolve as a failure so the
+      // self-heal backoff keeps probing instead of waiting on a dead socket
+      const r = await fetch("/api/tf-scanner", { cache: "no-store", signal: AbortSignal.timeout(8000) });
       if (r.status === 401) {
         // the session is genuinely gone — the honest fix is a fresh sign-in,
         // not an endless "unreachable" strip over stale data

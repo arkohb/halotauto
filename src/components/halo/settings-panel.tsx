@@ -121,7 +121,7 @@ export function SettingsPanel({ config, saving, onSave }: Props) {
             <div className="flex items-center justify-between gap-3">
               <span className="text-[11px] text-[var(--hx-muted)]">Signal mode</span>
               <Select value={shown.sigMode} onValueChange={(v) => edit({ sigMode: v as HaloConfig["sigMode"] })}>
-                <SelectTrigger className="w-36 h-8 text-xs bg-[var(--hx-bg)] border-[var(--hx-line2)]">
+                <SelectTrigger className="w-40 h-8 text-xs bg-[var(--hx-bg)] border-[var(--hx-line2)]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-[var(--hx-card2)] border-[var(--hx-line2)] text-[var(--hx-txt)]">

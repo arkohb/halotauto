@@ -110,7 +110,7 @@ export function WelcomeOverlay() {
       role="dialog"
       aria-modal="true"
       aria-label={isFull ? "HALO personalized welcome" : "HALO welcome back"}
-      className="fixed inset-0 z-[95] flex items-center justify-center overflow-hidden"
+      className="fixed inset-0 z-[95] flex flex-col overflow-y-auto overflow-x-hidden overscroll-contain"
       style={{
         background: `
           radial-gradient(1100px 560px at 50% -8%, ${A.cyan(0.13)}, transparent 65%),
@@ -137,7 +137,7 @@ export function WelcomeOverlay() {
       {/* gold hairlines — restrained brand accents */}
       <span aria-hidden className="absolute left-1/2 top-0 h-px w-[min(560px,70vw)] -translate-x-1/2" style={{ background: `linear-gradient(90deg, transparent, ${A.gold(0.5)}, transparent)` }} />
 
-      <div className="relative flex w-full max-w-[680px] flex-col items-center px-4 py-6 sm:px-8">
+      <div className="relative my-auto flex w-full max-w-[680px] min-w-0 flex-col items-center px-4 py-4 sm:px-8 sm:py-6">
         {/* ── the AI core ── */}
         <div className="relative" aria-hidden>
           {reduced ? (
@@ -247,7 +247,7 @@ export function WelcomeOverlay() {
         </div>
 
         {/* ── controls — skip is ALWAYS available ── */}
-        <div className="mt-5 flex w-full flex-col items-center justify-center gap-2 sm:flex-row">
+        <div className="mt-4 flex w-full flex-col items-center justify-center gap-2 sm:flex-row">
           {!v.profile.voiceEnabled ? (
             <button
               type="button"

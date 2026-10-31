@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { A, C, fmtPx } from "@/lib/halo/ui-helpers";
 import { StateFrame } from "./panel";
 import type { HistoryPeriod } from "@/lib/halo/actions";
@@ -115,8 +114,8 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
           className="m-3"
         />
       ) : (
-        <ScrollArea className="max-h-72">
-          <table className="w-full text-[11px]">
+        <div className="halo-scroll max-h-72 overflow-auto">
+          <table className="w-full min-w-[560px] text-[11px]">
             <thead className="sticky top-0" style={{ background: C.navy2 }}>
               <tr className="text-[10px] tracking-wider" style={{ color: C.muted }}>
                 <th className="text-left font-medium px-3 py-1.5">TIME</th>
@@ -130,7 +129,7 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
             <tbody>
               {filtered.map((t) => (
                 <tr key={t.id} className="border-t" style={{ borderColor: C.divider }}>
-                  <td className="px-3 py-1.5 font-mono" style={{ color: C.muted }}>
+                  <td className="whitespace-nowrap px-3 py-1.5 font-mono" style={{ color: C.muted }}>
                     {new Date(t.openedAt).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
                   </td>
                   <td className="px-2 py-1.5">
@@ -152,7 +151,7 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
               ))}
             </tbody>
           </table>
-        </ScrollArea>
+        </div>
       )}
     </div>
   );

@@ -1,0 +1,372 @@
+[
+  {
+    "where": "mobile:app-root",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:app-root",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"HALO CORE\" ⇄ \"EA ON\" cover=0.71"
+  },
+  {
+    "where": "mobile:app-root",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"HALO CORE\" ⇄ \"TRADINGVIEW · 3EL\" cover=0.73"
+  },
+  {
+    "where": "mobile:app-root",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"EA EXECUTION ENGINE\" ⇄ \"3,915.85\" cover=0.49"
+  },
+  {
+    "where": "mobile:app-root",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"tap to skip\" ⇄ \"REWARD 300p\" cover=0.47"
+  },
+  {
+    "where": "mobile:dashboard",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:intel",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:intel",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"−0.08 (−0.00%)\" ⇄ \"HALO-B online. I watch the market so you\" cover=1"
+  },
+  {
+    "where": "mobile:intel",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"Haunted Attractions Help Revive Neighbor\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=1"
+  },
+  {
+    "where": "mobile:intel",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"Haunted Attractions Help Revive Neighbor\" ⇄ \"© 2026 · HALO 3EL AUTOTRADER · CREATED B\" cover=1"
+  },
+  {
+    "where": "mobile:intel",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"Bloomberg Markets · 6h ago\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=1"
+  },
+  {
+    "where": "mobile:activity",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:activity",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"PAPER EA\" ⇄ \"HALO-B online. I watch the market so you\" cover=0.57"
+  },
+  {
+    "where": "mobile:activity",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"MODIFY SL/TP\" ⇄ \"HALO-B\" cover=0.68"
+  },
+  {
+    "where": "mobile:risk",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:risk",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"not used in paper mode\" ⇄ \"HALO-B online. I watch the market so you\" cover=0.95"
+  },
+  {
+    "where": "mobile:risk",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"0 SUP\" ⇄ \"HALO-B\" cover=1"
+  },
+  {
+    "where": "mobile:lab",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:lab",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<div> \"REAL MARKET DATA ONLY · NO DEMO\n∞ BARS · ANY PAIR · M1→W1\" right=413"
+  },
+  {
+    "where": "mobile:lab",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<span> \"∞ BARS · ANY PAIR · M1→W1\" right=413"
+  },
+  {
+    "where": "mobile:lab",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<section> clip=36px \"BACKTEST DASHBOARD\nREAL MARKET DATA ONLY · NO DEMO\n∞ BARS · ANY PAIR ·\""
+  },
+  {
+    "where": "mobile:lab",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"5.0 bars/s\" ⇄ \"HALO-B online. I watch the market so you\" cover=0.63"
+  },
+  {
+    "where": "mobile:lab",
+    "kind": "JS/NET",
+    "detail": "console: WebSocket connection to 'wss://stream.binance.com:9443/ws/paxgusdt@kline_3m' failed: Ping received after close"
+  },
+  {
+    "where": "mobile:studio",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:studio",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"— confirmed bar close (Pine standard, no\" ⇄ \"HALO-B · SCANNING\" cover=1"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<div> \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\" right=419"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<table> \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\" right=419"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<thead> \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\" right=419"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<div> clip=152px \"TRADE HISTORY · BOT\nrefresh\nTIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06\""
+  },
+  {
+    "where": "mobile:history",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<div> clip=42px \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1:3.0\t—\tOPE\""
+  },
+  {
+    "where": "mobile:history",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"43.01\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=0.46"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"1:2.0\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=0.46"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"28 Oct, 12:50\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=0.97"
+  },
+  {
+    "where": "mobile:history",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"28 Oct, 12:50\" ⇄ \"© 2026 · HALO 3EL AUTOTRADER · CREATED B\" cover=0.48"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<div> \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\" right=419"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<table> \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\" right=419"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<thead> \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\" right=419"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<div> clip=152px \"TRADE HISTORY · BOT\nrefresh\nTIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06\""
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<div> clip=42px \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1:3.0\t—\tOPE\""
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"+0 / −400\" ⇄ \"HALO-B online. I watch the market so you\" cover=0.9"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"28 Oct, 12:51\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=0.97"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"28 Oct, 12:51\" ⇄ \"© 2026 · HALO 3EL AUTOTRADER · CREATED B\" cover=0.77"
+  },
+  {
+    "where": "mobile:performance",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"SELL\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=1"
+  },
+  {
+    "where": "mobile:briefing",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:briefing",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"HALO-B · SCANNING\" ⇄ \"Paper trading only — not financial advic\" cover=0.47"
+  },
+  {
+    "where": "mobile:learning",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:settings",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:settings",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"break\" ⇄ \"come back to it\" cover=1"
+  },
+  {
+    "where": "mobile:settings",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"COPY WEBHOOK URL\" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=0.97"
+  },
+  {
+    "where": "mobile:settings",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"COPY WEBHOOK URL\" ⇄ \"© 2026 · HALO 3EL AUTOTRADER · CREATED B\" cover=0.65"
+  },
+  {
+    "where": "mobile:settings",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"COPY WEBHOOK URL\" ⇄ \"PAPER\" cover=1"
+  },
+  {
+    "where": "mobile:settings",
+    "kind": "JS/NET",
+    "detail": "console: WebSocket connection to 'wss://stream.binance.com:9443/ws/paxgusdt@kline_3m' failed: Ping received after close"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<table> \"PAIR\tSTATUS\tPRICE\tFRESH S / B\tNEAREST\tLAST SIGNAL\tFEED\nVOL 7\" right=669"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<thead> \"PAIR\tSTATUS\tPRICE\tFRESH S / B\tNEAREST\tLAST SIGNAL\tFEED\" right=669"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<tr> \"PAIR\tSTATUS\tPRICE\tFRESH S / B\tNEAREST\tLAST SIGNAL\tFEED\" right=669"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<div> clip=308px \"PAIR\tSTATUS\tPRICE\tFRESH S / B\tNEAREST\tLAST SIGNAL\tFEED\nVOL 75 (1S)\n1h\n\""
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "CLIPPED-TEXT",
+    "detail": "<div> clip=536px \"SYMBOL\tSTATUS\tPRICE\tATR\tFRESH S / B\tNEAREST\tLAST SIGNAL\tSCAN\tAUTO\tFEED\""
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"The bot scans on the. When a trade fires\" ⇄ \"HALO-B · SCANNING\" cover=0.81"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"every pair in the catalog\" ⇄ \"1h and 4h timeframes only\" cover=1"
+  },
+  {
+    "where": "mobile:scanner",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"TF WINDOW\" ⇄ \"HALO-B online. I watch the market so you\" cover=0.99"
+  },
+  {
+    "where": "mobile:scanner-bot",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:scanner-bot",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"Trade running on V50S 4H — auto-resumes \" ⇄ \"HALO-B online. I watch the market so you\" cover=0.66"
+  },
+  {
+    "where": "mobile:scanner-bot",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"⚠ Microphone permission is denied, so I \" ⇄ \"· HALO SUITE · 3EL v1.2 · INSTANT MODE ·\" cover=0.82"
+  },
+  {
+    "where": "mobile:scanner-bot",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"⚠ Microphone permission is denied, so I \" ⇄ \"© 2026 · HALO 3EL AUTOTRADER · CREATED B\" cover=0.85"
+  },
+  {
+    "where": "mobile:voice",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:voice",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"⚠ Microphone permission is denied, so I \" ⇄ \"HALO-B online. I watch the market so you\" cover=0.67"
+  },
+  {
+    "where": "mobile:voice",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"⚠ Microphone permission is denied, so I \" ⇄ \"HALO\" cover=1"
+  },
+  {
+    "where": "mobile:brokers",
+    "kind": "OFF-VIEWPORT",
+    "detail": "<button> \"Trading Activity\" right=440"
+  },
+  {
+    "where": "mobile:brokers",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"login\" ⇄ \"master password\" cover=1"
+  },
+  {
+    "where": "mobile:brokers",
+    "kind": "TEXT-OVERLAP",
+    "detail": "\"master password\" ⇄ \"server\" cover=1"
+  },
+  {
+    "where": "mobile:alerts",
+    "kind": "AUDIT-ERROR",
+    "detail": "Error: goto: net::ERR_CONNECTION_REFUSED at http://127.0.0.1:3000/\nCall log:\n  - navigating to \"http://127.0.0.1:3000/\", waiting until \"domcontentloaded\"\n"
+  }
+]

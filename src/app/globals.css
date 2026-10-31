@@ -158,6 +158,16 @@
 
 /* ───────────── HALO 3EL AUTOTRADER ───────────── */
 
+/* Layout-viewport guard: a single transient overflow (font swap, overlay
+   mid-fade) widens mobile Chrome's layout viewport for the WHOLE session —
+   fixed overlays then render wider than the screen and the page wiggles.
+   The app never scrolls horizontally at page level (tables and transcripts
+   scroll inside their own halo-scroll containers), so clamp it hard. */
+html,
+body {
+  overflow-x: hidden;
+}
+
 /* deep-navy page base — azure cast + corner glows, lets the FX layer (-z-10) glow through the gaps */
 body {
   background:

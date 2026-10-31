@@ -247,7 +247,16 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
       setVisible(true);
       lastTalk.current = Date.now();
       if (hideTimer.current) window.clearTimeout(hideTimer.current);
-      hideTimer.current = window.setTimeout(() => setVisible(false), opts?.stickFor ?? 7600);
+      // auto lines must yield quickly — the bubble floats over live controls,
+      // so a long stick time reads as the dashboard being broken. Tap-triggered
+      // reports (status / tips) keep the longer, deliberate window.
+      const mobile = typeof window !== "undefined" && window.innerWidth < 640;
+      const auto = opts?.stickFor === undefined;
+      const defaultStick = mobile ? 4600 : 6800;
+      hideTimer.current = window.setTimeout(
+        () => setVisible(false),
+        auto ? defaultStick : mobile ? Math.max(defaultStick, Math.round((opts?.stickFor ?? defaultStick) * 0.72)) : opts?.stickFor ?? defaultStick,
+      );
     },
     []
   );
@@ -507,12 +516,14 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
 
   return (
     <div className="pointer-events-none fixed bottom-3 right-3 z-40 flex flex-col items-end gap-2">
-      {/* speech bubble */}
+      {/* speech bubble — click-through (pointer-events-none) so a floating
+          line can never block the controls underneath; only the dismiss ✕
+          stays interactive */}
       {showBubble && bubble && (
         <div
           role="status"
           aria-label="HALO-B assistant message"
-          className="pointer-events-auto w-[248px] origin-bottom-right rounded-xl border bg-[#021229]/95 p-3 shadow-2xl backdrop-blur sm:w-[300px]"
+          className="pointer-events-none w-[min(248px,calc(100vw-104px))] origin-bottom-right rounded-xl border bg-[#021229]/95 p-3 shadow-2xl backdrop-blur sm:w-[300px]"
           style={{ borderColor: toneBorder, animation: reduced ? undefined : "halo-pop 0.35s ease-out" }}
         >
           <div className="mb-1 flex items-center justify-between">
@@ -524,7 +535,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
               type="button"
               aria-label="Dismiss message"
               onClick={() => setVisible(false)}
-              className="text-[10px] leading-none text-[#8AA2C2] transition-colors hover:text-[#EAF3FF]"
+              className="pointer-events-auto text-[10px] leading-none text-[#8AA2C2] transition-colors hover:text-[#EAF3FF]"
             >
               ✕
             </button>

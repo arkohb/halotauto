@@ -636,12 +636,15 @@ export default function ChartPanel(props: ChartProps) {
 
   return (
     <div className="relative rounded-xl border border-[#0F2E58] bg-[#020B1A] overflow-hidden">
-      {/* ── EA AUTO-ATTACH OVERLAY · the chart IS the EA control surface ── */}
-      <div className="absolute left-2.5 top-2 z-20 flex flex-wrap items-center gap-1.5">
+      {/* ── EA AUTO-ATTACH OVERLAY · the chart IS the EA control surface ──
+          ONE wrapping row for the whole control strip: left tools flow, right
+          controls ride with ml-auto — flex-wrap guarantees they can never
+          collide on narrow charts (they wrap to the next line instead). */}
+      <div className="pointer-events-none absolute inset-x-2.5 top-2 z-20 flex flex-wrap items-center gap-1.5">
         <Select value={symbol} onValueChange={(v) => onSymbol(v)} disabled={busy !== null}>
           <SelectTrigger
             aria-label="Chart symbol — the EA follows automatically"
-            className="h-7 w-[132px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
+            className="pointer-events-auto h-7 w-[132px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
           >
             <SelectValue>{symbol}</SelectValue>
           </SelectTrigger>
@@ -676,7 +679,7 @@ export default function ChartPanel(props: ChartProps) {
         <Select value={tf} onValueChange={(v) => onTf(v)} disabled={busy !== null}>
           <SelectTrigger
             aria-label="Chart timeframe — the EA follows automatically"
-            className="h-7 w-[62px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
+            className="pointer-events-auto h-7 w-[62px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
           >
             <SelectValue />
           </SelectTrigger>
@@ -691,7 +694,7 @@ export default function ChartPanel(props: ChartProps) {
         {/* broker switcher — filters the pair list to the selected broker's
             catalog; click the active broker again to see every broker */}
         <div
-          className="hidden overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur md:flex"
+          className="pointer-events-auto hidden overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur md:flex"
           role="group"
           aria-label="Broker — filters the pair list"
         >
@@ -713,7 +716,7 @@ export default function ChartPanel(props: ChartProps) {
             </button>
           ))}
         </div>
-        <span className="hidden rounded-md border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#E9B94E] backdrop-blur md:inline">
+        <span className="pointer-events-auto hidden rounded-md border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#E9B94E] backdrop-blur md:inline">
           {liveStat.active && liveStat.kind ? (liveStat.kind === "deriv" ? "DERIV LIVE" : "BINANCE LIVE") : source}
         </span>
         {tvNote && mode === "tv" && (
@@ -722,61 +725,62 @@ export default function ChartPanel(props: ChartProps) {
           </span>
         )}
         {pineStrategy && mode === "3el" && (
-          <span className="hidden rounded-md px-1.5 py-[5px] text-[9px] font-extrabold uppercase tracking-wider backdrop-blur md:inline" style={{ background: "rgba(0,214,143,0.14)", color: C.green, boxShadow: "inset 0 0 0 1px rgba(0,214,143,0.4)" }}>
+          <span className="pointer-events-auto hidden rounded-md px-1.5 py-[5px] text-[9px] font-extrabold uppercase tracking-wider backdrop-blur md:inline" style={{ background: "rgba(0,214,143,0.14)", color: C.green, boxShadow: "inset 0 0 0 1px rgba(0,214,143,0.4)" }}>
             PINE · {pineStrategy.name}
           </span>
         )}
-      </div>
 
-      {/* right controls: EA attach toggle + chart engine toggle */}
-      <div className="absolute right-2.5 top-2 z-20 flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={onToggleBot}
-          disabled={busy !== null}
-          aria-label={enabled ? "Stop EA bot" : "Start EA bot"}
-          className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] backdrop-blur transition-colors disabled:opacity-50"
-          style={{
-            borderColor: enabled ? "rgba(0,214,143,0.55)" : "#0F2E58",
-            background: enabled ? "rgba(0,214,143,0.16)" : "rgba(2,18,41,0.95)",
-            color: enabled ? C.green : C.muted,
-          }}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${enabled ? "animate-pulse" : ""}`} style={{ background: enabled ? C.green : "#51678A" }} />
-          EA {enabled ? "ON" : "OFF"}
-        </button>
-        {autoAttach && (
-          <span
-            aria-label="EA auto-attach enabled"
-            title="Auto-attach: the EA re-attaches to this chart on boot — no manual start"
-            className="hidden rounded-lg border px-1.5 py-1 text-[8px] font-extrabold tracking-[0.18em] sm:inline"
-            style={{ borderColor: "rgba(233,185,78,0.5)", background: "rgba(233,185,78,0.1)", color: C.gold }}
+        {/* right controls: EA attach toggle + chart engine toggle — ride the
+            same wrapping row (ml-auto) so they can never cover the left tools */}
+        <div className="pointer-events-auto ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onToggleBot}
+            disabled={busy !== null}
+            aria-label={enabled ? "Stop EA bot" : "Start EA bot"}
+            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] backdrop-blur transition-colors disabled:opacity-50"
+            style={{
+              borderColor: enabled ? "rgba(0,214,143,0.55)" : "#0F2E58",
+              background: enabled ? "rgba(0,214,143,0.16)" : "rgba(2,18,41,0.95)",
+              color: enabled ? C.green : C.muted,
+            }}
           >
-            AUTO
-          </span>
-        )}
-        <div className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur">
-          {(
-            [
-              ["3el", "TRADINGVIEW · 3EL"],
-              ["tv", "TV WEB"],
-            ] as Array<[ChartMode, string]>
-          ).map(([m, label]) => (
-            <button
-              key={m}
-              type="button"
-              onClick={() => switchMode(m)}
-              aria-pressed={mode === m}
-              aria-label={`Show ${label} chart`}
-              className="px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
-              style={{
-                color: mode === m ? C.navy : C.muted,
-                background: mode === m ? C.gold : "transparent",
-              }}
+            <span className={`h-1.5 w-1.5 rounded-full ${enabled ? "animate-pulse" : ""}`} style={{ background: enabled ? C.green : "#51678A" }} />
+            EA {enabled ? "ON" : "OFF"}
+          </button>
+          {autoAttach && (
+            <span
+              aria-label="EA auto-attach enabled"
+              title="Auto-attach: the EA re-attaches to this chart on boot — no manual start"
+              className="hidden rounded-lg border px-1.5 py-1 text-[8px] font-extrabold tracking-[0.18em] sm:inline"
+              style={{ borderColor: "rgba(233,185,78,0.5)", background: "rgba(233,185,78,0.1)", color: C.gold }}
             >
-              {label}
-            </button>
-          ))}
+              AUTO
+            </span>
+          )}
+          <div className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur">
+            {(
+              [
+                ["3el", "TRADINGVIEW · 3EL"],
+                ["tv", "TV WEB"],
+              ] as Array<[ChartMode, string]>
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => switchMode(m)}
+                aria-pressed={mode === m}
+                aria-label={`Show ${label} chart`}
+                className="px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+                style={{
+                  color: mode === m ? C.navy : C.muted,
+                  background: mode === m ? C.gold : "transparent",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

@@ -311,6 +311,10 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const errStreakRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
   const lastActRef = useRef(0);
+  // mic-denied notice dedupe — the recognition loop can hit "not-allowed"
+  // many times per session (and every reload re-hydrates the transcript),
+  // so the warning is spoken/shown at most once per 10 minutes
+  const micWarnedAtRef = useRef(0);
   const ackIdxRef = useRef(0);
   // (silence-timer refs removed — HALO never auto-stands-by on silence)
   const greetedAttemptRef = useRef(false);
@@ -423,6 +427,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
 
   const startRec = useCallback(
     (mode: RecMode) => {
+      if (micRef.current === "denied") return; // permission blocked — nothing to listen with; re-check from Settings re-arms
       stopRec();
       const Ctor = getSTTCtor();
       if (!Ctor) {
@@ -476,12 +481,16 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           errStreakRef.current = 0;
           setMic("denied");
           stopRec();
-          addMsg({
-            role: "halo",
-            text: "⚠ Microphone permission is denied, so I can't listen. Allow the mic in your browser's site settings, or keep using text chat.",
-            at: Date.now(),
-            err: true,
-          });
+          // one notice per 10 minutes — never a stacked wall of warnings
+          if (Date.now() - micWarnedAtRef.current > 10 * 60_000) {
+            micWarnedAtRef.current = Date.now();
+            addMsg({
+              role: "halo",
+              text: "⚠ Microphone permission is denied, so I can't listen. Allow the mic in your browser's site settings, or keep using text chat.",
+              at: Date.now(),
+              err: true,
+            });
+          }
         } else if (ev.error === "network" || ev.error === "audio-capture") {
           errStreakRef.current += 1;
         }
@@ -1198,8 +1207,46 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     welcomeTimersRef.current = [];
   }, []);
 
+  // ── TTS warm-up ──
+  // The first neural fetch of a session pays the TCP/TLS handshake plus the
+  // voice service's cold start. Firing one tiny request the moment the trader
+  // enters (welcome dismissed) means the first REAL spoken reply only waits
+  // for synthesis — the connection is already hot. The audio lands in the
+  // same LRU the speak() path reads, so the warmed phrase itself is instant.
+  const ttsWarmedRef = useRef(false);
+  const warmNeuralTts = useCallback(() => {
+    if (ttsWarmedRef.current) return;
+    ttsWarmedRef.current = true;
+    if (!profileRef.current.voiceEnabled || prefsRef.current.muted) return;
+    if (prefsRef.current.engine === "browser") return;
+    const phrase = "Ready.";
+    const key = `${prefsRef.current.neuralVoice}:${prefsRef.current.rate.toFixed(2)}:${phrase}`;
+    void (async () => {
+      try {
+        const r = await fetch("/api/halo/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: phrase, voice: prefsRef.current.neuralVoice, speed: prefsRef.current.rate }),
+        });
+        const j = (await r.json()) as { ok: boolean; audio?: string; mime?: string };
+        if (!j.ok || !j.audio) return;
+        const cache = neuralCacheRef.current;
+        cache.delete(key);
+        cache.set(key, `data:${j.mime ?? "audio/wav"};base64,${j.audio}`);
+        while (cache.size > NEURAL_CACHE_MAX) {
+          const oldest = cache.keys().next().value;
+          if (oldest === undefined) break;
+          cache.delete(oldest);
+        }
+      } catch {
+        // warm-up is best-effort — a failure costs nothing
+      }
+    })();
+  }, []);
+
   /** Skip / enter the command centre — stops speech, fades, hands the mic back. */
   const dismissWelcome = useCallback(() => {
+    warmNeuralTts();
     clearWelcomeTimers();
     welcomeAbortRef.current = true;
     stopSpeaking();
@@ -1222,7 +1269,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         WELCOME_FADE_MS
       )
     );
-  }, [clearWelcomeTimers, stopSpeaking, startRec, shouldWake]);
+  }, [clearWelcomeTimers, stopSpeaking, startRec, shouldWake, warmNeuralTts]);
 
   /** Run the welcome overlay: full script (first opening) or welcome-back. */
   const runWelcome = useCallback(
@@ -1424,7 +1471,19 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       try {
         const raw = window.localStorage.getItem(TRANSCRIPT_KEY);
         const arr = raw ? (JSON.parse(raw) as Msg[]) : [];
-        setMsgs(Array.isArray(arr) ? arr.slice(-40) : []);
+        if (Array.isArray(arr)) {
+          // collapse repeated identical error lines (older builds could stack
+          // the mic-denied notice once per page load) — keep the newest copy
+          const clean: Msg[] = [];
+          for (const m of arr) {
+            const prev = clean[clean.length - 1];
+            if (m.err && prev?.err && prev.role === m.role && prev.text === m.text) continue;
+            clean.push(m);
+          }
+          setMsgs(clean.slice(-40));
+        } else {
+          setMsgs([]);
+        }
       } catch {
         // ignore
       }

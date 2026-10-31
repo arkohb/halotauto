@@ -53,6 +53,9 @@ const DERIV_URL = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponen
 const BINANCE_URL = "wss://stream.binance.com:9443/ws";
 const HISTORY_COUNT = 300;
 const IDLE_CLOSE_MS = 45_000;
+/** warm-socket window after the last viewer leaves a binance stream —
+ *  covers view switches and dev StrictMode remounts without a cold handshake */
+const BINANCE_GRACE_CLOSE_MS = 8_000;
 
 function norm(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -433,6 +436,8 @@ interface BinanceConn {
   backoff: number;
   closed: boolean;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
+  /** grace-period close — the socket stays warm for fast re-attach */
+  closeTimer: ReturnType<typeof setTimeout> | null;
 }
 
 function binanceInterval(tf: string): string | null {
@@ -544,12 +549,21 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
       const stream = `${sub.symbol.toLowerCase()}@kline_${binanceInterval(sub.tf)}`;
       let conn = bins.get(key);
       if (!conn || conn.closed) {
-        conn = { ws: null, key, stream, backoff: 1000, closed: false, reconnectTimer: null };
+        conn = { ws: null, key, stream, backoff: 1000, closed: false, reconnectTimer: null, closeTimer: null };
         bins.set(key, conn);
         binanceOpen(conn, sub);
-      } else if (conn.ws && conn.ws.readyState === WebSocket.OPEN) {
-        sub.active = true;
-        handlers.onStatus?.({ active: true, kind: "binance" });
+      } else {
+        // warm re-attach: a pending grace close is cancelled and the live
+        // socket is reused — re-entering a view answers on the first tick
+        if (conn.closeTimer) {
+          clearTimeout(conn.closeTimer);
+          conn.closeTimer = null;
+        }
+        conn.closed = false;
+        if (conn.ws && conn.ws.readyState === WebSocket.OPEN) {
+          sub.active = true;
+          handlers.onStatus?.({ active: true, kind: "binance" });
+        }
       }
     } else if (sub.kind === "deriv") {
       derivSubscribe(sub);
@@ -566,14 +580,28 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
       const bins = g.__haloLiveFeedBins;
       const conn = bins?.get(key);
       if (conn) {
-        conn.closed = true;
-        if (conn.reconnectTimer) clearTimeout(conn.reconnectTimer);
-        try {
-          conn.ws?.close();
-        } catch {
-          // ignore
+        if (conn.reconnectTimer) {
+          clearTimeout(conn.reconnectTimer);
+          conn.reconnectTimer = null;
         }
-        bins!.delete(key);
+        // GRACE-PERIOD CLOSE (mirrors the deriv idle timer): the last
+        // viewer leaving a chart no longer slams the socket shut mid-stream
+        // — an in-flight server ping arriving after a hard close logs
+        // "Ping received after close" in the console. The socket stays
+        // warm for BINANCE_GRACE_CLOSE_MS so a quick view switch re-attaches
+        // instantly; the timer re-checks subscribers before really closing.
+        if (conn.closeTimer) clearTimeout(conn.closeTimer);
+        conn.closeTimer = setTimeout(() => {
+          conn.closeTimer = null;
+          if (sub.cbs.size > 0) return; // re-subscribed during the grace window
+          conn.closed = true;
+          try {
+            conn.ws?.close();
+          } catch {
+            // already closed
+          }
+          bins!.delete(key);
+        }, BINANCE_GRACE_CLOSE_MS);
       }
     } else if (sub.kind === "deriv") {
       derivUnsubscribe(sub);

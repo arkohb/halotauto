@@ -730,15 +730,17 @@ export default function Page() {
 
             {/* ════════ SETTINGS ════════ */}
             {view === "settings" && (
-              <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
+              <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
                 <PageHeader
                   className="col-span-full"
                   icon={Settings}
                   title="SETTINGS"
                   sub="Strategy inputs (Pine v1.2), FX ambience, HALO voice & profile, and the TradingView EA bridge."
                 />
-                <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
-                <div className="space-y-4">
+                <div className="min-w-0">
+                  <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
+                </div>
+                <div className="min-w-0 space-y-4">
                   <FxSettingsCard />
                   <VoiceSettingsCard />
                   <EaAttachCard
@@ -765,7 +767,10 @@ export default function Page() {
       {/* JARVIS console — floating on every view; the full-screen console lives in Voice Command */}
       <JarvisConsole variant="floating" />
 
-      <footer className="mt-auto border-t border-[#0F2E58] py-3">
+      {/* bottom clearance = the fixed floating widgets (robot assistant,
+          JARVIS launcher, pulse orb, note avatar) — the footer must be able
+          to scroll clear of them instead of hiding underneath forever */}
+      <footer className="mt-auto border-t border-[#0F2E58] py-3 pb-[124px]">
         <div className="mx-auto flex w-full max-w-[1800px] flex-col items-center justify-between gap-1 px-4 text-[10px] tracking-wider text-[#8AA2C2] sm:flex-row">
           <span>
             <span className="font-bold" style={{ color: C.goldDim }}>© {new Date().getFullYear()} · HALO 3EL AUTOTRADER · CREATED BY BISMARK ARKO-OFORI · ALL RIGHTS RESERVED</span>

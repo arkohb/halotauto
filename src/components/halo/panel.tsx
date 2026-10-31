@@ -53,12 +53,12 @@ export function PanelCard({ title, icon: Icon, accent = "cyan", right, children,
       }}
     >
       <header
-        className="flex shrink-0 items-center gap-2 border-b px-3 py-2.5"
+        className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-2.5"
         style={{ borderColor: C.lineInner, background: `linear-gradient(90deg, ${a}14, transparent 62%)` }}
       >
         <Icon size={13} strokeWidth={2.2} style={{ color: a }} aria-hidden />
         <h2
-          className="truncate text-[11px] font-extrabold tracking-[0.16em]"
+          className="min-w-0 truncate text-[11px] font-extrabold tracking-[0.16em]"
           style={{ color: C.txt3, textShadow: `0 0 14px ${a}55` }}
         >
           {title}
@@ -69,7 +69,10 @@ export function PanelCard({ title, icon: Icon, accent = "cyan", right, children,
           className="ml-1 hidden h-px min-w-6 flex-1 sm:block"
           style={{ background: `linear-gradient(90deg, ${a}55, transparent 85%)` }}
         />
-        <div className="ml-auto flex shrink-0 items-center gap-2">{right}</div>
+        {/* max-w-full + flex-wrap: a wide `right` cluster (status pills etc.)
+            wraps onto its own lines on narrow screens instead of poking past
+            the card edge — desktop rows that already fit are unchanged */}
+        <div className="ml-auto flex max-w-full min-w-0 flex-wrap items-center justify-end gap-2">{right}</div>
       </header>
       <div className={`min-h-0 flex-1 ${bodyClassName}`}>{children}</div>
     </section>
@@ -80,7 +83,11 @@ export function PanelCard({ title, icon: Icon, accent = "cyan", right, children,
 export function PageHeader({ icon: Icon, title, sub, right, className = "" }: { icon: LucideIcon; title: string; sub?: string; right?: ReactNode; className?: string }) {
   return (
     <div className={`mb-3 flex flex-wrap items-end justify-between gap-x-4 gap-y-2 ${className}`}>
-      <div className="min-w-0">
+      {/* flex-1 (basis 0) — the block grows to fit but its base size can never
+          exceed the row, so a long purpose line can never push the page wider
+          on narrow screens (a transient overflow widens mobile's layout
+          viewport for the whole session) */}
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2.5">
           <span
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border"
@@ -98,7 +105,7 @@ export function PageHeader({ icon: Icon, title, sub, right, className = "" }: { 
         </div>
         {sub && <p className="mt-1 pl-[42px] text-[11px] leading-snug" style={{ color: C.muted }}>{sub}</p>}
       </div>
-      {right && <div className="flex shrink-0 flex-wrap items-center gap-2">{right}</div>}
+      {right && <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">{right}</div>}
     </div>
   );
 }

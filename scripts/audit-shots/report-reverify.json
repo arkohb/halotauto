@@ -1,0 +1,18 @@
+[
+  "rv-desktop:performance OFF-VIEWPORT <table> right=1593 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\"",
+  "rv-desktop:performance OFF-VIEWPORT <thead> right=1593 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\"",
+  "rv-desktop:performance OFF-VIEWPORT <tr> right=1593 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\"",
+  "rv-desktop:performance OFF-VIEWPORT <th> right=1505 \"RESULT\"",
+  "rv-mobile:history OFF-VIEWPORT <button> right=440 \"Trading Activity\"",
+  "rv-mobile:history OFF-VIEWPORT <table> right=573 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\"",
+  "rv-mobile:history OFF-VIEWPORT <thead> right=573 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\"",
+  "rv-mobile:history OFF-VIEWPORT <tr> right=573 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\"",
+  "rv-mobile:performance OFF-VIEWPORT <button> right=440 \"Trading Activity\"",
+  "rv-mobile:performance OFF-VIEWPORT <table> right=573 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\n30 Oct, 06:00\tBUY\t3,997.00\t1\"",
+  "rv-mobile:performance OFF-VIEWPORT <thead> right=573 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\"",
+  "rv-mobile:performance OFF-VIEWPORT <tr> right=573 \"TIME\tDIR\tENTRY\tR:R\tRESULT\tSTATE\"",
+  "rv-mobile:lab OFF-VIEWPORT <button> right=440 \"Trading Activity\"",
+  "rv-mobile:settings OFF-VIEWPORT <button> right=440 \"Trading Activity\"",
+  "rv-mobile:alerts OFF-VIEWPORT <button> right=440 \"Trading Activity\"",
+  "rv-mobile:scanner-bot OFF-VIEWPORT <button> right=440 \"Trading Activity\""
+]

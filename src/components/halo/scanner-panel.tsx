@@ -14,8 +14,8 @@ import {
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { ListPlus, Radar, ScanSearch, Table2 } from "lucide-react";
-import { C, type PillTone } from "@/lib/halo/ui-helpers";
-import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
+import { C, type PillTone, fmtPx } from "@/lib/halo/ui-helpers";
+import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES, getSymbolMeta } from "@/lib/market-symbols";
 import type { Side } from "@/lib/halo/types";
 import { PanelCard, Pill, StateFrame, StatCell } from "./panel";
 import { StrategyRadar } from "./strategy-radar";
@@ -91,6 +91,17 @@ function statusTone(s: string): PillTone {
     case "PAUSED": return "muted";
     case "WARMING": return "muted";
     default: return "ok";
+  }
+}
+
+/** Format a price with the symbol's real strategy precision — raw floats
+ *  ("198946.95931649426") must never reach the screen. */
+function pxOf(symbol: string, v: number): string {
+  if (!isFinite(v)) return "—";
+  try {
+    return fmtPx(v, getSymbolMeta(symbol).mintick);
+  } catch {
+    return String(v);
   }
 }
 
@@ -218,7 +229,7 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
         {st?.sweep?.lock && (
           <div className="rounded-lg border px-3 py-2 text-[11px]" style={{ borderColor: C.red, background: "rgba(255,77,94,0.08)", color: C.red }}>
             SCANNING PAUSED — a {st.sweep.lock.dir === -1 ? "SELL" : "BUY"} trade is running on {st.sweep.lock.symbol} {st.sweep.lock.tf} @
-            {" "}{st.sweep.lock.entry} (SL {st.sweep.lock.sl} · TP {st.sweep.lock.tp}). All armed levels were deleted; the sweep re-activates the moment it hits TP or SL.
+            {" "}{pxOf(st.sweep.lock.symbol, st.sweep.lock.entry)} (SL {pxOf(st.sweep.lock.symbol, st.sweep.lock.sl)} · TP {pxOf(st.sweep.lock.symbol, st.sweep.lock.tp)}). All armed levels were deleted; the sweep re-activates the moment it hits TP or SL.
           </div>
         )}
         <div className="flex flex-wrap items-center gap-5">
@@ -240,7 +251,7 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
           </div>
           {st?.sweep?.lastFire && (
             <span className="text-[10px] font-mono" style={{ color: C.dim }}>
-              last fire: {st.sweep.lastFire.dir === -1 ? "SELL" : "BUY"} {st.sweep.lastFire.symbol} {st.sweep.lastFire.tf} @ {st.sweep.lastFire.entry}{st.sweep.lastFire.traded ? " · traded" : ""} · {timeAgo(st.sweep.lastFire.time)}
+              last fire: {st.sweep.lastFire.dir === -1 ? "SELL" : "BUY"} {st.sweep.lastFire.symbol} {st.sweep.lastFire.tf} @ {pxOf(st.sweep.lastFire.symbol, st.sweep.lastFire.entry)}{st.sweep.lastFire.traded ? " · traded" : ""} · {timeAgo(st.sweep.lastFire.time)}
             </span>
           )}
         </div>
