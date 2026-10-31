@@ -460,7 +460,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         if (mode === "convo") setVoice((v) => (v === "listening" ? "idle" : v));
         // auto-restart (Chrome ends continuous sessions periodically) —
         // this loop is what keeps the assistant alive indefinitely
-        const delay = errStreakRef.current === 0 ? 500 : Math.min(10_000, 900 * errStreakRef.current);
+        const delay = errStreakRef.current === 0 ? 250 : Math.min(10_000, 900 * errStreakRef.current);
         if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
         restartTimerRef.current = window.setTimeout(() => {
           if (gen !== recGenRef.current) return;
@@ -567,7 +567,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
       if (busyRef.current) return;
       if (convoRef.current && voiceRef.current === "idle") startRec("convo");
       else if (!convoRef.current && shouldWake()) startRec("wake");
-    }, 500);
+    }, 250);
   }, [startRec, shouldWake]);
 
   // ── TTS engine ──
@@ -718,7 +718,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
           restartTimerRef.current = window.setTimeout(() => {
             if (shouldWake()) startRec("wake");
-          }, 800);
+          }, 250);
         }
         if (fireEnd) o.onend?.();
       };
@@ -757,7 +757,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
           else if (shouldWake()) {
             restartTimerRef.current = window.setTimeout(() => {
               if (shouldWake()) startRec("wake");
-            }, 800);
+            }, 250);
           }
           opts.onend?.();
         }, 40);
@@ -1152,17 +1152,11 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         addMsg({ role: "user", text: `“${profileRef.current.wakePhrase.toUpperCase()}”`, at: Date.now(), kind: "wake" });
         lastSpokenRef.current = ack;
         if (command) {
-          // wake + request in one breath ("HALO, what's the gold price?") —
-          // acknowledge first, then run the carried request; if the ack can't
-          // finish (autoplay blocked), a failsafe still delivers the command
-          let sent = false;
-          const go = () => {
-            if (sent) return;
-            sent = true;
-            void send(command, "voice");
-          };
-          speak(ack, { onend: go });
-          window.setTimeout(go, 6000);
+          // wake + request in one breath ("HALO, start scanning") — the
+          // command fires NOW, no spoken ack first: the answer itself is the
+          // acknowledgment and the operator fast path returns it in well
+          // under a second, so the bot reacts the instant speech ends
+          void send(command, "voice");
         } else {
           speak(ack);
         }
@@ -1191,7 +1185,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
         restartTimerRef.current = window.setTimeout(() => {
           if (shouldWake()) startRec("wake");
-        }, 600);
+        }, 250);
       }
     },
      
@@ -1222,7 +1216,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
             if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
             restartTimerRef.current = window.setTimeout(() => {
               if (shouldWake()) startRec("wake");
-            }, 700);
+            }, 300);
           }
         },
         WELCOME_FADE_MS

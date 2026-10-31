@@ -75,6 +75,9 @@ interface Props {
 }
 
 const POLL_MS = 6000;
+const FAIL_FAST_MS = 1200; // first self-heal retry after a failed poll
+const FAIL_MAX_MS = 5000; // self-heal backoff ceiling
+const ERR_AFTER_FAILS = 3; // consecutive failures before the unreachable strip
 const TF_LABEL: Record<string, string> = {
   "1m": "M1", "3m": "M3", "5m": "M5", "15m": "M15", "30m": "M30",
   "1h": "H1", "2h": "H2", "4h": "H4", "1d": "D1",
@@ -262,16 +265,27 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
   const [details, setDetails] = useState(false);
   const aliveRef = useRef(true);
   const sigRef = useRef("");
+  const failRef = useRef(0); // consecutive failed polls
+  const retryAtRef = useRef(0); // when the next self-heal retry may fire
+  const retryDelayRef = useRef(FAIL_FAST_MS); // current backoff delay
   // the bot's voice: shared provider engine (one mic / one speaker app-wide)
   const { profile, prefs, voice, convoOpen, speak } = useHaloVoice();
 
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/tf-scanner", { cache: "no-store" });
+      if (r.status === 401) {
+        // the session is genuinely gone — the honest fix is a fresh sign-in,
+        // not an endless "unreachable" strip over stale data
+        window.location.assign("/login?next=%2F");
+        return;
+      }
       if (!r.ok) throw new Error(`http ${r.status}`);
       const j = (await r.json()) as ScannerState;
       if (!aliveRef.current) return;
       if (!j.ok) throw new Error("bad payload");
+      failRef.current = 0;
+      retryDelayRef.current = FAIL_FAST_MS;
       const sig = JSON.stringify(j);
       if (sig !== sigRef.current) {
         sigRef.current = sig;
@@ -279,7 +293,13 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
       }
       setErr(false);
     } catch {
-      if (aliveRef.current) setErr(true); // last known card stays visible
+      if (!aliveRef.current) return;
+      failRef.current += 1;
+      // last known card stays visible; the strip only appears once the feed
+      // is REPEATEDLY dead — a single hiccup never flashes the banner
+      if (failRef.current >= ERR_AFTER_FAILS) setErr(true);
+      retryAtRef.current = Date.now() + retryDelayRef.current;
+      retryDelayRef.current = Math.min(FAIL_MAX_MS, Math.round(retryDelayRef.current * 1.6));
     }
   }, []);
 
@@ -289,10 +309,21 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void load();
     }, POLL_MS);
+    // self-heal ticker — after a failed poll the feed retries on the backoff
+    // schedule above instead of waiting out the whole 6 s poll, so the strip
+    // clears almost the moment the server answers again
+    const heal = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (failRef.current === 0 || Date.now() < retryAtRef.current) return;
+      retryAtRef.current = Date.now() + retryDelayRef.current;
+      retryDelayRef.current = Math.min(FAIL_MAX_MS, Math.round(retryDelayRef.current * 1.6));
+      void load();
+    }, 400);
     return () => {
       aliveRef.current = false;
       window.clearTimeout(t);
       window.clearInterval(id);
+      window.clearInterval(heal);
     };
   }, [load]);
 

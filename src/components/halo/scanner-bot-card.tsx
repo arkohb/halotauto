@@ -148,15 +148,25 @@ export function ScannerBotCard(): React.ReactElement {
   const [busy, setBusy] = useState(false);
   const [details, setDetails] = useState(false);
   const aliveRef = useRef(true);
+  const failRef = useRef(0);
+  const retryAtRef = useRef(0);
+  const retryDelayRef = useRef(1200); // self-heal backoff start
 
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/tf-scanner", { cache: "no-store" });
-      if (!r.ok) return;
+      if (!r.ok) throw new Error(`http ${r.status}`);
       const j = (await r.json()) as ScannerState;
-      if (aliveRef.current && j.ok) setSt(j);
+      if (!aliveRef.current || !j.ok) return;
+      failRef.current = 0;
+      retryDelayRef.current = 1200;
+      setSt(j);
     } catch {
-      // keep the last known state — the poll retries
+      if (!aliveRef.current) return;
+      failRef.current += 1;
+      // keep the last known state — the self-heal ticker retries fast
+      retryAtRef.current = Date.now() + retryDelayRef.current;
+      retryDelayRef.current = Math.min(5000, Math.round(retryDelayRef.current * 1.6));
     }
   }, []);
 
@@ -164,10 +174,18 @@ export function ScannerBotCard(): React.ReactElement {
     aliveRef.current = true;
     const t = window.setTimeout(() => void load(), 0);
     const id = window.setInterval(() => void load(), POLL_MS);
+    const heal = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (failRef.current === 0 || Date.now() < retryAtRef.current) return;
+      retryAtRef.current = Date.now() + retryDelayRef.current;
+      retryDelayRef.current = Math.min(5000, Math.round(retryDelayRef.current * 1.6));
+      void load();
+    }, 400);
     return () => {
       aliveRef.current = false;
       window.clearTimeout(t);
       window.clearInterval(id);
+      window.clearInterval(heal);
     };
   }, [load]);
 

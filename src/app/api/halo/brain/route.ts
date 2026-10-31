@@ -285,6 +285,81 @@ async function scannerExecDetail(id: string): Promise<{ ok: boolean; detail: str
   }
 }
 
+// ── deterministic FAST PATH ──────────────────────────────────────────────
+//  The scanner bot's own controls/reads and the joke opener are matched
+//  locally and served straight from the LIVE runtime in milliseconds —
+//  no snapshot build, no model round-trip. The trader finishes speaking
+//  and the answer is already on its way. Anything unmatched falls through
+//  to the full LLM path unchanged. Matchers are deliberately conservative:
+//  an unmatched phrase costs a normal turn, a false positive executes the
+//  wrong control.
+const FAST_START_RE = /\b(start|begin|launch|restart|kick off|fire up|run|go)\b[^.?!]*\b(scan|scanning|scanner|sweep|sweeping)\b/;
+const FAST_WORK_RE = /\b(get to work|do your (job|thing)|back to work|on with (the|your) (sweep|scan))\b/;
+const FAST_PAUSE_RE = /\b(pause|hold|stop|halt|suspend)\b[^.?!]*\b(scan|scanning|scanner|sweep|sweeping)\b/;
+const FAST_RESUME_RE = /\b(resume|carry on|carry-on|continue|keep going|unpause|pick (it |the sweep |the scan )?back up)\b/;
+const FAST_STATUS_RE = /\b(status|report|progress|how('?s| is) (it|the (scan|sweep|scanner)|everything) going|what are you (doing|up to|scanning)|any (news|update|luck))\b/;
+const FAST_OPPS_RE = /\b(opportunit|setups?|signals?|findings?|what did you (find|get)|what have you (found|got)|what'?cha got|found anything)\b/;
+
+/** null = no fast path; otherwise the scanner operation to run/answer. */
+function scannerFastDecision(msg: string, surface: string | null): "start" | "pause" | "resume" | "status" | "opps" | null {
+  const t = msg.toLowerCase().replace(/[!?.]/g, " ").replace(/\s+/g, " ").trim();
+  const hasScan = /\b(scan|scanning|scanner|sweep|sweeping)\b/.test(t);
+  // from the Scanner Bot's own console the bot's core questions are
+  // unambiguous without the scan word — elsewhere they need it
+  const scannerSurface = surface === "scanner-bot";
+
+  if (FAST_PAUSE_RE.test(t)) return "pause";
+  if (/\b(resume|carry on|carry-on|continue|unpause)\b/.test(t) && (hasScan || scannerSurface)) return "resume";
+  if (/\b(keep going|pick (it |the sweep |the scan )?back up)\b/.test(t) && (hasScan || scannerSurface)) return "resume";
+  if (FAST_START_RE.test(t) || (FAST_WORK_RE.test(t) && (hasScan || scannerSurface))) return "start";
+  if (FAST_STATUS_RE.test(t) && (hasScan || scannerSurface)) return "status";
+  if (FAST_OPPS_RE.test(t) && (hasScan || hasOppWord(t) || scannerSurface)) return "opps";
+  return null;
+}
+
+function hasOppWord(t: string): boolean {
+  return /\b(opportunit|setups?|signals?|findings?|found|find)\b/.test(t);
+}
+
+/** returns the joke style, "" for any style, or null when not a joke ask */
+function jokeFastDecision(msg: string): string | null {
+  const t = msg.toLowerCase().trim().replace(/[!?.]+$/, "").replace(/\s+/g, " ");
+  const isJoke =
+    /^(tell|say|got|got any|know)( me)?( a| another)?( funny)? ?joke/.test(t) ||
+    /^(tell me a|another|a) funny\b/.test(t) ||
+    /^(make me laugh|cheer me up|lighten the mood|crack a joke|make me smile)\b/.test(t);
+  if (!isJoke) return null;
+  if (/\b(programming|programmer|coding|code|tech|developer)\b/.test(t)) return "tech";
+  if (/\b(trading|trader|market|forex|chart|candle)\b/.test(t)) return "trading";
+  if (/\b(motivat|inspir|hustle|grind)\b/.test(t)) return "motivation";
+  return "";
+}
+
+async function fastPathTurn(
+  message: string,
+  surface: string | null,
+  source: "voice" | "text",
+): Promise<{ ok: boolean; say: string; readResults: { id: string; ok: boolean; detail: string }[] } | null> {
+  const scannerOp = scannerFastDecision(message, surface);
+  if (scannerOp === "start" || scannerOp === "pause" || scannerOp === "resume") {
+    const id = `scanner_${scannerOp}`;
+    const r = await scannerExecDetail(id);
+    await audit(id, {}, source, r.ok ? "executed" : "failed", r.detail);
+    return { ok: r.ok, say: r.detail, readResults: [{ id, ok: r.ok, detail: r.detail }] };
+  }
+  if (scannerOp === "status" || scannerOp === "opps") {
+    const id = scannerOp === "status" ? "scanner_status" : "scanner_opportunities";
+    const detail = await scannerReadDetail(id);
+    return { ok: true, say: detail, readResults: [{ id, ok: true, detail }] };
+  }
+  const jokeStyle = jokeFastDecision(message);
+  if (jokeStyle !== null) {
+    const detail = jokeDetail(jokeStyle || undefined);
+    return { ok: true, say: detail, readResults: [{ id: "tell_joke", ok: true, detail }] };
+  }
+  return null;
+}
+
 async function opReadDetail(id: string, params: Record<string, string | boolean>): Promise<string> {
   try {
     if (id === "list_pending_orders") return await listPendingOrdersDetail();
@@ -587,6 +662,21 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Message is empty." }, { status: 400 });
   }
   const voiceMode = body.mode === "voice";
+
+  // ══════ FAST PATH — the answer leaves before the model would even wake ══════
+  //  Deterministic scanner-bot controls/reads and the joke opener are served
+  //  straight from the live runtime — typically under 300 ms end-to-end, so
+  //  the bot reacts the moment the trader finishes speaking. Unmatched
+  //  phrases fall through to the grounded LLM path below, unchanged.
+  const fast = await fastPathTurn(message, surface, source);
+  if (fast) {
+    return NextResponse.json({
+      ok: fast.ok,
+      say: fast.say,
+      verifiedAt: new Date().toISOString(),
+      readResults: fast.readResults,
+    });
+  }
 
   type Turn = { role: "user" | "halo"; text: string };
   let history: Turn[] = [];
