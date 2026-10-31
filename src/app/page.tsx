@@ -43,6 +43,7 @@ import { IntelPanel } from "@/components/halo/intel-panel";
 import { BrokersPanel } from "@/components/halo/brokers-panel";
 import { AlertsPanel } from "@/components/halo/alerts-panel";
 import { PwaRegister } from "@/components/halo/pwa";
+import { UpdateAlert } from "@/components/halo/update-alert";
 import { FxLayer } from "@/components/halo/fx-layer";
 import { BootSequence } from "@/components/halo/boot-sequence";
 import { RobotAssistant } from "@/components/halo/robot-assistant";
@@ -378,6 +379,9 @@ export default function Page() {
         <FxLayer />
         <BootSequence />
         <PwaRegister />
+        {/* floating "new version deployed — reload to apply" alert (version
+            poll + service-worker update detection; silent until a change) */}
+        <UpdateAlert />
         {/* personalized JARVIS welcome — raised by the voice provider once per
             session (full on first opening, short welcome-back afterwards);
             the dashboard renders and polls underneath the whole time */}
