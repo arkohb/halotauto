@@ -4,6 +4,11 @@
 //  draws the equal-level zones and the TradingView-style position tool
 //  (green profit zone entry→TP, red risk zone entry→SL) by converting
 //  time/price to media coordinates at draw time.
+//
+//  capAtLastBar rects ride the live candle: the right edge tracks the
+//  current (forming) bar — advancing as each new candle opens — but is
+//  hard-capped at that candle's right wick, never stretching into the
+//  empty future space right of the last bar.
 // ════════════════════════════════════════════════════════════════════════
 
 import type {
@@ -22,6 +27,8 @@ export interface ZoneRectSpec {
   fill: string;
   border?: string;
   dashed?: boolean;
+  /** right edge stops at the CURRENT candle (t2) — covers it fully, never beyond */
+  capAtLastBar?: boolean;
 }
 
 interface MediaSpaceState {
@@ -84,7 +91,15 @@ export class ZoneOverlay {
       context.clip();
       for (const r of this.rects) {
         const x1 = r.t1 === null ? 0 : this.xOf(ts, r.t1 / 1000, visL, visR, W);
-        const x2 = r.t2 === null ? W : this.xOf(ts, r.t2 / 1000, visL, visR, W);
+        let x2: number | null = r.t2 === null ? W : this.xOf(ts, r.t2 / 1000, visL, visR, W);
+        // capAtLastBar — never draw right of the current candle: cap x2 at
+        // the bar's centre coordinate + half a bar width (= its right wick).
+        // timeToCoordinate(t2) is exact for the last data bar; the half-bar
+        // extension only covers the candle itself, not the right offset.
+        if (r.capAtLastBar && r.t2 !== null && x2 !== null) {
+          const xCap = ts.timeToCoordinate((r.t2 / 1000) as UTCTimestamp);
+          if (xCap !== null) x2 = Math.min(x2, xCap + (ts.options().barSpacing || 0) / 2);
+        }
         const yA = p.series.priceToCoordinate(r.p1);
         const yB = p.series.priceToCoordinate(r.p2);
         if (x1 === null || x2 === null || yA === null || yB === null) continue;

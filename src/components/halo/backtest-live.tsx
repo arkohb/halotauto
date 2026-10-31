@@ -634,12 +634,16 @@ export function BacktestLive({ symbol, tf, config }: Props) {
     }
 
     // position tool for the open trade — ENTRY/SL/TP zones + axis labels
+    // (boxes ride the replayed candle: right edge = current replay bar,
+    //  covered fully to its wick, never stretching into the future space)
     if (t) {
+      const liveT = Math.max(curT, t.entryTime);
       const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129";
       const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69";
       rects.push({
         t1: t.entryTime,
-        t2: null,
+        t2: liveT,
+        capAtLastBar: true,
         p1: Math.min(t.entry, t.tp),
         p2: Math.max(t.entry, t.tp),
         fill: `rgba(${profitCol},0.13)`,
@@ -647,7 +651,8 @@ export function BacktestLive({ symbol, tf, config }: Props) {
       });
       rects.push({
         t1: t.entryTime,
-        t2: null,
+        t2: liveT,
+        capAtLastBar: true,
         p1: Math.min(t.entry, t.sl),
         p2: Math.max(t.entry, t.sl),
         fill: `rgba(${riskCol},0.13)`,

@@ -34,9 +34,6 @@ import {
   type IPriceLine,
   type ISeriesApi,
   type ISeriesPrimitive,
-  type IPrimitivePaneView,
-  type ITimeScaleApi,
-  type SeriesAttachedParameter,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
@@ -46,6 +43,7 @@ import { C, fmtPx, type PineOverlayData } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
 import { subscribeLiveBars, type LiveBar, type LiveFeedKind } from "@/lib/halo/live-feed";
 import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-symbols";
+import { ZoneOverlay, type ZoneRectSpec } from "./lwc-zone";
 import { TvChart } from "./tv-chart";
 import { TvSignalOverlay } from "./tv-signal-overlay";
 import { IndicatorRail } from "./indicator-rail";
@@ -96,113 +94,6 @@ interface LevelLines {
 function sideColor(side: number, alpha: string): string {
   const rgb = side === -1 ? "242,54,69" : "8,153,129";
   return `rgba(${rgb},${alpha})`;
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//  Zone overlay primitive — canvas rectangles (level zones + position
-//  tool) that follow pan/zoom by converting time/price at draw time.
-// ─────────────────────────────────────────────────────────────────────────
-interface ZoneRectSpec {
-  t1: number | null; // ms epoch, null = pane left edge
-  t2: number | null; // null = pane right edge
-  p1: number;
-  p2: number;
-  fill: string;
-  border?: string;
-  dashed?: boolean;
-}
-
-interface MediaSpaceState {
-  context: CanvasRenderingContext2D;
-  mediaSize: { width: number; height: number };
-}
-interface DrawTargetLike {
-  useMediaCoordinateSpace<T>(h: (s: MediaSpaceState) => T): T;
-}
-
-class ZoneOverlay {
-  private param: SeriesAttachedParameter<Time> | null = null;
-  rects: ZoneRectSpec[] = [];
-
-  private readonly view: IPrimitivePaneView = {
-    zOrder: () => "bottom",
-    renderer: () => ({
-      draw: (target: unknown) => this.draw(target as DrawTargetLike),
-    }),
-  };
-
-  attached(param: SeriesAttachedParameter<Time>): void {
-    this.param = param;
-  }
-  detached(): void {
-    this.param = null;
-  }
-  updateAllViews(): void {
-    // rects are read live at draw time — nothing to cache
-  }
-  paneViews(): IPrimitivePaneView[] {
-    return [this.view];
-  }
-  requestUpdate(): void {
-    this.param?.requestUpdate();
-  }
-
-  private xOf(ts: ITimeScaleApi<Time>, tSec: number, visL: number | null, visR: number | null, W: number): number | null {
-    const c = ts.timeToCoordinate(tSec as UTCTimestamp);
-    if (c !== null) return c;
-    if (visL !== null && tSec <= visL) return 0;
-    if (visR !== null && tSec >= visR) return W;
-    return null;
-  }
-
-  private draw(target: DrawTargetLike): void {
-    const p = this.param;
-    if (!p || this.rects.length === 0) return;
-    const ts = p.chart.timeScale();
-    target.useMediaCoordinateSpace(({ context, mediaSize }) => {
-      const W = mediaSize.width;
-      const H = mediaSize.height;
-      if (W <= 0 || H <= 0) return;
-      const vis = ts.getVisibleRange();
-      const visL = vis ? (vis.from as number) : null;
-      const visR = vis ? (vis.to as number) : null;
-      context.save();
-      context.beginPath();
-      context.rect(0, 0, W, H);
-      context.clip();
-      for (const r of this.rects) {
-        const x1 = r.t1 === null ? 0 : this.xOf(ts, r.t1 / 1000, visL, visR, W);
-        const x2 = r.t2 === null ? W : this.xOf(ts, r.t2 / 1000, visL, visR, W);
-        const yA = p.series.priceToCoordinate(r.p1);
-        const yB = p.series.priceToCoordinate(r.p2);
-        if (x1 === null || x2 === null || yA === null || yB === null) continue;
-        // razor-thin equal-level bands (0.2 on XAU ≈ 0.3px when zoomed out)
-        // would be invisible — grow to a minimum 3px so the zone always reads
-        const MIN_ZONE_PX = 3;
-        let top = Math.min(yA, yB);
-        let bot = Math.max(yA, yB);
-        if (bot - top < MIN_ZONE_PX) {
-          const grow = (MIN_ZONE_PX - (bot - top)) / 2;
-          top -= grow;
-          bot += grow;
-        }
-        if (bot < 0 || top > H || x2 <= 0 || x1 >= W) continue;
-        const L = Math.max(x1, 0);
-        const R = Math.min(x2, W);
-        const h = Math.max(1, bot - top);
-        context.fillStyle = r.fill;
-        context.fillRect(L, top, R - L, h);
-        if (r.border) {
-          context.strokeStyle = r.border;
-          context.lineWidth = 1;
-          if (r.dashed) context.setLineDash([4, 3]);
-          context.strokeRect(L + 0.5, top + 0.5, Math.max(1, R - L - 1), h - 1);
-          context.setLineDash([]);
-        }
-      }
-      context.restore();
-    });
-  }
 }
 
 type ChartMode = "tv" | "3el";
@@ -546,13 +437,19 @@ export default function ChartPanel(props: ChartProps) {
     }
 
     // ── 2. position tool — TradingView-style ENTRY / SL / TP zones ──
+    // The boxes RIDE THE LIVE CANDLE: the right edge is pinned to the
+    // current (forming) bar and advances as each new candle opens —
+    // covering that candle fully (capAtLastBar) — but never stretches
+    // into the empty future space right of the last bar.
     const t = trade;
     if (t) {
+      const liveT = Math.max(win.last, t.entryTime);
       const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129"; // SELL profits below entry
       const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69"; // risk sits the other way
       zoneRects.push({
         t1: t.entryTime,
-        t2: null,
+        t2: liveT,
+        capAtLastBar: true,
         p1: Math.min(t.entry, t.tp),
         p2: Math.max(t.entry, t.tp),
         fill: `rgba(${profitCol},0.13)`,
@@ -560,7 +457,8 @@ export default function ChartPanel(props: ChartProps) {
       });
       zoneRects.push({
         t1: t.entryTime,
-        t2: null,
+        t2: liveT,
+        capAtLastBar: true,
         p1: Math.min(t.entry, t.sl),
         p2: Math.max(t.entry, t.sl),
         fill: `rgba(${riskCol},0.13)`,
