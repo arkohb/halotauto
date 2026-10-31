@@ -221,6 +221,10 @@ interface HaloVoiceCtx {
   /** append a HALO-side system line to the chat transcript (used by the
    *  Timeframe Scanner Bot — additive; never touches conversation flow) */
   pushBotMsg: (text: string) => void;
+  /** tag which console the trader is talking from ("scanner-bot" = the
+   *  Scanner Bot's own voice console) — the brain adapts its persona;
+   *  pass null when the surface unmounts */
+  setActiveSurface: (surface: string | null) => void;
   send: (text: string) => Promise<void>;
   startConvo: (fromWake?: boolean, command?: string) => void;
   closeConvo: (spoken?: boolean) => void;
@@ -319,6 +323,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
   const lastBackAckRef = useRef(0);
   const backIdxRef = useRef(0);
   const runnerRef = useRef<ActionRunner | null>(null);
+  // active console surface — set by whichever console is mounted (e.g. the
+  // Scanner Bot's voice panel) so brain turns know who is being addressed
+  const surfaceRef = useRef<string | null>(null);
   const pendingConfirmRef = useRef<PendingConfirm | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
   // neural voice engine — shared <audio> element + client-side LRU of
@@ -1028,7 +1035,7 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
         const r = await fetch("/api/halo/brain", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: text, history, mode: "voice", source: origin, verbosity: prefsRef.current.verbosity }),
+          body: JSON.stringify({ message: text, history, mode: "voice", source: origin, verbosity: prefsRef.current.verbosity, surface: surfaceRef.current ?? undefined }),
           signal: ctrl.signal,
         });
         const j = (await r.json()) as {
@@ -1687,6 +1694,9 @@ export function HaloVoiceProvider({ children, snapshot }: { children: React.Reac
     blocked,
     msgs,
     pushBotMsg: (text: string) => addMsg({ role: "halo", text, at: Date.now(), kind: "system" }),
+    setActiveSurface: (surface: string | null) => {
+      surfaceRef.current = surface;
+    },
     clearMsgs,
     send,
     startConvo,

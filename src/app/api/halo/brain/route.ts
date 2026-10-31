@@ -5,6 +5,7 @@ import { botState, startBot, stopBot, closeOpenTrade, setPauseNew, updateBotConf
 import { buildSnapshot } from "@/lib/halo/assistant-snapshot";
 import { getAction, validateActionParams, ACTIONS, VIEWS } from "@/lib/halo/actions";
 import { getCalendar, getNews, getQuote, type CalendarDay } from "@/lib/halo/intel";
+import { configTfScanner, tfScannerState, type ScannerOpportunity, type TfScannerState } from "@/lib/tf-scanner";
 import {
   listPendingOrdersDetail,
   cancelPendingOrderExec,
@@ -172,6 +173,117 @@ const INTEL_ACTION_IDS = new Set(["get_economic_calendar", "get_market_news", "g
 
 // ── operation reads (orders / scan / humour / strategies — verified live) ──
 const OP_READ_IDS = new Set(["list_pending_orders", "run_market_scan", "tell_joke", "list_strategies"]);
+
+// ── Timeframe Scanner Bot reads (live from the scanner runtime) + its
+//    signal-only controls, which execute IMMEDIATELY — the scanner never
+//    trades, so start/pause/resume carry no money risk and need no confirm.
+//    Every execution is still audit-logged. ──
+const SCANNER_READ_IDS = new Set(["scanner_status", "scanner_opportunities"]);
+const SCANNER_UI_IDS = new Set(["scanner_start", "scanner_pause", "scanner_resume"]);
+
+const TF_LABELS: Record<string, string> = {
+  "1m": "M1", "3m": "M3", "5m": "M5", "15m": "M15", "30m": "M30",
+  "1h": "H1", "2h": "H2", "4h": "H4", "1d": "D1",
+};
+
+function tfLabel(tf: string): string {
+  return TF_LABELS[tf] ?? tf.toUpperCase();
+}
+
+function fmtUtcTime(ms: number): string {
+  if (!ms) return "an unknown time";
+  return `${new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`;
+}
+
+function shortSymbol(symbolLabel: string, symbol: string): string {
+  const s = symbolLabel.split("·")[0].trim();
+  return s || symbol;
+}
+
+function scannerOpportunityLine(o: ScannerOpportunity, prefix = ""): string {
+  const side = o.dir === -1 ? "SELL" : "BUY";
+  return `${prefix}${shortSymbol(o.symbolLabel, o.symbol)} ${tfLabel(o.tf)} ${side} — entry ${o.entry}, stop ${o.sl}, target ${o.tp}, reward to risk ${String(o.rr).replace(":", " to ")}, signalled ${fmtUtcTime(o.time)}, status ${o.status}.`;
+}
+
+function scannerStatusDetail(st: TfScannerState): string {
+  const universe = st.marketsTotal.toLocaleString("en-US");
+  const warm = st.marketsAnalysed.toLocaleString("en-US");
+  const pct = st.marketsTotal > 0 ? Math.round((st.marketsAnalysed / st.marketsTotal) * 100) : 0;
+  const head =
+    st.status === "scanning"
+      ? `The Timeframe Scanner Bot is ACTIVE${st.currentSymbol ? ` — currently scanning ${st.currentSymbol} ${tfLabel(st.currentTf)}` : ""}.`
+      : st.status === "trade_lock"
+        ? `The Timeframe Scanner Bot is holding while a trade runs on ${st.lock?.symbol ?? "the open position"} ${st.lock ? tfLabel(st.lock.tf) : ""} — scanning resumes automatically after TP or SL.`
+        : st.status === "paused"
+          ? "The Timeframe Scanner Bot is PAUSED — the sweep is on hold until resumed."
+          : "The Timeframe Scanner Bot is IDLE — it has not been started yet.";
+  return `${head} Universe: ${universe} market-and-timeframe rows across ${st.tfs.length} timeframes (${st.tfs.map(tfLabel).join(", ")}); ${warm} rows warmed (${pct}%). ${st.setupsWatched} ${st.setupsWatched === 1 ? "setup is" : "setups are"} on watch, ${st.opportunitiesFound} ${st.opportunitiesFound === 1 ? "opportunity" : "opportunities"} found so far, ${st.passes} full ${st.passes === 1 ? "pass" : "passes"} completed.`;
+}
+
+function scannerOpportunitiesDetail(st: TfScannerState): string {
+  if (st.opportunity) {
+    const extra = st.recent.filter((r) => !(r.symbol === st.opportunity!.symbol && r.tf === st.opportunity!.tf && r.time === st.opportunity!.time)).slice(0, 2);
+    const more = extra.length > 0 ? ` Before that: ${extra.map((r) => scannerOpportunityLine(r)).join(" ")}` : "";
+    return `Latest qualifying opportunity: ${scannerOpportunityLine(st.opportunity)}${more}`;
+  }
+  if (st.status === "scanning") {
+    return `No qualifying opportunities on record yet — the sweep has warmed ${st.marketsAnalysed.toLocaleString("en-US")} of ${st.marketsTotal.toLocaleString("en-US")} rows and ${st.setupsWatched} ${st.setupsWatched === 1 ? "setup is" : "setups are"} on watch. I only report real strategy fires, never guesses.`;
+  }
+  return `No opportunities on record${st.status === "idle" ? " — the scanner has not been started yet" : st.status === "paused" ? " — the scanner is paused" : ""}. I only report real strategy fires, never guesses.`;
+}
+
+async function scannerReadDetail(id: string): Promise<string> {
+  try {
+    const st = await tfScannerState();
+    return id === "scanner_status" ? scannerStatusDetail(st) : scannerOpportunitiesDetail(st);
+  } catch (e) {
+    return `The scanner runtime did not answer: ${(e as Error).message.slice(0, 140)}. I won't guess at its state.`;
+  }
+}
+
+/** scanner_start / scanner_pause / scanner_resume — run now, verify, report. */
+async function scannerExecDetail(id: string): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const before = await tfScannerState();
+    if (id === "scanner_start" && before.status === "scanning") {
+      return { ok: true, detail: "The Timeframe Scanner Bot is already scanning — the sweep continues across every supported market and timeframe." };
+    }
+    if (id === "scanner_start" && before.status === "trade_lock") {
+      return { ok: true, detail: `The scanner is already enabled and holding for the trade lock on ${before.lock?.symbol ?? "the open trade"} — it will resume the sweep automatically after TP or SL.` };
+    }
+    if (id === "scanner_pause" && before.status === "paused") {
+      return { ok: true, detail: "The Timeframe Scanner Bot was already paused — nothing changed." };
+    }
+    if (id === "scanner_pause" && before.status === "idle") {
+      return { ok: true, detail: "The Timeframe Scanner Bot is idle and was never started, so there is nothing to pause. Say start scanning to begin the sweep." };
+    }
+    if (id === "scanner_resume" && before.status === "scanning") {
+      return { ok: true, detail: "The Timeframe Scanner Bot is already scanning — nothing to resume." };
+    }
+    if (id === "scanner_resume" && before.status === "trade_lock") {
+      return { ok: true, detail: "The scanner is already enabled — it is holding for the trade lock and resumes by itself after TP or SL." };
+    }
+    await configTfScanner(id === "scanner_start" ? "start" : id === "scanner_pause" ? "pause" : "resume");
+    const st = await tfScannerState();
+    if (id === "scanner_pause") {
+      if (st.enabled === false) return { ok: true, detail: "Confirmed: the Timeframe Scanner Bot is paused. The sweep is on hold — say resume scanning when you want it back on." };
+      return { ok: false, detail: `Pause did not verify — the runtime reports status ${st.status}. Check the Scanner Bot console before relying on it.` };
+    }
+    // start / resume
+    if (st.enabled) {
+      return {
+        ok: true,
+        detail:
+          st.status === "trade_lock"
+            ? "Confirmed: the scanner is enabled and holding for the trade lock — the sweep resumes automatically after TP or SL."
+            : `Confirmed: the Timeframe Scanner Bot is scanning. Universe: ${st.marketsTotal.toLocaleString("en-US")} rows, ${st.marketsAnalysed.toLocaleString("en-US")} warmed so far.`,
+      };
+    }
+    return { ok: false, detail: "The scanner did not confirm the start — check the Scanner Bot console." };
+  } catch (e) {
+    return { ok: false, detail: `The scanner control failed: ${(e as Error).message.slice(0, 140)}` };
+  }
+}
 
 async function opReadDetail(id: string, params: Record<string, string | boolean>): Promise<string> {
   try {
@@ -385,6 +497,15 @@ OPERATING RULES (non-negotiable):
 
 const VOICE_RULES = `SPOKEN-MODE ADDENDUM: "say" will be read aloud by text-to-speech. Keep it under ~60 words. Plain conversational sentences only — no markdown, no bullet lists, no symbols like ⚠ or arrows. Numbers read naturally.`;
 
+// The trader is talking to the SCANNER BOT's own voice console — this
+// surface persona makes the operator core answer AS the scanner bot.
+const SCANNER_SURFACE_RULES = `SCANNER CONSOLE MODE: the trader is speaking to the TIMEFRAME SCANNER BOT's own voice console, and you are acting as that bot's voice. Lead with the scanner:
+- "status / how's it going / what are you doing" → scanner_status.
+- "what did you find / any setups / latest signal / show opportunities" → scanner_opportunities.
+- "start scanning", "get to work", "begin the sweep" → scanner_start; "pause / hold on" → scanner_pause; "resume / carry on" → scanner_resume.
+These three controls are the bot's OWN functions and execute IMMEDIATELY (the scanner is signal-only and never trades — there is no confirmation step); their verified result replaces your "say", so keep "say" to one short lead-in line such as "On it — starting the full sweep now."
+General questions, jokes, intel and other registry actions still work normally — you are the scanner bot AND part of the HALO operator core.`;
+
 interface LlmDecision {
   say: string;
   actions: { id: string; params: Record<string, unknown> }[];
@@ -425,7 +546,7 @@ export async function POST(req: Request) {
   }
 
   // ── validate payload ──
-  let body: { message?: unknown; history?: unknown; mode?: unknown; source?: unknown; confirmToken?: unknown; approve?: unknown };
+  let body: { message?: unknown; history?: unknown; mode?: unknown; source?: unknown; surface?: unknown; confirmToken?: unknown; approve?: unknown };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -433,6 +554,9 @@ export async function POST(req: Request) {
   }
 
   const source = body.source === "voice" ? "voice" : "text";
+  // which console the trader is talking from ("scanner-bot" = the Timeframe
+  // Scanner Bot's own voice console) — shapes the persona, nothing else
+  const surface = body.surface === "scanner-bot" ? "scanner-bot" : null;
 
   // ══════ CONFIRMATION PATH — explicit approval of a pending action ══════
   if (typeof body.confirmToken === "string" && body.confirmToken) {
@@ -481,6 +605,28 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: `System snapshot unavailable: ${(e as Error).message}` }, { status: 503 });
   }
 
+  // ── Timeframe Scanner Bot live state (signal-only bot; additive context) ──
+  let scannerSnap: Record<string, unknown> | null = null;
+  try {
+    const sc = await tfScannerState();
+    scannerSnap = {
+      status: sc.status,
+      timeframes: sc.tfs.map(tfLabel),
+      universeRows: sc.marketsTotal,
+      rowsWarmed: sc.marketsAnalysed,
+      setupsWatched: sc.setupsWatched,
+      opportunitiesFound: sc.opportunitiesFound,
+      fullPasses: sc.passes,
+      currentRow: sc.currentSymbol ? `${sc.currentSymbol} ${tfLabel(sc.currentTf)}` : null,
+      tradeLock: sc.lock,
+      latestOpportunity: sc.opportunity,
+      recentOpportunities: sc.recent.slice(0, 3),
+      feedSource: sc.source,
+    };
+  } catch {
+    scannerSnap = null; // scanner runtime unavailable — the prompt says so
+  }
+
   // ── grounded completion (server-side only) ──
   try {
     let nameLine = "The trader has not set a preferred name — use “Trader” or no name.";
@@ -492,7 +638,7 @@ export async function POST(req: Request) {
     }
 
     const zai = await ZAI.create();
-    const systemPrompt = `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}\n\n${nameLine}\n\n${STRATEGY_BRIEF}\n\nACTION REGISTRY (the only executable operations):\n${REGISTRY_BRIEF}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}`;
+    const systemPrompt = `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}${surface === "scanner-bot" ? `\n\n${SCANNER_SURFACE_RULES}` : ""}\n\n${nameLine}\n\n${STRATEGY_BRIEF}\n\nACTION REGISTRY (the only executable operations):\n${REGISTRY_BRIEF}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}\n\nTIMEFRAME SCANNER BOT STATE (live, just captured${scannerSnap ? "" : " — runtime unavailable, do not invent its state"}):\n${scannerSnap ? JSON.stringify(scannerSnap) : "unavailable"}`;
 
     const msgs: { role: "assistant" | "user"; content: string }[] = [
       { role: "assistant", content: systemPrompt },
@@ -540,20 +686,33 @@ export async function POST(req: Request) {
       });
     }
 
-    // ═══ server read actions → deterministic verified details ═══
-    const readResults = await Promise.all(
-      valid
-        .filter((a) => a.def.scope === "server" && a.def.risk === "read")
-        .map(async (a) => ({
+    // ═══ server actions → verified results, in the order the model picked ═══
+    //   · risk "ui" (Timeframe Scanner Bot start/pause/resume): EXECUTE now —
+    //     signal-only controls, no money risk — verify, and audit-log.
+    //   · risk "read": deterministic detail from the verified snapshot / live
+    //     feeds / scanner runtime.
+    const serverResults: { id: string; ok: boolean; detail: string }[] = [];
+    for (const a of valid.filter((x) => x.def.scope === "server")) {
+      if (a.def.risk === "ui" && SCANNER_UI_IDS.has(a.id)) {
+        const r = await scannerExecDetail(a.id);
+        serverResults.push({ id: a.id, ok: r.ok, detail: r.detail });
+        await audit(a.id, a.params, source, r.ok ? "executed" : "failed", r.detail);
+        continue;
+      }
+      if (a.def.risk === "read") {
+        serverResults.push({
           id: a.id,
           ok: true,
-          detail: INTEL_ACTION_IDS.has(a.id)
-            ? await intelDetail(a.id, a.params, String(a.label ?? ""), voiceMode)
-            : OP_READ_IDS.has(a.id)
-              ? await opReadDetail(a.id, a.params)
-              : detailFor(a.id, snapshot),
-        }))
-    );
+          detail: SCANNER_READ_IDS.has(a.id)
+            ? await scannerReadDetail(a.id)
+            : INTEL_ACTION_IDS.has(a.id)
+              ? await intelDetail(a.id, a.params, String(a.label ?? ""), voiceMode)
+              : OP_READ_IDS.has(a.id)
+                ? await opReadDetail(a.id, a.params)
+                : detailFor(a.id, snapshot),
+        });
+      }
+    }
 
     // ═══ client UI actions → returned for verified client execution ═══
     const clientActions = valid
@@ -569,9 +728,9 @@ export async function POST(req: Request) {
       });
     }
 
-    // if a read action executed, prefer its verified detail as the spoken core
+    // if a server action executed, prefer its verified detail as the spoken core
     let say = decision.say;
-    if (readResults.length > 0) say = readResults.map((r) => r.detail).join(" ");
+    if (serverResults.length > 0) say = serverResults.map((r) => r.detail).join(" ");
     if (!say) say = "Done.";
 
     return NextResponse.json({
@@ -579,7 +738,7 @@ export async function POST(req: Request) {
       say,
       verifiedAt: snapshot.now,
       ...(clientActions.length > 0 ? { actions: clientActions } : {}),
-      ...(readResults.length > 0 ? { readResults } : {}),
+      ...(serverResults.length > 0 ? { readResults: serverResults } : {}),
     });
   } catch (e) {
     return NextResponse.json({ ok: false, error: `Operator core unreachable: ${(e as Error).message.slice(0, 160)}` }, { status: 502 });

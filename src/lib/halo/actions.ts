@@ -300,6 +300,46 @@ export const ACTIONS: ActionDef[] = [
     params: {},
   },
 
+  // ── tier 2c · Timeframe Scanner Bot (the signal-only scanner's own
+  //    voice surface). Reads answer from the LIVE tf-scanner runtime;
+  //    the three controls execute IMMEDIATELY — the scanner never trades,
+  //    so start/pause/resume carry no money risk and need no confirmation. ──
+  {
+    id: "scanner_status",
+    description: "Timeframe Scanner Bot live status: scanning/paused/idle/trade-lock, rows warmed vs universe, setups watched, opportunities found, full passes, current row.",
+    scope: "server",
+    risk: "read",
+    params: {},
+  },
+  {
+    id: "scanner_opportunities",
+    description: "What the Timeframe Scanner Bot found: the latest qualifying opportunity (symbol, timeframe, direction, entry, SL, TP, reward-to-risk, status) plus recent ones. Honest when the book is empty.",
+    scope: "server",
+    risk: "read",
+    params: {},
+  },
+  {
+    id: "scanner_start",
+    description: "Start the Timeframe Scanner Bot sweep across every supported market and timeframe (signal-only — it never places trades). No confirmation needed.",
+    scope: "server",
+    risk: "ui",
+    params: {},
+  },
+  {
+    id: "scanner_pause",
+    description: "Pause the Timeframe Scanner Bot sweep (no-op if already paused/idle). No confirmation needed.",
+    scope: "server",
+    risk: "ui",
+    params: {},
+  },
+  {
+    id: "scanner_resume",
+    description: "Resume the Timeframe Scanner Bot sweep after a pause (starts it if it was never started; no-op if already scanning). No confirmation needed.",
+    scope: "server",
+    risk: "ui",
+    params: {},
+  },
+
   // ── tier 2b · external intel (live fetched from the curated feeds at
   //    question time: ForexFactory calendar, Bloomberg/Yahoo news, Yahoo
   //    quotes). Read-only, cached server-side, failures reported honestly. ──

@@ -20,6 +20,8 @@ import { Activity, BarChart3, ChevronRight, Crosshair, RefreshCw, Search, Settin
 import { A, C, type PillTone } from "@/lib/halo/ui-helpers";
 import { StateFrame, TelemetryRow } from "./panel";
 import { ScannerBotArt } from "./scanner-bot-card";
+import { ScannerVoicePanel } from "./scanner-voice-panel";
+import { useHaloVoice } from "./voice-provider";
 
 interface Opportunity {
   symbol: string;
@@ -260,6 +262,8 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
   const [details, setDetails] = useState(false);
   const aliveRef = useRef(true);
   const sigRef = useRef("");
+  // the bot's voice: shared provider engine (one mic / one speaker app-wide)
+  const { profile, prefs, voice, convoOpen, speak } = useHaloVoice();
 
   const load = useCallback(async () => {
     try {
@@ -331,6 +335,35 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
   const pct = total > 0 ? Math.round((warm / total) * 100) : 0;
   const opp = st?.opportunity ?? null;
   const lastMsg = st?.msgs.length ? st.msgs[st.msgs.length - 1] : null;
+
+  // ── FULLY AUTOMATED VOICE ANNOUNCEMENTS ──────────────────────────────
+  //  The moment the sweep qualifies a NEW opportunity the bot SPEAKS it —
+  //  no button, no refresh, no confirmation. Guards keep it polite: voice
+  //  enabled + unmuted, nobody mid-conversation, audio idle, tab visible,
+  //  and never on the first observation after mount (no replay spam).
+  const oppKeyRef = useRef("");
+  const oppAnnouncedAtRef = useRef(0);
+  useEffect(() => {
+    const o = st?.opportunity;
+    if (!o) return;
+    const key = `${o.symbol}:${o.tf}:${o.time}:${o.dir}`;
+    if (!oppKeyRef.current) {
+      oppKeyRef.current = key; // first observation after mount — stay silent
+      return;
+    }
+    if (key === oppKeyRef.current) return;
+    oppKeyRef.current = key;
+    if (!profile.voiceEnabled || prefs.muted) return;
+    if (convoOpen || voice !== "idle") return; // never talk over the operator
+    if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+    if (Date.now() - oppAnnouncedAtRef.current < 8000) return; // debounce bursts
+    oppAnnouncedAtRef.current = Date.now();
+    const short = o.symbolLabel.split("·")[0].trim() || o.symbol;
+    const side = o.dir === -1 ? "sell" : "buy";
+    const rr = String(o.rr).replace(":", " to ");
+    const line = `Scanner opportunity: ${short}, ${TF_LABEL[o.tf] ?? o.tf.toUpperCase()}, ${side} side. Entry ${o.entry}, stop ${o.sl}, target ${o.tp}, reward to risk ${rr}. Details are on the Scanner Bot console.`;
+    speak(line);
+  }, [st?.opportunity, profile.voiceEnabled, prefs.muted, convoOpen, voice, speak]);
 
   return (
     <div className="mx-auto w-full max-w-[1080px]">
@@ -580,6 +613,12 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ═══ voice link — the Scanner Bot listens, speaks and runs its own
+          functions hands-free (wake word, neural voice, auto-execution) ═══ */}
+      <div className="mt-3">
+        <ScannerVoicePanel scannerStatus={status} />
       </div>
     </div>
   );
