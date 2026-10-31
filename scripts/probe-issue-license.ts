@@ -12,7 +12,9 @@ const existing = await db.license.findFirst({ where: { userId: user.id } });
 if (existing) {
   console.log("license exists:", existing.key, existing.status);
 } else {
-  const key = `HALO-TEST-${crypto.randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase().replace(/(.{4})/g, "$1-").slice(0, 19)}`;
+  const ABC = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const g = () => Array.from(crypto.getRandomValues(new Uint8Array(4))).map((b) => ABC[b % ABC.length]).join("");
+  const key = `HALO-${g()}-${g()}-${g()}-${g()}`;
   const lic = await db.license.create({
     data: {
       key,

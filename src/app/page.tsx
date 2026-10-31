@@ -485,8 +485,8 @@ export default function Page() {
               </>
             )}
 
-            {/* ════════ SCANNER BOT · dedicated signal-bot dashboard ════════ */}
-            {view === "scanner-bot" && <ScannerBotDashboard notify={notify} />}
+            {/* ════════ SCANNER BOT · dedicated signal-bot dashboard (mockup edition) ════════ */}
+            {view === "scanner-bot" && <ScannerBotDashboard notify={notify} onView={(v) => gotoView(v)} />}
 
             {/* ════════ MARKET INTELLIGENCE (mockup 02) ════════ */}
             {view === "intel" && (
