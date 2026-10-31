@@ -74,61 +74,156 @@ function fmtUtc(ms: number): string {
 /** HALO robot holding a holographic globe of candlesticks — mockup artwork. */
 export function ScannerBotArt(): React.ReactElement {
   return (
-    <svg viewBox="0 0 120 150" className="h-full w-full" role="img" aria-label="HALO Timeframe Scanner Bot illustration">
+    <svg viewBox="0 0 260 320" className="h-full w-full" role="img" aria-label="HALO Timeframe Scanner Bot illustration">
       <defs>
-        <radialGradient id="tfsb-globe" cx="50%" cy="42%" r="60%">
-          <stop offset="0%" stopColor="rgba(46,204,255,0.5)" />
-          <stop offset="70%" stopColor="rgba(30,144,255,0.16)" />
-          <stop offset="100%" stopColor="rgba(2,11,26,0)" />
+        <linearGradient id="tsba-armor" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#F6FCFF" />
+          <stop offset="38%" stopColor="#CFE2F4" />
+          <stop offset="72%" stopColor="#8FB2D6" />
+          <stop offset="100%" stopColor="#4A6C99" />
+        </linearGradient>
+        <linearGradient id="tsba-armor2" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#E4F1FC" />
+          <stop offset="55%" stopColor="#9FBCDA" />
+          <stop offset="100%" stopColor="#3C5F8F" />
+        </linearGradient>
+        <linearGradient id="tsba-visor" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#0A1B38" />
+          <stop offset="100%" stopColor="#040B1C" />
+        </linearGradient>
+        <radialGradient id="tsba-globe" cx="46%" cy="40%" r="62%">
+          <stop offset="0%" stopColor="rgba(150,228,255,0.68)" />
+          <stop offset="45%" stopColor="rgba(46,160,255,0.34)" />
+          <stop offset="100%" stopColor="rgba(6,20,48,0.08)" />
         </radialGradient>
-        <linearGradient id="tfsb-body" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#9BE8FF" />
-          <stop offset="55%" stopColor="#3E6FB4" />
-          <stop offset="100%" stopColor="#12264A" />
+        <linearGradient id="tsba-gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#FFD97A" />
+          <stop offset="100%" stopColor="#D9A22B" />
         </linearGradient>
       </defs>
-      {/* antenna */}
-      <line x1="60" y1="10" x2="60" y2="22" stroke={C.gold} strokeWidth="1.6" />
-      <circle cx="60" cy="8" r="3.2" fill={C.gold}>
-        <animate attributeName="opacity" values="1;0.35;1" dur="1.8s" repeatCount="indefinite" />
-      </circle>
-      {/* head */}
-      <rect x="38" y="22" width="44" height="30" rx="10" fill="url(#tfsb-body)" stroke={A.cyan(0.65)} strokeWidth="1.2" />
-      <rect x="44" y="30" width="32" height="12" rx="6" fill="#020B1A" stroke={A.cyan(0.5)} strokeWidth="0.8" />
-      <circle cx="53" cy="36" r="2.6" fill={C.cyan}>
+
+      {/* ── golden arcs behind the bot (mockup detail) ── */}
+      <circle cx="118" cy="118" r="112" fill="none" stroke="url(#tsba-gold)" strokeWidth="2" strokeDasharray="150 560" strokeLinecap="round" opacity="0.55" />
+      <circle cx="118" cy="118" r="100" fill="none" stroke="url(#tsba-gold)" strokeWidth="1.2" strokeDasharray="90 520" strokeLinecap="round" opacity="0.4" />
+      <circle cx="118" cy="118" r="88" fill="none" stroke={A.cyan(0.25)} strokeWidth="0.8" strokeDasharray="3 9" />
+
+      {/* ── left arm · relaxed ── */}
+      <path d="M56 150 L44 198" stroke="url(#tsba-armor2)" strokeWidth="19" strokeLinecap="round" />
+      <path d="M44 198 L46 240" stroke="url(#tsba-armor)" strokeWidth="16" strokeLinecap="round" />
+      <circle cx="47" cy="248" r="8.5" fill="url(#tsba-armor2)" stroke={A.cyan(0.4)} strokeWidth="0.8" />
+
+      {/* ── torso ── */}
+      {/* waist + glowing abdomen strip */}
+      <rect x="76" y="200" width="72" height="34" rx="14" fill="url(#tsba-armor2)" stroke={A.cyan(0.35)} strokeWidth="0.8" />
+      <rect x="86" y="212" width="52" height="5.5" rx="2.75" fill={A.cyan(0.35)} />
+      <rect x="90" y="212" width="44" height="5.5" rx="2.75" fill={C.cyan}>
+        <animate attributeName="opacity" values="0.95;0.45;0.95" dur="2.6s" repeatCount="indefinite" />
+      </rect>
+      {/* chest armor */}
+      <path d="M60 150 Q60 124 84 121 L136 121 Q160 124 160 150 L160 176 Q160 198 136 199 L84 199 Q60 198 60 176 Z" fill="url(#tsba-armor)" stroke={A.cyan(0.45)} strokeWidth="1" />
+      {/* collar */}
+      <rect x="90" y="114" width="44" height="12" rx="6" fill="#33507B" />
+      <rect x="96" y="116" width="32" height="4" rx="2" fill="#0E1F3E" />
+      {/* side vents */}
+      <rect x="64" y="150" width="9" height="38" rx="4.5" fill="#2E4C77" opacity="0.85" />
+      <rect x="147" y="150" width="9" height="38" rx="4.5" fill="#2E4C77" opacity="0.85" />
+      {/* chest emblem — dark panel, gold HALO + waveform (mockup detail) */}
+      <rect x="84" y="138" width="56" height="48" rx="11" fill="#040D20" stroke="url(#tsba-gold)" strokeWidth="1.4" />
+      <g fill={C.gold}>
+        <rect x="100" y="150" width="3" height="6" rx="1.5" />
+        <rect x="106" y="147" width="3" height="9" rx="1.5" />
+        <rect x="112" y="144" width="3" height="12" rx="1.5" />
+        <rect x="118" y="147" width="3" height="9" rx="1.5" />
+        <rect x="124" y="150" width="3" height="6" rx="1.5" />
+      </g>
+      <text x="112" y="176" textAnchor="middle" fontFamily="Inter, system-ui, sans-serif" fontSize="12.5" fontWeight="800" letterSpacing="3" fill="url(#tsba-gold)">HALO</text>
+
+      {/* ── shoulder pauldrons ── */}
+      <circle cx="58" cy="140" r="19" fill="url(#tsba-armor)" stroke={A.cyan(0.5)} strokeWidth="1" />
+      <circle cx="58" cy="140" r="9" fill="#0B1D3C" stroke={A.cyan(0.55)} strokeWidth="0.9" />
+      <circle cx="166" cy="140" r="19" fill="url(#tsba-armor)" stroke={A.cyan(0.5)} strokeWidth="1" />
+      <circle cx="166" cy="140" r="9" fill="#0B1D3C" stroke={A.cyan(0.55)} strokeWidth="0.9" />
+
+      {/* ── right arm · raised, palm under the globe ── */}
+      <path d="M170 150 L204 188" stroke="url(#tsba-armor2)" strokeWidth="20" strokeLinecap="round" />
+      <path d="M204 188 L198 154" stroke="url(#tsba-armor)" strokeWidth="17" strokeLinecap="round" />
+      {/* open palm + fingers */}
+      <ellipse cx="197" cy="147" rx="11.5" ry="7.5" fill="url(#tsba-armor)" stroke={A.cyan(0.45)} strokeWidth="0.8" />
+      <rect x="186" y="130" width="5" height="15" rx="2.5" fill="url(#tsba-armor2)" transform="rotate(-16 188 137)" />
+      <rect x="194" y="127" width="5" height="17" rx="2.5" fill="url(#tsba-armor2)" transform="rotate(-4 196 135)" />
+      <rect x="201" y="128" width="5" height="16" rx="2.5" fill="url(#tsba-armor2)" transform="rotate(9 203 136)" />
+      <rect x="208" y="132" width="5" height="13" rx="2.5" fill="url(#tsba-armor2)" transform="rotate(22 210 138)" />
+
+      {/* ── head ── */}
+      {/* gold head fin (mockup accent) */}
+      <path d="M86 40 Q90 22 104 18 L99 38 Z" fill="url(#tsba-gold)" opacity="0.95" />
+      {/* helmet */}
+      <path d="M68 70 Q68 34 110 34 Q152 34 152 70 L152 86 Q152 108 110 108 Q68 108 68 86 Z" fill="url(#tsba-armor)" stroke={A.cyan(0.55)} strokeWidth="1.1" />
+      {/* helmet shine */}
+      <path d="M78 54 Q86 40 104 36" fill="none" stroke="#FFFFFF" strokeWidth="3" strokeLinecap="round" opacity="0.65" />
+      {/* ear pods */}
+      <circle cx="66" cy="82" r="8" fill="#0B1D3C" stroke={A.cyan(0.6)} strokeWidth="1" />
+      <circle cx="66" cy="82" r="3" fill={C.cyan}>
         <animate attributeName="opacity" values="1;0.4;1" dur="2.4s" repeatCount="indefinite" />
       </circle>
-      <circle cx="67" cy="36" r="2.6" fill={C.cyan}>
-        <animate attributeName="opacity" values="1;0.4;1" dur="2.4s" begin="0.6s" repeatCount="indefinite" />
+      <circle cx="154" cy="82" r="8" fill="#0B1D3C" stroke={A.cyan(0.6)} strokeWidth="1" />
+      <circle cx="154" cy="82" r="3" fill={C.cyan}>
+        <animate attributeName="opacity" values="1;0.4;1" dur="2.4s" begin="0.7s" repeatCount="indefinite" />
       </circle>
-      <rect x="50" y="46" width="20" height="2.4" rx="1.2" fill={A.cyan(0.4)} />
-      {/* torso */}
-      <rect x="42" y="56" width="36" height="30" rx="9" fill="url(#tfsb-body)" stroke={A.cyan(0.5)} strokeWidth="1.1" />
-      <rect x="52" y="64" width="16" height="10" rx="3" fill="#020B1A" stroke={A.gold(0.75)} strokeWidth="1" />
-      <circle cx="60" cy="69" r="2.2" fill={C.gold} />
-      {/* left arm holding the globe */}
-      <path d="M42 62 Q28 66 26 80" fill="none" stroke="#3E6FB4" strokeWidth="5" strokeLinecap="round" />
-      <circle cx="24" cy="86" r="3.4" fill="#9BE8FF" stroke={A.cyan(0.7)} strokeWidth="0.8" />
-      {/* right arm */}
-      <path d="M78 62 Q92 66 94 80" fill="none" stroke="#3E6FB4" strokeWidth="5" strokeLinecap="round" />
-      <circle cx="96" cy="86" r="3.4" fill="#9BE8FF" stroke={A.cyan(0.7)} strokeWidth="0.8" />
-      {/* holographic globe with candles */}
-      <circle cx="60" cy="104" r="30" fill="url(#tfsb-globe)" />
-      <circle cx="60" cy="104" r="30" fill="none" stroke={A.cyan(0.55)} strokeWidth="1.2" />
-      <ellipse cx="60" cy="104" rx="30" ry="11" fill="none" stroke={A.cyan(0.3)} strokeWidth="0.8" />
-      <ellipse cx="60" cy="104" rx="11" ry="30" fill="none" stroke={A.cyan(0.3)} strokeWidth="0.8" />
-      {/* candlesticks inside the globe */}
-      <line x1="48" y1="92" x2="48" y2="112" stroke={C.green} strokeWidth="1.4" />
-      <rect x="45" y="97" width="6" height="9" rx="1" fill={C.green} />
-      <line x1="60" y1="88" x2="60" y2="110" stroke={C.red} strokeWidth="1.4" />
-      <rect x="57" y="92" width="6" height="10" rx="1" fill={C.red} />
-      <line x1="72" y1="94" x2="72" y2="116" stroke={C.green} strokeWidth="1.4" />
-      <rect x="69" y="99" width="6" height="10" rx="1" fill={C.green} />
+      {/* visor faceplate */}
+      <rect x="76" y="58" width="68" height="38" rx="17" fill="url(#tsba-visor)" stroke={A.cyan(0.45)} strokeWidth="0.9" />
+      {/* glowing eyes — angled, fierce (mockup detail) */}
+      <ellipse cx="95" cy="77" rx="12" ry="7.5" fill={A.cyan(0.28)} />
+      <ellipse cx="127" cy="77" rx="12" ry="7.5" fill={A.cyan(0.28)} />
+      <path d="M84 78 Q95 68 106 77 Q95 83 84 78 Z" fill={C.cyan}>
+        <animate attributeName="opacity" values="1;0.72;1" dur="3.1s" repeatCount="indefinite" />
+      </path>
+      <path d="M138 77 Q127 68 116 77 Q127 83 138 77 Z" fill={C.cyan}>
+        <animate attributeName="opacity" values="1;0.72;1" dur="3.1s" begin="0.5s" repeatCount="indefinite" />
+      </path>
+      <ellipse cx="96" cy="75" rx="3" ry="1.8" fill="#EAFBFF" />
+      <ellipse cx="126" cy="75" rx="3" ry="1.8" fill="#EAFBFF" />
+      {/* chin slot */}
+      <rect x="102" y="90" width="16" height="3.4" rx="1.7" fill={A.cyan(0.35)} />
+
+      {/* ── holographic candle globe (mockup centrepiece) ── */}
+      <circle cx="196" cy="92" r="50" fill="url(#tsba-globe)" />
+      <circle cx="196" cy="92" r="50" fill="none" stroke={A.cyan(0.7)} strokeWidth="1.2" />
+      <ellipse cx="196" cy="92" rx="50" ry="15" fill="none" stroke={A.cyan(0.38)} strokeWidth="0.7" />
+      <ellipse cx="196" cy="92" rx="15" ry="50" fill="none" stroke={A.cyan(0.38)} strokeWidth="0.7" />
+      <line x1="150" y1="80" x2="242" y2="80" stroke={A.cyan(0.16)} strokeWidth="0.7" />
+      <line x1="150" y1="104" x2="242" y2="104" stroke={A.cyan(0.16)} strokeWidth="0.7" />
+      {/* candles */}
+      <line x1="176" y1="66" x2="176" y2="110" stroke={C.green} strokeWidth="1.3" />
+      <rect x="172.5" y="78" width="7" height="20" rx="1" fill={C.green} />
+      <line x1="190" y1="60" x2="190" y2="102" stroke={C.red} strokeWidth="1.3" />
+      <rect x="186.5" y="70" width="7" height="17" rx="1" fill={C.red} />
+      <line x1="204" y1="68" x2="204" y2="114" stroke={C.green} strokeWidth="1.3" />
+      <rect x="200.5" y="80" width="7" height="22" rx="1" fill={C.green} />
+      <line x1="218" y1="62" x2="218" y2="100" stroke={C.green} strokeWidth="1.3" />
+      <rect x="214.5" y="70" width="7" height="15" rx="1" fill={C.green} />
+      {/* orbit ring */}
+      <g transform="rotate(-16 196 92)">
+        <ellipse cx="196" cy="92" rx="64" ry="17" fill="none" stroke={A.cyan(0.4)} strokeWidth="1.2" />
+        <path d="M132 92 A64 17 0 0 0 260 92" fill="none" stroke={A.cyan(0.85)} strokeWidth="1.6" strokeLinecap="round" />
+      </g>
       {/* glow pulse */}
-      <circle cx="60" cy="104" r="30" fill="none" stroke={A.cyan(0.8)} strokeWidth="0.8" opacity="0.5">
-        <animate attributeName="r" values="28;33;28" dur="3.2s" repeatCount="indefinite" />
-        <animate attributeName="opacity" values="0.55;0.1;0.55" dur="3.2s" repeatCount="indefinite" />
+      <circle cx="196" cy="92" r="50" fill="none" stroke={A.cyan(0.8)} strokeWidth="0.9">
+        <animate attributeName="r" values="48;56;48" dur="3.2s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.5;0.08;0.5" dur="3.2s" repeatCount="indefinite" />
       </circle>
+      {/* sparkles */}
+      <g fill="#BFF0FF">
+        <path d="M148 42 l1.6 4 4 1.6 -4 1.6 -1.6 4 -1.6 -4 -4 -1.6 4 -1.6 Z">
+          <animate attributeName="opacity" values="1;0.15;1" dur="2.2s" repeatCount="indefinite" />
+        </path>
+        <path d="M246 58 l1.3 3.2 3.2 1.3 -3.2 1.3 -1.3 3.2 -1.3 -3.2 -3.2 -1.3 3.2 -1.3 Z">
+          <animate attributeName="opacity" values="0.2;1;0.2" dur="2.8s" repeatCount="indefinite" />
+        </path>
+        <path d="M152 138 l1.2 3 3 1.2 -3 1.2 -1.2 3 -1.2 -3 -3 -1.2 3 -1.2 Z">
+          <animate attributeName="opacity" values="1;0.2;1" dur="3.4s" repeatCount="indefinite" />
+        </path>
+      </g>
     </svg>
   );
 }

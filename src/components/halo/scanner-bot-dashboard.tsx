@@ -164,8 +164,20 @@ function ProgressRing({ pct, word, scanning }: { pct: number; word: string; scan
             strokeDasharray={CIRC} strokeDashoffset={off}
             style={{ transition: "stroke-dashoffset 0.8s ease" }}
           />
-          <circle cx="75" cy="75" r="71" fill="none" stroke={A.cyan(0.22)} strokeWidth="1" strokeDasharray="2 7" />
-          <circle cx="75" cy="75" r="50" fill="none" stroke={A.cyan(0.12)} strokeWidth="1" />
+          <circle cx="75" cy="75" r="71" fill="none" stroke={A.cyan(0.3)} strokeWidth="1.6" strokeDasharray="1.5 6.2" />
+          <circle cx="75" cy="75" r="50" fill="none" stroke={A.cyan(0.14)} strokeWidth="1" />
+          {/* glowing knob at the end of the progress arc */}
+          {p > 0 && (() => {
+            const th = ((p / 100) * 360 - 90) * (Math.PI / 180);
+            const kx = 75 + R * Math.cos(th);
+            const ky = 75 + R * Math.sin(th);
+            return (
+              <g>
+                <circle cx={kx} cy={ky} r="7" fill={A.cyan(0.3)} />
+                <circle cx={kx} cy={ky} r="3.6" fill="#EAFBFF" stroke={C.cyan} strokeWidth="1.4" />
+              </g>
+            );
+          })()}
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
           <span className="font-mono text-[27px] font-extrabold tracking-tight" style={{ color: C.txt, textShadow: `0 0 16px ${A.cyan(0.55)}` }}>
@@ -435,11 +447,6 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
               background: "radial-gradient(circle at 50% 42%, rgba(30,144,255,0.14), transparent 68%)",
             }}
           >
-            {/* golden arcs behind the robot (mockup detail) */}
-            <svg viewBox="0 0 260 260" className="pointer-events-none absolute left-1/2 top-1/2 h-[240px] w-[240px] -translate-x-1/2 -translate-y-1/2" aria-hidden>
-              <circle cx="130" cy="118" r="104" fill="none" stroke={A.gold(0.4)} strokeWidth="1.4" strokeDasharray="150 500" strokeLinecap="round" />
-              <circle cx="130" cy="118" r="92" fill="none" stroke={A.gold(0.28)} strokeWidth="1" strokeDasharray="90 480" strokeLinecap="round" />
-            </svg>
             {/* faint tech grid */}
             <div
               className="pointer-events-none absolute inset-0 opacity-[0.13]"
@@ -450,7 +457,7 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
                 WebkitMaskImage: "radial-gradient(circle at 50% 46%, black 20%, transparent 74%)",
               }}
             />
-            <div className="relative w-[172px] sm:w-[200px]" style={{ filter: `drop-shadow(0 0 20px ${A.cyan(0.3)})` }}>
+            <div className="relative w-[190px] sm:w-[215px] lg:w-[236px]" style={{ filter: `drop-shadow(0 0 22px ${A.cyan(0.28)})` }}>
               <ScannerBotArt />
             </div>
           </div>
