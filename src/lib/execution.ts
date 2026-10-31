@@ -10,6 +10,8 @@ import type { FireEvent } from "./halo/types";
 import { sendAlert } from "./alerts";
 import { getAdapter, parseCreds } from "./brokers";
 import type { BrokerKind } from "./brokers/types";
+import { publishBotEvent } from "./halo/event-bus";
+import { decimalsOf, getSymbolMeta } from "./market-symbols";
 
 export interface ExecSettings {
   executionMode: "paper" | "live";
@@ -108,10 +110,33 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     openedAt: new Date(fire.time),
   };
 
+  // Scanner / auto-trade fires say it out loud too (the 3EL bot announces
+  // its own fires in bot.ts — source BOT must not announce twice here).
+  const announce = (tradeId: string): void => {
+    if (job.source !== "SCAN") return;
+    try {
+      const meta = getSymbolMeta(job.symbol);
+      const label = meta.label.split("·")[0].trim() || job.symbol;
+      const px = (v: number): string => v.toFixed(decimalsOf(meta.mintick));
+      publishBotEvent({
+        kind: "fire",
+        prio: "high",
+        symbol: job.symbol,
+        tf: job.tf,
+        time: fire.time,
+        title: `TRADE FIRED · ${fire.dir === -1 ? "SELL" : "BUY"} ${label} @ ${px(fire.entry)}`,
+        spoken: `Trade fired — ${fire.dir === -1 ? "sell" : "buy"} ${label} at ${px(fire.entry)}. Stop loss ${px(fire.sl)}, take profit ${px(fire.tp)}. Risk ${fire.riskPips.toFixed(1)} pips for a target of ${fire.rewardPips.toFixed(1)} pips.`,
+      });
+    } catch {
+      // announcement must never break execution
+    }
+  };
+
   // ── PAPER ──
   if (job.exec.executionMode === "paper") {
     try {
       const tr = await db.trade.create({ data: { ...base, execMode: "PAPER", status: "OPEN" } });
+      announce(tr.id);
       return tr.id;
     } catch {
       return null;
@@ -181,6 +206,7 @@ export async function executeFire(job: FireJob): Promise<string | null> {
         note: res.error ? `fill ok; note: ${res.error}`.slice(0, 250) : "",
       },
     });
+    announce(tr.id);
     return tr.id;
   } catch {
     return null;

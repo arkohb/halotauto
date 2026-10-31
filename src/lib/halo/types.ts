@@ -156,6 +156,26 @@ export interface CloseEvent {
   message: string;
 }
 
+/** A level was ARMED — C1/C2 pair accepted, dotted wick trigger set. */
+export interface LevelEvent {
+  type: "level";
+  id: number;
+  side: Side;
+  top: number; // equal-level zone top (C1 close / C2 open band)
+  bot: number; // equal-level zone bottom
+  ext: number; // the DOTTED TRIGGER line (C1/C2 wick extreme) — the trade fires at this price
+}
+
+/** Candle 3 BREAKS beyond the dotted wick trigger line (announced once per level). */
+export interface BreakEvent {
+  type: "break";
+  id: number;
+  side: Side;
+  ext: number; // the dotted trigger line that was broken
+  price: number; // the break extreme so far (live bar high / low)
+  time: number;
+}
+
 /** A would-be fire refused by the ranging-market / too-close S/R filter. */
 export interface RangeSkipEvent {
   type: "range_skip";
@@ -173,10 +193,11 @@ export type EngineEvent =
   | FireEvent
   | CloseEvent
   | RangeSkipEvent
+  | LevelEvent
+  | BreakEvent
   | { type: "burned" }
   | { type: "skipped" }
-  | { type: "expired"; id: number }
-  | { type: "level"; id: number; side: Side };
+  | { type: "expired"; id: number };
 
 export interface EngineSnapshot {
   barIndex: number;

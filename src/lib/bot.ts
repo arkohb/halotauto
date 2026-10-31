@@ -18,6 +18,8 @@ import { sendAlert } from "./alerts";
 import { registerBotProbe } from "./strategy-select";
 import { maybeAnnounceRangeOpportunities } from "./range-scan";
 import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
+import { publishBotEvent } from "./halo/event-bus";
+import { decimalsOf } from "./market-symbols";
 
 // register the live runtime probe for the Pine auto-trade loop (leaf module,
 // avoids a circular import between bot.ts and pine-bot.ts)
@@ -267,9 +269,17 @@ function liveTrial(live: Candle): void {
   const events = clone.processBar(live, false);
   // commit when a fire/exit HAPPENS — a range_skip also consumes the level
   // (the too-close trigger is burned) so it must persist too, or the live
-  // trial would re-evaluate the same skip on every feed tick
+  // trial would re-evaluate the same skip on every feed tick. A C3 BREAK is
+  // committed as well: the trader must hear "candle 3 is breaking…" the
+  // moment it happens (live, intrabar), and the level's broke flag must
+  // persist so the break is never announced twice.
   const commit = events.some(
-    (e) => e.type === "fire" || e.type === "win" || e.type === "loss" || e.type === "range_skip"
+    (e) =>
+      e.type === "fire" ||
+      e.type === "win" ||
+      e.type === "loss" ||
+      e.type === "range_skip" ||
+      e.type === "break"
   );
   if (commit) {
     bot.engine = clone;
@@ -281,6 +291,7 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
   const bot = getBot();
   const meta = getSymbolMeta(bot.symbol);
   const symLabel = meta.label.split("·")[0].trim() || bot.symbol;
+  const px = (v: number): string => v.toFixed(decimalsOf(meta.mintick));
   for (const e of events) {
     if (e.type === "fire") {
       // SINGLE ACTIVE STRATEGY — when a Pine strategy is selected in the
@@ -291,6 +302,15 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
           kind: "status",
           title: "HALO 3EL · FIRE SKIPPED — PINE STRATEGY ACTIVE",
           body: `${e.dir === -1 ? "SELL" : "BUY"} @ ${e.entry} on ${bot.symbol} ${bot.tf} was NOT executed: the bot is currently trading the Pine strategy "${getPineBotInfo().name}". Deactivate it in the Strategy Studio to restore 3EL auto-trading.`,
+        });
+        publishBotEvent({
+          kind: "status",
+          prio: "low",
+          symbol: bot.symbol,
+          tf: bot.tf,
+          time: e.time,
+          title: `3EL FIRE SKIPPED · PINE ACTIVE · ${symLabel}`,
+          spoken: `A ${e.dir === -1 ? "sell" : "buy"} signal appeared on ${symLabel}, but it was not executed — the Pine strategy ${getPineBotInfo().name} is trading instead.`,
         });
         continue;
       }
@@ -315,6 +335,18 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
         title: `HALO 3EL ${e.dir === -1 ? "SELL" : "BUY"} · ${symLabel}`,
         body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nMode: ${live ? `LIVE · ${bot.liveBroker?.label ?? "broker"}` : "PAPER"}\nRisk ${e.riskPips.toFixed(1)} pips → reward ${e.rewardPips.toFixed(1)} pips`,
       });
+      // the trade really opened → the bot says it out loud to alert the trader
+      if (tradeId) {
+        publishBotEvent({
+          kind: "fire",
+          prio: "high",
+          symbol: bot.symbol,
+          tf: bot.tf,
+          time: e.time,
+          title: `TRADE FIRED · ${e.dir === -1 ? "SELL" : "BUY"} ${symLabel} @ ${px(e.entry)}`,
+          spoken: `Trade fired — ${e.dir === -1 ? "sell" : "buy"} ${symLabel} at ${px(e.entry)}. Stop loss ${px(e.sl)}, take profit ${px(e.tp)}. Risk ${e.riskPips.toFixed(1)} pips for a target of ${e.rewardPips.toFixed(1)} pips.`,
+        });
+      }
     } else if (e.type === "win" || e.type === "loss") {
       const hadExecuted = !!bot.openTradeDbId; // a skipped fire (Pine active) never books anything
       const wasLive = bot.openTradeExec === "LIVE";
@@ -343,6 +375,15 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
           title: `HALO 3EL ${e.type === "win" ? "TP HIT +" : "SL HIT −"}${e.pips.toFixed(1)} PIPS · ${symLabel}`,
           body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nRealized book: ${bot.realizedPips >= 0 ? "+" : "−"}${Math.abs(bot.realizedPips).toFixed(1)} pips`,
         });
+        publishBotEvent({
+          kind: e.type,
+          prio: "high",
+          symbol: bot.symbol,
+          tf: bot.tf,
+          time: e.time,
+          title: `${e.type === "win" ? "TP HIT" : "SL HIT"} ${e.type === "win" ? "+" : "−"}${e.pips.toFixed(1)} pips · ${symLabel}`,
+          spoken: `${e.type === "win" ? "Take profit hit" : "Stop loss hit"} on ${symLabel} — ${e.type === "win" ? "plus" : "minus"} ${e.pips.toFixed(1)} pips. Total is ${bot.realizedPips >= 0 ? "plus" : "minus"} ${Math.abs(bot.realizedPips).toFixed(1)} pips.`,
+        });
       }
       bot.openTradeDbId = null;
       bot.openTradeExec = "PAPER";
@@ -357,7 +398,50 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
         title: `HALO 3EL · TRADE SKIPPED — RANGING MARKET (${e.dir === -1 ? "SELL" : "BUY"})`,
         body: `${e.message}\nSymbol: ${bot.symbol} · TF ${bot.tf}\nThe too-close level is burned — the EA keeps hunting fresh levels further from the range.`,
       });
+      publishBotEvent({
+        kind: "range_skip",
+        prio: "low",
+        symbol: bot.symbol,
+        tf: bot.tf,
+        time: e.time,
+        title: `TRADE SKIPPED · RANGING MARKET · ${symLabel}`,
+        spoken: e.message,
+      });
       void maybeAnnounceRangeOpportunities({ symbol: bot.symbol, tf: bot.tf, cfg: bot.cfg }).catch(() => {});
+    } else if (e.type === "level") {
+      // ── LEVEL ARMED — the bot announces it with the corresponding prices ──
+      // one armed support + one armed resistance stay live together; the
+      // moment the pair is complete both triggers are read out.
+      const lv = bot.engine.snapshot().levels;
+      const sup = lv.find((l) => l.side === 1);
+      const res = lv.find((l) => l.side === -1);
+      const both = !!sup && !!res;
+      const sideWord = e.side === -1 ? "Resistance" : "Support";
+      publishBotEvent({
+        kind: "armed",
+        prio: "low",
+        symbol: bot.symbol,
+        tf: bot.tf,
+        time: bar.time,
+        title: both
+          ? `BOTH LEVELS ARMED · ${symLabel} · R ${px(res!.ext)} / S ${px(sup!.ext)}`
+          : `${sideWord.toUpperCase()} ARMED · ${symLabel} @ ${px(e.ext)}`,
+        spoken: both
+          ? `Both levels are armed on ${symLabel} — resistance trigger at ${px(res!.ext)}, support trigger at ${px(sup!.ext)}. Two live triggers on the board.`
+          : `${sideWord} level armed on ${symLabel}, trigger line at ${px(e.ext)}. Watching for candle three to break the dotted line and return.`,
+      });
+    } else if (e.type === "break") {
+      // ── C3 BREAK — said LOUD (high priority): candle 3 pierced the dotted ──
+      // wick trigger line; the trade fires if price returns to the line.
+      publishBotEvent({
+        kind: "break",
+        prio: "high",
+        symbol: bot.symbol,
+        tf: bot.tf,
+        time: e.time,
+        title: `C3 BREAK · ${e.side === -1 ? "RESISTANCE" : "SUPPORT"} ${px(e.ext)} · ${symLabel}`,
+        spoken: `Attention — candle three is breaking ${e.side === -1 ? "above" : "below"} the ${e.side === -1 ? "resistance" : "support"} trigger at ${px(e.ext)} on ${symLabel}. Price is beyond the dotted line — watching for the return to fire the trade.`,
+      });
     }
   }
   void bar;

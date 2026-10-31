@@ -50,6 +50,7 @@ interface InternalLevel {
   b1Time: number;
   b2Time: number;
   b1Index: number;
+  broke: boolean; // candle 3 already broke beyond the dotted line (break event fired once)
 }
 
 interface EngineState {
@@ -260,6 +261,19 @@ export class HaloEngine {
         // BREAK beyond the dotted wick line (C1/C2 extreme)
         const broke = L.side === -1 ? bar.high >= L.ext + brk : bar.low <= L.ext - brk;
         if (broke && atrOK) {
+          if (!L.broke) {
+            // FIRST tick beyond the dotted trigger line — the bot announces
+            // this loudly ("candle 3 is breaking…") exactly once per level.
+            L.broke = true;
+            ev.push({
+              type: "break",
+              id: L.id,
+              side: L.side,
+              ext: L.ext,
+              price: L.side === -1 ? bar.high : bar.low,
+              time: bar.time,
+            });
+          }
           // RETURN to the dotted line → fire instantly
           const back = L.side === -1 ? bar.close <= L.ext + eqTol : bar.close >= L.ext - eqTol;
           if (back && canFire) {
@@ -444,6 +458,7 @@ export class HaloEngine {
               b1Time: p1.time,
               b2Time: bar.time,
               b1Index: curIndex - 1,
+              broke: false,
             };
             s.levels.push(lvl);
             s.drawings.push({
@@ -477,7 +492,7 @@ export class HaloEngine {
                 ev.push({ type: "expired", id: O.id });
               }
             }
-            ev.push({ type: "level", id, side: lvl.side });
+            ev.push({ type: "level", id, side: lvl.side, top: lvl.top, bot: lvl.bot, ext: lvl.ext });
           }
         }
       }

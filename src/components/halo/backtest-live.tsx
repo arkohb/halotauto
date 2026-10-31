@@ -355,6 +355,15 @@ export function BacktestLive({ symbol, tf, config }: Props) {
           tape({ t: barTime, kind: "burn", text: "level burned", sub: "broke the wick line, never returned — no trade" });
         } else if (e.type === "skipped") {
           tape({ t: barTime, kind: "skip", text: "signal skipped", sub: "a trade is already open" });
+        } else if (e.type === "range_skip") {
+          // RANGE FILTER — the honest skip: the market is RANGING and the
+          // marked support & resistance are too close for entry (the same
+          // rule the live bot trades by). The replay states it, then keeps
+          // hunting for fresh levels further from the range.
+          const text = `RANGE SKIP · ${e.dir === -1 ? "SELL" : "BUY"} refused`;
+          const sub = `S ${fmtPx(e.supportPx, mt)} / R ${fmtPx(e.resistancePx, mt)} — ${e.gapPips.toFixed(1)}p apart (min ${e.minGapPips.toFixed(1)}p) · too close for entry`;
+          bannerRef.current = { t: barTime, text, sub, tone: "info" };
+          tape({ t: e.time, kind: "skip", text, sub });
         }
         // "expired" levels are housekeeping — not shown
       }

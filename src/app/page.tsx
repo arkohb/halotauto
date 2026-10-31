@@ -49,6 +49,7 @@ import { RobotAssistant } from "@/components/halo/robot-assistant";
 import { HaloCore } from "@/components/halo/halo-core";
 import { JarvisConsole } from "@/components/halo/jarvis-console";
 import { HaloVoiceProvider } from "@/components/halo/voice-provider";
+import { BotAnnouncer } from "@/components/halo/bot-announcer";
 import { WelcomeGreeting } from "@/components/halo/welcome-greeting";
 import { WelcomeOverlay } from "@/components/halo/welcome-overlay";
 import { VoiceSettingsCard } from "@/components/halo/voice-settings-card";
@@ -747,6 +748,11 @@ export default function Page() {
 
       {/* HALO-B — the robotic face of the EA, present on every view */}
       <RobotAssistant state={state} candles={candles} />
+
+      {/* BOT ANNOUNCER — the bot speaks its strategy events (levels armed
+          with their prices, C3 breaks of the dotted line, fired trades,
+          TP/SL, ranging-market skips) the moment they happen */}
+      <BotAnnouncer />
 
       {/* JARVIS console — floating on every view; the full-screen console lives in Voice Command */}
       <JarvisConsole variant="floating" />
