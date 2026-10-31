@@ -39,6 +39,7 @@ import { HistoryPanel } from "@/components/halo/history-panel";
 import { BacktestPanel } from "@/components/halo/backtest-panel";
 import { BacktestLive } from "@/components/halo/backtest-live";
 import { ScannerPanel } from "@/components/halo/scanner-panel";
+import { ScannerBotDashboard } from "@/components/halo/scanner-bot-dashboard";
 import { IntelPanel } from "@/components/halo/intel-panel";
 import { BrokersPanel } from "@/components/halo/brokers-panel";
 import { AlertsPanel } from "@/components/halo/alerts-panel";
@@ -483,6 +484,9 @@ export default function Page() {
                 <ScannerPanel notify={notify} onJumpToSymbol={jumpToSymbol} />
               </>
             )}
+
+            {/* ════════ SCANNER BOT · dedicated signal-bot dashboard ════════ */}
+            {view === "scanner-bot" && <ScannerBotDashboard notify={notify} />}
 
             {/* ════════ MARKET INTELLIGENCE (mockup 02) ════════ */}
             {view === "intel" && (

@@ -10,7 +10,7 @@
 //    Strategy Lab · Trade History · Performance · Daily Briefing ·
 //    Learning Missions · Settings
 //    SYSTEM group keeps every remaining real surface reachable:
-//    Market Scanner · Voice Command · Brokers · Alerts
+//    Scanner Bot · Market Scanner · Voice Command · Brokers · Alerts
 //  Mobile (<lg): horizontally scrollable chip bar rendered below the header.
 //
 //  Presentation only — fires onView(); owns no trading state.
@@ -19,6 +19,7 @@
 import {
   Activity,
   Bell,
+  Bot,
   BookOpen,
   Braces,
   FlaskConical,
@@ -39,6 +40,7 @@ import { A, C } from "@/lib/halo/ui-helpers";
 export type HaloView =
   | "terminal"
   | "scanner"
+  | "scanner-bot"
   | "activity"
   | "risk"
   | "backtest"
@@ -79,6 +81,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "SYSTEM",
     items: [
+      { id: "scanner-bot", label: "Scanner Bot", icon: Bot },
       { id: "scanner", label: "Market Scanner", icon: Radar },
       { id: "voice", label: "Voice Command", icon: Mic },
       { id: "brokers", label: "Brokers & MT5", icon: Landmark },

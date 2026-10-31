@@ -23,6 +23,7 @@ import { SYMBOLS, TIMEFRAMES } from "@/lib/market-symbols";
 export type ViewId =
   | "terminal"
   | "scanner"
+  | "scanner-bot"
   | "activity"
   | "risk"
   | "backtest"
@@ -56,6 +57,7 @@ export const VIEWS: ViewMeta[] = [
   { id: "learning", label: "Learning Missions", aliases: ["learning missions", "learning", "missions", "strategy guide", "how it works"] },
   { id: "settings", label: "Settings", aliases: ["settings", "preferences", "config", "voice settings"] },
   { id: "scanner", label: "Market Scanner", aliases: ["market scanner", "scanner", "multi-symbol", "watchlist"] },
+  { id: "scanner-bot", label: "Scanner Bot", aliases: ["scanner bot", "timeframe scanner", "timeframe scanner bot", "tf scanner", "tf-scanner", "scan all markets"] },
   { id: "voice", label: "Voice Command", aliases: ["voice command", "voice center", "voice", "talk to halo", "conversation"] },
   { id: "brokers", label: "Brokers & MT5", aliases: ["brokers", "broker", "mt5", "connections", "accounts"] },
   { id: "alerts", label: "Alerts", aliases: ["alerts", "notifications", "telegram"] },

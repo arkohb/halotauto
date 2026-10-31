@@ -72,7 +72,7 @@ function fmtUtc(ms: number): string {
 }
 
 /** HALO robot holding a holographic globe of candlesticks — mockup artwork. */
-function ScannerBotArt(): React.ReactElement {
+export function ScannerBotArt(): React.ReactElement {
   return (
     <svg viewBox="0 0 120 150" className="h-full w-full" role="img" aria-label="HALO Timeframe Scanner Bot illustration">
       <defs>
