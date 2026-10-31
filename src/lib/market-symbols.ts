@@ -329,6 +329,148 @@ export function symbolsByGroup(g: SymbolGroup): SymbolMeta[] {
   return SYMBOLS.filter((s) => s.group === g);
 }
 
+// ── LIVE FEED MAPPING · real-time browser streams (client-safe) ─────────
+// The chart's live layer subscribes straight to the venue that publishes
+// each instrument, so the candles move tick-by-tick like the real
+// TradingView web chart:
+//   • SYNTHETICS / FOREX / METALS → Deriv public websocket (app_id 1089):
+//     `ticks_history` seeds REAL candles, then `ohlc` pushes the forming
+//     candle on every tick. Codes below are Deriv API stream symbols.
+//   • CRYPTO → Binance kline websocket (same source as the REST candles).
+//   • Anything without a code/hint → no stream; polling keeps driving it.
+
+/** internal id → Deriv websocket stream symbol (high-confidence classics) */
+export const DERIV_WS_CODE: Record<string, string> = {
+  // continuous volatility indices
+  V10: "R_10",
+  V25: "R_25",
+  V50: "R_50",
+  V75: "R_75",
+  V100: "R_100",
+  // 1-second volatility variants
+  V10S: "R_10s",
+  V25S: "R_25s",
+  V50S: "R_50s",
+  V75S: "R_75s",
+  V100S: "R_100s",
+  // boom / crash classics
+  BOOM300: "BOOM300",
+  BOOM500: "BOOM500",
+  BOOM1000: "BOOM1000",
+  CRASH300: "CRASH300",
+  CRASH500: "CRASH500",
+  CRASH1000: "CRASH1000",
+  // step / range break / jump families
+  STEP: "stpRNG",
+  RB100: "RB100",
+  RB200: "RB200",
+  JUMP10: "JD10",
+  JUMP25: "JD25",
+  JUMP50: "JD50",
+  JUMP75: "JD75",
+  JUMP100: "JD100",
+};
+
+/**
+ * Normalized display-name candidates for symbols whose stream code is not
+ * fixed here — resolved at runtime against Deriv `active_symbols` (both the
+ * display name and the raw symbol are normalized and compared). Keeps the
+ * map future-proof as Deriv lists new instruments.
+ */
+export const DERIV_NAME_HINTS: Record<string, string[]> = {
+  V5: ["volatility5index"],
+  V15: ["volatility15index"],
+  V30: ["volatility30index"],
+  V90: ["volatility90index"],
+  V5S: ["volatility51sindex"],
+  V15S: ["volatility151sindex"],
+  V30S: ["volatility301sindex"],
+  V90S: ["volatility901sindex"],
+  V150S: ["volatility1501sindex"],
+  V250S: ["volatility2501sindex"],
+  BOOM50: ["boom50index"],
+  BOOM99: ["boom99index"],
+  BOOM100: ["boom100index"],
+  BOOM150: ["boom150index"],
+  BOOM200: ["boom200index"],
+  BOOM400: ["boom400index"],
+  BOOM550: ["boom550index"],
+  BOOM600: ["boom600index"],
+  BOOM750: ["boom750index"],
+  BOOM900: ["boom900index"],
+  CRASH50: ["crash50index"],
+  CRASH99: ["crash99index"],
+  CRASH100: ["crash100index"],
+  CRASH150: ["crash150index"],
+  CRASH200: ["crash200index"],
+  CRASH400: ["crash400index"],
+  CRASH550: ["crash550index"],
+  CRASH600: ["crash600index"],
+  CRASH750: ["crash750index"],
+  CRASH900: ["crash900index"],
+  VBOOM400: ["volatilityboom400index"],
+  VBOOM550: ["volatilityboom550index"],
+  VBOOM750: ["volatilityboom750index"],
+  VCRASH400: ["volatilitycrash400index"],
+  VCRASH550: ["volatilitycrash550index"],
+  VCRASH750: ["volatilitycrash750index"],
+  CBF150: ["crashboomflip150index"],
+  CBF300: ["crashboomflip300index"],
+  CBF500: ["crashboomflip500index"],
+  CBF1000: ["crashboomflip1000index"],
+  SKEWSTEP: ["skewstepindex"],
+  MS2: ["multistep2index"],
+  MS3: ["multistep3index"],
+  MS4: ["multistep4index"],
+  HFVOL10: ["highfrequencyvol10index"],
+  HFVOL25: ["highfrequencyvol25index"],
+  HFVOL50: ["highfrequencyvol50index"],
+  HFVOL75: ["highfrequencyvol75index"],
+  HFVOL100: ["highfrequencyvol100index"],
+  DS10: ["driftswitch10index"],
+  DS20: ["driftswitch20index"],
+  DS30: ["driftswitch30index"],
+  VSWLOW: ["volswitchlowindex", "volswitchlowvolindex"],
+  VSWMED: ["volswitchmediumindex", "volswitchmediumvolindex"],
+  VSWHIGH: ["volswitchhighindex", "volswitchhighvolindex"],
+  LADDERUP: ["ladderupindex", "laddervolatilityupindex"],
+  LADDERDOWN: ["ladderdownindex", "laddervolatilitydownindex"],
+  TREKUP: ["trekupindex", "trekvolatilityupindex"],
+  TREKDOWN: ["trekdownindex", "trekvolatilitydownindex"],
+  DEX600UP: ["dex600upindex"],
+  DEX600DOWN: ["dex600downindex"],
+  DEX900UP: ["dex900upindex"],
+  DEX900DOWN: ["dex900downindex"],
+  DEX1500UP: ["dex1500upindex"],
+  DEX1500DOWN: ["dex1500downindex"],
+  // stock indices & energy — Deriv OTC names + raw symbol fallbacks
+  US30: ["wallstreetindex", "us30index", "otcdji30", "dj30index"],
+  US100: ["us100index", "nasdaq100index", "otcndx100"],
+  US500: ["us500index", "sp500index", "otcspx500", "otcspu500"],
+  US2000: ["us2000index", "russell2000index", "otcrussell2000"],
+  GER40: ["ger40index", "germany40index", "dax40index", "otcger40"],
+  UK100: ["uk100index", "ftse100index", "otcuk100"],
+  FRA40: ["fra40index", "france40index", "cac40index", "otcfra40"],
+  EU50: ["eu50index", "eurostoxx50index", "otceu50"],
+  JPN225: ["jpn225index", "japan225index", "nikkei225index", "otcjpn225"],
+  AUS200: ["aus200index", "asx200index", "otcaus200"],
+  HK50: ["hk50index", "hangsengindex", "otchk50"],
+  USOIL: ["usoilindex", "wticrudeoilindex", "wticrudeindex", "otcusoil"],
+  UKOIL: ["ukoilindex", "brentcrudeoilindex", "brentcrudeindex", "otcukoil"],
+  NGAS: ["ngasindex", "naturalgasindex", "otcngas"],
+  // metals — display-name fallbacks when the frx code is rejected
+  XAUUSD: ["xauusd", "gold"],
+  XAGUSD: ["xagusd", "silver"],
+  XPTUSD: ["xptusd", "platinum"],
+  XPDUSD: ["xpdusd", "palladium"],
+  XCUUSD: ["xcuusd", "copper"],
+};
+
+/** bar granularities the Deriv candle stream accepts (seconds) */
+export const DERIV_GRANULARITIES = new Set<number>([
+  60, 120, 180, 300, 600, 900, 1800, 3600, 7200, 14400, 28800, 86400,
+]);
+
 export function getSymbolMeta(id: string): SymbolMeta {
   return SYMBOLS.find((s) => s.id === id) ?? SYMBOLS[0];
 }

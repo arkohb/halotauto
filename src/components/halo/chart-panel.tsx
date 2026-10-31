@@ -44,6 +44,7 @@ import {
 import type { Candle, HaloConfig, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
 import { C, fmtPx, type PineOverlayData } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
+import { subscribeLiveBars, type LiveBar, type LiveFeedKind } from "@/lib/halo/live-feed";
 import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-symbols";
 import { TvChart } from "./tv-chart";
 import { TvSignalOverlay } from "./tv-signal-overlay";
@@ -83,6 +84,8 @@ interface ChartProps {
   atr: number | null;
   /** last feed price — read-only */
   price: number;
+  /** live stream price from this chart (real venue feed) — lifted so tickers stay in sync */
+  onLivePrice?: (symbol: string, price: number) => void;
 }
 
 interface LevelLines {
@@ -208,7 +211,7 @@ const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator
 export default function ChartPanel(props: ChartProps) {
   const {
     candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing,
-    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy, onLivePrice,
   } = props;
   const [mode, setMode] = useState<ChartMode>("3el");
   const [tvNote, setTvNote] = useState<string | null>(null);
@@ -225,6 +228,22 @@ export default function ChartPanel(props: ChartProps) {
   const liveCandle = candles.length > 0 ? candles[candles.length - 1] : undefined;
   const forming = useMemo(() => c3FormCheck(liveCandle, freshLevels, atr, cfg), [liveCandle, freshLevels, atr, cfg]);
   const bestForm = bestC3Form(forming);
+
+  // ── live stream state ──
+  // active: a real venue stream (Deriv WS / Binance kline WS) is driving the
+  // forming candle at tick rate. liveBar is a throttled mirror used only by
+  // the light overlays (indicator rail, candle timer) — the candle series
+  // itself updates per tick straight on the chart, no React re-render.
+  const [liveStat, setLiveStat] = useState<{ active: boolean; kind: LiveFeedKind | null }>({ active: false, kind: null });
+  const [liveBar, setLiveBar] = useState<Candle | null>(null);
+  // actual time window of the bars currently IN the chart series (from either
+  // the polled candles or the live feed history). Markers may only anchor to
+  // times inside this window — lightweight-charts' markers primitive throws
+  // "Value is null" when a marker time is missing from the series data.
+  // ref = source of truth (kept fresh before the overlays effect runs);
+  // state = re-render trigger for the feed-driven window changes.
+  const seriesWinRef = useRef<{ first: number; last: number } | null>(null);
+  const [seriesWin, setSeriesWin] = useState<{ first: number; last: number } | null>(null);
 
   // restore persisted chart mode (deferred so we never setState synchronously in an effect)
   useEffect(() => {
@@ -294,10 +313,83 @@ export default function ChartPanel(props: ChartProps) {
     };
   }, [mode]);
 
+  // ── LIVE STREAM · per-tick updates straight from the venue ───────────
+  // Deriv public WS (synthetics / forex / metals) or Binance kline WS
+  // (crypto) pushes the forming candle on every tick, exactly like the real
+  // TradingView web chart. The Deriv feed also seeds REAL history (replacing
+  // the polling series for that symbol). Presentation only — the strategy
+  // engine, risk and execution are never touched.
+  useEffect(() => {
+    let alive = true;
+    let lastPush = 0;
+    const pushLive = (b: LiveBar, force: boolean) => {
+      if (!alive) return;
+      const now = Date.now();
+      if (!force && now - lastPush < 400) return;
+      lastPush = now;
+      setLiveBar({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
+      onLivePrice?.(symbol, b.close);
+    };
+    const un = subscribeLiveBars(symbol, tf, {
+      onStatus: (st) => {
+        if (alive) setLiveStat({ active: st.active, kind: st.kind });
+      },
+      onHistory: (bars) => {
+        if (!alive || bars.length === 0) return;
+        pushLive(bars[bars.length - 1], true);
+        if (mode !== "3el") return;
+        const s = candleRef.current;
+        const chart = chartRef.current;
+        if (!s || !chart) return;
+        s.setData(
+          bars.map((b) => ({
+            time: (b.time / 1000) as UTCTimestamp,
+            open: b.open,
+            high: b.high,
+            low: b.low,
+            close: b.close,
+          }))
+        );
+        setSeriesWin((w) => (w && w.first === bars[0].time && w.last === bars[bars.length - 1].time ? w : { first: bars[0].time, last: bars[bars.length - 1].time }));
+        seriesWinRef.current = { first: bars[0].time, last: bars[bars.length - 1].time };
+        const key = `${symbol}|${tf}`;
+        if (fitKeyRef.current !== key) {
+          fitKeyRef.current = key;
+          chart.timeScale().fitContent();
+        }
+      },
+      onUpdate: (bar) => {
+        if (!alive) return;
+        if (mode === "3el") {
+          candleRef.current?.update({
+            time: (bar.time / 1000) as UTCTimestamp,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+          });
+        }
+        // a brand-new bar extends the series window (bar rollover)
+        setSeriesWin((w) => (w && bar.time > w.last ? { first: w.first, last: bar.time } : w));
+        if (seriesWinRef.current && bar.time > seriesWinRef.current.last) {
+          seriesWinRef.current = { first: seriesWinRef.current.first, last: bar.time };
+        }
+        pushLive(bar, false);
+      },
+    });
+    return () => {
+      alive = false;
+      un();
+    };
+  }, [symbol, tf, mode, onLivePrice]);
+
   // candle data — always push the full window whenever the prop changes
-  // (cheap for ≤720 bars and impossible to go stale)
+  // (cheap for ≤720 bars and impossible to go stale). Skipped while the
+  // Deriv live stream owns the series: its REAL history must never be
+  // stomped by the slower polled feed.
   useEffect(() => {
     if (mode !== "3el") return;
+    if (liveStat.active && liveStat.kind === "deriv") return;
     const s = candleRef.current;
     const chart = chartRef.current;
     if (!s || !chart || candles.length === 0) return;
@@ -310,13 +402,16 @@ export default function ChartPanel(props: ChartProps) {
         close: c.close,
       }))
     );
+    seriesWinRef.current = { first: candles[0].time, last: candles[candles.length - 1].time };
+    // (no setState here — the `candles` dependency already re-triggers the
+    // overlays effect, and the feed path owns the seriesWin state updates)
     // fit the full window once per symbol/timeframe switch (never fights user zoom)
     const key = `${symbol}|${tf}`;
     if (fitKeyRef.current !== key) {
       fitKeyRef.current = key;
       chart.timeScale().fitContent();
     }
-  }, [candles, mode, symbol, tf]);
+  }, [candles, mode, symbol, tf, liveStat.active, liveStat.kind]);
 
   // overlays: level zones + trigger lines + position tool + markers
   useEffect(() => {
@@ -326,6 +421,11 @@ export default function ChartPanel(props: ChartProps) {
     const mk = markersRef.current;
     const zone = zoneRef.current;
     if (!chart || !cs || !mk || !zone) return;
+    // markers must anchor to bars that exist in the series data — never draw
+    // them before the data window is known (see seriesWinRef note above)
+    const win = seriesWinRef.current;
+    if (!win) return;
+    const inWin = (t: number) => t >= win.first && t <= win.last;
 
     // clear previous overlays
     for (const s of overlayRef.current.series) chart.removeSeries(s);
@@ -509,12 +609,12 @@ export default function ChartPanel(props: ChartProps) {
       const alpha = d.state === "fresh" ? "0.95" : "0.6";
       const col = sideColor(d.side, alpha);
       const pos = d.side === -1 ? "aboveBar" : "belowBar";
-      markers.push({ time: (d.b1Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C1", color: col, size: 2 });
-      markers.push({ time: (d.b2Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C2", color: col, size: 2 });
+      if (inWin(d.b1Time)) markers.push({ time: (d.b1Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C1", color: col, size: 2 });
+      if (inWin(d.b2Time)) markers.push({ time: (d.b2Time / 1000) as UTCTimestamp, position: pos, shape: "circle", text: "C2", color: col, size: 2 });
     }
 
     // ── 4. C3 FORMING marker on the live bar (visual tracker) ──
-    if (liveCandle && bestForm) {
+    if (liveCandle && bestForm && inWin(liveCandle.time)) {
       const stageTxt =
         bestForm.stage === "retest" ? "C3 RETEST · FIRE IMMINENT" : bestForm.stage === "break" ? "C3 BREAKING WICK LINE" : "C3 AT WICK LINE";
       markers.push({
@@ -530,7 +630,7 @@ export default function ChartPanel(props: ChartProps) {
     // ── 5. the current trade's fire marker — old signals never clutter the chart ──
     if (trade) {
       const f = log.find((e) => e.kind === "fire" && e.time === trade.entryTime);
-      if (f) {
+      if (f && inWin(f.time)) {
         markers.push({
           time: (f.time / 1000) as UTCTimestamp,
           position: f.dir === -1 ? "aboveBar" : "belowBar",
@@ -544,7 +644,7 @@ export default function ChartPanel(props: ChartProps) {
 
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     mk.setMarkers(markers);
-  }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle]);
+  }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin]);
 
   // ── PINE STRATEGY OVERLAY · the active custom indicator draws itself here ──
   const [pineData, setPineData] = useState<PineOverlayData | null>(null);
@@ -661,7 +761,7 @@ export default function ChartPanel(props: ChartProps) {
           </SelectContent>
         </Select>
         <span className="hidden rounded-md border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#E9B94E] backdrop-blur md:inline">
-          {source}
+          {liveStat.active && liveStat.kind ? (liveStat.kind === "deriv" ? "DERIV LIVE" : "BINANCE LIVE") : source}
         </span>
         {tvNote && mode === "tv" && (
           <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(233,185,78,0.5)", color: C.gold }}>
@@ -749,8 +849,8 @@ export default function ChartPanel(props: ChartProps) {
             side="right"
             levels={freshLevels}
             trade={trade}
-            live={liveCandle}
-            price={price}
+            live={liveStat.active && liveBar ? liveBar : liveCandle}
+            price={liveStat.active && liveBar ? liveBar.close : price}
             atr={atr}
             cfg={cfg}
             mintick={mintick}
@@ -816,7 +916,7 @@ export default function ChartPanel(props: ChartProps) {
           {/* CANDLE TIMER — countdown to the current candle's close. The free
               TV embed is cross-origin (its own countdown can't be switched
               on from outside), so the timer rides on top as a HALO badge. */}
-          <CandleTimer tf={tf} barOpenTime={liveCandle ? liveCandle.time : null} />
+          <CandleTimer tf={tf} barOpenTime={liveStat.active && liveBar ? liveBar.time : liveCandle ? liveCandle.time : null} />
         </div>
       ) : (
         <div className="relative">
@@ -827,14 +927,14 @@ export default function ChartPanel(props: ChartProps) {
             side="left"
             levels={freshLevels}
             trade={trade}
-            live={liveCandle}
-            price={price}
+            live={liveStat.active && liveBar ? liveBar : liveCandle}
+            price={liveStat.active && liveBar ? liveBar.close : price}
             atr={atr}
             cfg={cfg}
             mintick={mintick}
           />
           {/* CANDLE TIMER — same countdown badge as the TV WEB view */}
-          <CandleTimer tf={tf} barOpenTime={liveCandle ? liveCandle.time : null} />
+          <CandleTimer tf={tf} barOpenTime={liveStat.active && liveBar ? liveBar.time : liveCandle ? liveCandle.time : null} />
         </div>
       )}
     </div>

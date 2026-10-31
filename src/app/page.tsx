@@ -79,6 +79,12 @@ export default function Page() {
   const navHistRef = useRef<ViewId | null>(null);
   const [histFilter, setHistFilter] = useState<HistoryPeriod>("all");
   const [candleNonce, setCandleNonce] = useState(0);
+  // live stream price straight from the venue feed (Deriv/Binance WS relayed
+  // by the chart) — keeps the big tickers in sync with the real-time chart
+  const [livePx, setLivePx] = useState<{ sym: string; px: number }>({ sym: "", px: 0 });
+  const handleLivePrice = useCallback((sym: string, px: number) => {
+    setLivePx((prev) => (prev.sym === sym && Math.abs(prev.px - px) < 1e-12 ? prev : { sym, px }));
+  }, []);
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
@@ -127,6 +133,7 @@ export default function Page() {
   // ── poll candles every 3s for the chart ──
   const symbol = state?.symbol ?? "PAXGUSDT";
   const tf = state?.tf ?? "5m";
+  const liveFeedPrice = livePx.sym === symbol && livePx.px > 0 ? livePx.px : 0;
   useEffect(() => {
     let alive = true;
     setCandles([]);
@@ -398,7 +405,8 @@ export default function Page() {
                       onTf={(t) => void changeTf(t)}
                       cfg={state.config}
                       atr={state.engine.atr}
-                      price={state.feed.price}
+                      price={liveFeedPrice > 0 ? liveFeedPrice : state.feed.price}
+                      onLivePrice={handleLivePrice}
                       pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
                     />
                   </div>
@@ -486,12 +494,13 @@ export default function Page() {
                     onTf={(t) => void changeTf(t)}
                     cfg={state.config}
                     atr={state.engine.atr}
-                    price={state.feed.price}
+                    price={liveFeedPrice > 0 ? liveFeedPrice : state.feed.price}
+                    onLivePrice={handleLivePrice}
                     pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
                   />
                 </div>
                 <div className="col-span-12 space-y-3 xl:col-span-4">
-                  <MarketPulse state={state} candles={candles} />
+                  <MarketPulse state={state} candles={candles} livePrice={liveFeedPrice} />
                   <MarketConditions state={state} candles={candles} />
                   <LevelsCard state={state} />
                 </div>

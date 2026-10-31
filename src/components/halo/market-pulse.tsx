@@ -23,11 +23,12 @@ function activeSessions(now: Date): string[] {
   return out;
 }
 
-export function MarketPulse({ state, candles }: { state: BotStateRes; candles: Candle[] }) {
+export function MarketPulse({ state, candles, livePrice }: { state: BotStateRes; candles: Candle[]; livePrice?: number }) {
   const meta = getSymbolMeta(state.symbol);
   const name = meta.label.split("·")[0].trim() || state.symbol;
   const dec = decimalsOf(state.mintick);
-  const price = state.feed.price;
+  // prefer the real-time venue stream price (chart WS relay) over the polled feed
+  const price = livePrice && livePrice > 0 ? livePrice : state.feed.price;
 
   // window change — honestly labelled as the loaded window, not a daily stat
   let chg: number | null = null;
