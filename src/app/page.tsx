@@ -14,7 +14,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Bell, BookOpen, FlaskConical, Globe, Landmark, Mic, Radar, ScrollText, Settings, ShieldCheck, SunMedium, TrendingUp } from "lucide-react";
+import { Activity, Bell, BookOpen, BookOpenCheck, FlaskConical, Globe, Landmark, Mic, Radar, ScrollText, Settings, ShieldCheck, SunMedium, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
@@ -60,6 +60,7 @@ import { RiskGuardian } from "@/components/halo/risk-guardian";
 import { TradingActivity } from "@/components/halo/trading-activity";
 import { StrategyExplainer } from "@/components/halo/strategy-explainer";
 import { PerformanceIntel } from "@/components/halo/performance-intel";
+import { JournalView } from "@/components/halo/journal/journal-view";
 import { DailyBriefing } from "@/components/halo/daily-briefing";
 import { MarketOverview } from "@/components/halo/market-overview";
 import { AccountSummary } from "@/components/halo/account-summary";
@@ -702,6 +703,13 @@ export default function Page() {
                 <PerformanceIntel refreshKey={histKey} />
                 <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
               </div>
+            )}
+
+            {/* ════════ PERFORMANCE JOURNAL (isolated premium feature) ════════ */}
+            {view === "journal" && (
+              <>
+                <JournalView notify={notify} />
+              </>
             )}
 
             {/* ════════ BROKERS ════════ */}

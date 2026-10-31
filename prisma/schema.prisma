@@ -362,3 +362,95 @@ model Notification {
   readAt    DateTime?
   createdAt DateTime  @default(now())
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+//  HALO PERFORMANCE JOURNAL — presentation/analytics feature. ISOLATED:
+//  never read by the trading engine, execution path, risk controls or
+//  broker integration. Pure journal of CLOSED trades (MT5 history sync,
+//  CSV import, manual entry or clearly-labeled demo data) + the trader's
+//  own review notes. One row per completed round-trip trade.
+// ══════════════════════════════════════════════════════════════════════════
+
+model JournalTrade {
+  id            String   @id @default(cuid())
+  userId        String // journal owner — every query is scoped by this
+  // provenance
+  source        String // MT5 | CSV | MANUAL | DEMO
+  brokerKind    String   @default("") // metaapi | … (empty for manual/CSV)
+  brokerAccount String   @default("") // BrokerAccount id or label
+  brokerLabel   String   @default("") // human label at sync time
+  // stable identity — dedup + correction upserts (always non-empty)
+  extKey        String // "{brokerAccountId}:{positionId}:{leg}" | "csv:{hash}" | "manual:{cuid}"
+  dealIdsJson   String   @default("[]") // every MT5 deal id composing this record (audit trail)
+  positionId    String   @default("") // MT5 position id (when known)
+  // instrument + direction
+  symbol        String
+  direction     String // BUY | SELL
+  volume        Float // lots (total entry volume)
+  volumeExit    Float    @default(0) // total closed volume (partial closes)
+  // prices
+  entryPrice    Float
+  exitPrice     Float
+  sl            Float? // SL recorded at entry (null = not recorded)
+  tp            Float?
+  // timing (all instants stored UTC)
+  openedAt      DateTime
+  closedAt      DateTime
+  durationMin   Int      @default(0) // whole minutes open
+  // money (account currency) — MT5 sign convention: commission/swap usually ≤ 0
+  grossProfit   Float    @default(0) // Σ deal.profit (price move only)
+  commission    Float    @default(0)
+  swap          Float    @default(0)
+  fees          Float    @default(0) // MT5 fee field
+  netPnl        Float    @default(0) // grossProfit + commission + swap + fees
+  currency      String   @default("USD")
+  // risk (price-based R — honest when lot contract size is unknown)
+  riskPrice     Float? // |entry − sl| when SL recorded
+  rMultiple     Float? // netPnl-expressed price move ÷ riskPrice
+  // classification — ONLY what was actually recorded (never assumed)
+  strategy      String   @default("")
+  timeframe     String   @default("")
+  session       String   @default("") // derived from UTC hour; labeled as derived in UI
+  status        String   @default("CLOSED")
+  // journaling (trader-authored)
+  notes         String   @default("")
+  reviewJson    String   @default("{}") // {reasonEntry,reasonExit,chartNotes,mistakes,lessons,rating}
+  tagsJson      String   @default("[]") // discipline tag ids
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, extKey])
+  @@index([userId, closedAt])
+  @@index([userId, symbol])
+}
+
+// Per-user journal bookkeeping (sync state + broker balance operations kept
+// strictly SEPARATE from trading P&L — deposits/withdrawals are never profit).
+model JournalState {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  lastSyncAt     DateTime?
+  lastSyncOk     Boolean   @default(false)
+  lastSyncMsg    String    @default("")
+  syncBrokerId   String    @default("")
+  syncLookback   Int       @default(30) // days pulled on first sync
+  // balance operations seen in MT5 history: [{time,type,amount,balance}]
+  balanceOpsJson String    @default("[]")
+  updatedAt      DateTime  @updatedAt
+}
+
+// Daily account snapshots (equity curve data source). Only REAL observed
+// values are stored — a curve "derived from closed-trade net P&L" is
+// computed at read time and labeled as such in the UI, never persisted.
+model JournalEquity {
+  id        String   @id @default(cuid())
+  userId    String
+  day       String // YYYY-MM-DD (UTC)
+  balance   Float
+  equity    Float
+  source    String   @default("MT5") // MT5 | CSV | MANUAL
+  createdAt DateTime @default(now())
+
+  @@unique([userId, day])
+  @@index([userId, day])
+}

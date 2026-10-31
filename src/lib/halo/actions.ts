@@ -28,6 +28,7 @@ export type ViewId =
   | "risk"
   | "backtest"
   | "performance"
+  | "journal"
   | "brokers"
   | "alerts"
   | "intel"
@@ -53,6 +54,7 @@ export const VIEWS: ViewMeta[] = [
   { id: "strategies", label: "Strategy Studio", aliases: ["strategy studio", "strategies", "pine editor", "pine script", "pine studio", "my strategies", "custom strategy"] },
   { id: "trade-history", label: "Trade History", aliases: ["trade history", "history", "closed trades", "trade log"] },
   { id: "performance", label: "Performance", aliases: ["performance", "stats", "statistics", "analytics"] },
+  { id: "journal", label: "Performance Journal", aliases: ["performance journal", "journal", "trading journal", "trade journal", "my journal"] },
   { id: "briefing", label: "Daily Briefing", aliases: ["daily briefing", "briefing", "market brief"] },
   { id: "learning", label: "Learning Missions", aliases: ["learning missions", "learning", "missions", "strategy guide", "how it works"] },
   { id: "settings", label: "Settings", aliases: ["settings", "preferences", "config", "voice settings"] },

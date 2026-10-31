@@ -655,3 +655,71 @@ export async function mtModifyPosition(
     token
   );
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+//  HISTORY (READ-ONLY) · closed-trade history for the Performance Journal
+//
+//  MetaApi client REST (official SDK v29 wire shape):
+//    GET /users/current/accounts/:id/history/time          → { time }  newest
+//      history record time — the "already synchronized up to" marker
+//    GET /users/current/accounts/:id/history/deals/{time}?range=Nd
+//      → { deals: MtHistoryDeal[], bars: [...] }  deals NEWER than `time`
+//      (`range` caps the look-back window, default 1d, e.g. "7d", "30d")
+//
+//  These helpers ONLY READ. They never place, modify or close anything and
+//  are consumed exclusively by the journal sync (lib/journal/mt5-sync.ts).
+// ══════════════════════════════════════════════════════════════════════════
+
+export interface MtHistoryDeal {
+  id: string;
+  orderId?: string;
+  type?: string; // DEAL_TYPE_BUY | DEAL_TYPE_SELL | DEAL_TYPE_BALANCE | …
+  entry?: string; // DEAL_ENTRY_IN | OUT | INOUT | OUT_BY
+  symbol?: string;
+  volume?: number;
+  positionId?: string;
+  profit?: number;
+  swap?: number;
+  commission?: number;
+  fee?: number;
+  time?: string; // ISO instant
+  price?: number;
+  sl?: number;
+  tp?: number;
+  comment?: string;
+  magic?: number;
+  balance?: number; // balance-operations deals only
+}
+
+export async function mtHistoryTime(
+  accountId: string,
+  region: string,
+  token?: string
+): Promise<{ time?: string }> {
+  return clientCall<{ time?: string }>(
+    accountId,
+    region,
+    "/history/time",
+    { timeoutMs: 20000 },
+    token
+  );
+}
+
+/** deals newer than `startTimeIso` within `rangeDays` (max 30 per wire spec) */
+export async function mtHistoryDeals(
+  accountId: string,
+  region: string,
+  startTimeIso: string,
+  rangeDays = 30,
+  token?: string
+): Promise<{ deals: MtHistoryDeal[] }> {
+  const safeRange = Math.min(30, Math.max(1, Math.round(rangeDays)));
+  const j = await clientCall<{ deals?: MtHistoryDeal[] }>(
+    accountId,
+    region,
+    `/history/deals/${encodeURIComponent(startTimeIso)}?range=${safeRange}d`,
+    { timeoutMs: 30000 },
+    token
+  );
+  return { deals: Array.isArray(j.deals) ? j.deals : [] };
+}
