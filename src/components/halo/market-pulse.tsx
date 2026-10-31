@@ -9,6 +9,7 @@
 import { A, C, decimalsOf, fmtPx, type BotStateRes } from "@/lib/halo/ui-helpers";
 import type { Candle } from "@/lib/halo/types";
 import { getSymbolMeta } from "@/lib/market-symbols";
+import { isLiveFor, useLivePrice } from "@/lib/halo/live-price";
 import { PanelCard, Pill } from "./panel";
 import { Gauge } from "lucide-react";
 
@@ -23,12 +24,14 @@ function activeSessions(now: Date): string[] {
   return out;
 }
 
-export function MarketPulse({ state, candles, livePrice }: { state: BotStateRes; candles: Candle[]; livePrice?: number }) {
+export function MarketPulse({ state, candles }: { state: BotStateRes; candles: Candle[] }) {
   const meta = getSymbolMeta(state.symbol);
   const name = meta.label.split("·")[0].trim() || state.symbol;
   const dec = decimalsOf(state.mintick);
-  // prefer the real-time venue stream price (chart WS relay) over the polled feed
-  const price = livePrice && livePrice > 0 ? livePrice : state.feed.price;
+  // real-time venue stream price (chart WS relay, external store) over the polled feed —
+  // only THIS card re-renders on tick, never the page tree
+  const live = useLivePrice();
+  const price = isLiveFor(live, state.symbol) ? live.px : state.feed.price;
 
   // window change — honestly labelled as the loaded window, not a daily stat
   let chg: number | null = null;

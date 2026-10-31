@@ -286,31 +286,41 @@ function build(): SymbolMeta[] {
   const out: SymbolMeta[] = [];
   for (const [id, label, mintick, base] of FX_MAJORS) {
     out.push({ id, label, mintick, base, group: "FOREX", tv: `OANDA:${id}` });
+    SYMBOL_VENUES[id] = ["deriv", "mt5"];
   }
   for (const [id, label, mintick, base] of FX_CROSSES) {
     out.push({ id, label, mintick, base, group: "FOREX", tv: `OANDA:${id}` });
+    SYMBOL_VENUES[id] = ["deriv", "mt5"];
   }
   for (const [id, label, base] of FX_EXOTICS) {
     out.push({ id, label, mintick: 0.00001, base, group: "FOREX", tv: `FX_IDC:${id}` });
+    SYMBOL_VENUES[id] = ["deriv"];
   }
   for (const s of DERIV_SYNTHETICS) {
     out.push({ id: s.id, label: s.label, mintick: s.mintick, base: s.base, group: "SYNTHETICS", tv: s.tv ?? "" });
+    SYMBOL_VENUES[s.id] = ["deriv"];
   }
   for (const [id, label, mintick, base, ytk, tvs] of DERIV_INDICES) {
     out.push({ id, label, mintick, base, group: "INDICES", tv: tvs });
+    SYMBOL_VENUES[id] = ["deriv"];
     YAHOO_INDEX_MAP[id] = ytk;
   }
   for (const [id, label, mintick, base, tvs] of METALS) {
     out.push({ id, label, mintick, base, group: "METALS", tv: `OANDA:${tvs}` });
+    SYMBOL_VENUES[id] = ["deriv", "mt5"];
   }
   for (const [id, label, mintick, base] of CRYPTO) {
     out.push({ id, label, mintick, base, group: "CRYPTO", tv: `BINANCE:${id}` });
+    SYMBOL_VENUES[id] = ["binance"];
   }
   return out;
 }
 
 /** index/energy ids → Yahoo chart tickers (used by market.ts + market-history.ts) */
 export const YAHOO_INDEX_MAP: Record<string, string> = {};
+
+/** internal symbol id → the broker venues that carry it (filled by build()) */
+export const SYMBOL_VENUES: Record<string, Venue[]> = {};
 
 /** true when the group's candles come from the built-in simulator (no public OHLC) */
 export function isSimOnlyGroup(g: SymbolGroup): boolean {
@@ -327,6 +337,50 @@ for (const s of SYMBOLS) {
 
 export function symbolsByGroup(g: SymbolGroup): SymbolMeta[] {
   return SYMBOLS.filter((s) => s.group === g);
+}
+
+// ── BROKER VENUES · broker dimension for the chart pair switcher ────────
+// A pair can trade on several brokers; the chart picker filters by the
+// selected broker so the user browses exactly that broker's catalog:
+//   · Deriv   — synthetics, stock indices & energy, derived-FX exotics
+//   · MT5/CFD — forex majors & crosses, metals (OANDA/ICMarkets/Pepperstone…)
+//   · Binance — crypto spot
+export type Venue = "deriv" | "mt5" | "binance";
+
+export interface VenueMeta {
+  key: Venue;
+  label: string;
+  short: string;
+  hint: string;
+}
+
+export const VENUES: VenueMeta[] = [
+  { key: "deriv", label: "Deriv", short: "DERIV", hint: "Synthetics · Stock Indices · Derived FX" },
+  { key: "mt5", label: "MT5 / CFD Brokers", short: "MT5 · CFD", hint: "Forex Majors & Crosses · Metals" },
+  { key: "binance", label: "Binance", short: "BINANCE", hint: "Crypto Spot" },
+];
+
+export function symbolsByVenue(v: Venue): SymbolMeta[] {
+  return SYMBOLS.filter((s) => (SYMBOL_VENUES[s.id] ?? []).includes(v));
+}
+
+export function symbolsByVenueGroup(v: Venue, g: SymbolGroup): SymbolMeta[] {
+  return SYMBOLS.filter((s) => s.group === g && (SYMBOL_VENUES[s.id] ?? []).includes(v));
+}
+
+export function venuesOfSymbol(id: string): Venue[] {
+  return SYMBOL_VENUES[id] ?? [];
+}
+
+/** group label inside a broker section — the FX group reads differently per venue */
+const VENUE_GROUP_LABEL: Record<Venue, Partial<Record<SymbolGroup, string>>> = {
+  deriv: { FOREX: "Derived FX · Exotics (Deriv MT5)" },
+  mt5: { FOREX: "Forex · Majors & Crosses" },
+  binance: {},
+};
+
+export function venueGroupLabel(v: Venue, g: SymbolGroup): string {
+  return VENUE_GROUP_LABEL[v]?.[g] ?? SYMBOL_GROUPS.find((x) => x.key === g)?.label ?? g;
 }
 
 // ── LIVE FEED MAPPING · real-time browser streams (client-safe) ─────────

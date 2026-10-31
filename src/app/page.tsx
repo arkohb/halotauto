@@ -79,12 +79,6 @@ export default function Page() {
   const navHistRef = useRef<ViewId | null>(null);
   const [histFilter, setHistFilter] = useState<HistoryPeriod>("all");
   const [candleNonce, setCandleNonce] = useState(0);
-  // live stream price straight from the venue feed (Deriv/Binance WS relayed
-  // by the chart) — keeps the big tickers in sync with the real-time chart
-  const [livePx, setLivePx] = useState<{ sym: string; px: number }>({ sym: "", px: 0 });
-  const handleLivePrice = useCallback((sym: string, px: number) => {
-    setLivePx((prev) => (prev.sym === sym && Math.abs(prev.px - px) < 1e-12 ? prev : { sym, px }));
-  }, []);
   const statsRef = useRef<string>("");
   const [histKey, setHistKey] = useState(0);
   const { toast } = useToast();
@@ -107,6 +101,10 @@ export default function Page() {
   );
 
   // ── poll bot state every 2s (also drives the server-side engine) ──
+  // identical JSON → every card would render the exact same output, so the
+  // React update is skipped (quiet markets / weekends stop the 2s churn;
+  // price-driven re-renders still flow whenever the feed actually moves)
+  const lastStateSig = useRef<string>("");
   useEffect(() => {
     let alive = true;
     const tick = async () => {
@@ -114,7 +112,11 @@ export default function Page() {
         const r = await fetch("/api/bot/state", { cache: "no-store" });
         if (r.ok) {
           const j = (await r.json()) as BotStateRes;
-          if (alive) setState(j);
+          if (!alive) return;
+          const sig = JSON.stringify(j);
+          if (sig === lastStateSig.current) return;
+          lastStateSig.current = sig;
+          setState(j);
         }
       } catch {
         // keep last state on network hiccups
@@ -133,7 +135,6 @@ export default function Page() {
   // ── poll candles every 3s for the chart ──
   const symbol = state?.symbol ?? "PAXGUSDT";
   const tf = state?.tf ?? "5m";
-  const liveFeedPrice = livePx.sym === symbol && livePx.px > 0 ? livePx.px : 0;
   useEffect(() => {
     let alive = true;
     setCandles([]);
@@ -264,11 +265,20 @@ export default function Page() {
         if (j.ok && j.state) {
           setState(j.state);
           // verify the runtime actually reports the requested symbol
-          return j.state.symbol === s ? { ok: true, symbol: j.state.symbol } : { ok: false, error: `engine reports ${j.state.symbol} instead of ${s}` };
+          if (j.state.symbol !== s) {
+            const err = `engine reports ${j.state.symbol} instead of ${s}`;
+            toast({ title: "Symbol switch failed", description: err, variant: "destructive" });
+            return { ok: false, error: err };
+          }
+          return { ok: true, symbol: j.state.symbol };
         }
-        return { ok: false, error: j.error ?? "the server rejected the switch" };
+        const err = j.error ?? "the server rejected the switch";
+        toast({ title: "Symbol switch failed", description: err, variant: "destructive" });
+        return { ok: false, error: err };
       } catch (e) {
-        return { ok: false, error: (e as Error).message };
+        const err = (e as Error).message;
+        toast({ title: "Symbol switch failed", description: err, variant: "destructive" });
+        return { ok: false, error: err };
       } finally {
         setBusy(null);
       }
@@ -288,11 +298,20 @@ export default function Page() {
         const j = (await r.json()) as { ok: boolean; state?: BotStateRes; error?: string };
         if (j.ok && j.state) {
           setState(j.state);
-          return j.state.tf === t ? { ok: true, tf: j.state.tf } : { ok: false, error: `engine reports ${j.state.tf} instead of ${t}` };
+          if (j.state.tf !== t) {
+            const err = `engine reports ${j.state.tf} instead of ${t}`;
+            toast({ title: "Timeframe switch failed", description: err, variant: "destructive" });
+            return { ok: false, error: err };
+          }
+          return { ok: true, tf: j.state.tf };
         }
-        return { ok: false, error: j.error ?? "the server rejected the switch" };
+        const err = j.error ?? "the server rejected the switch";
+        toast({ title: "Timeframe switch failed", description: err, variant: "destructive" });
+        return { ok: false, error: err };
       } catch (e) {
-        return { ok: false, error: (e as Error).message };
+        const err = (e as Error).message;
+        toast({ title: "Timeframe switch failed", description: err, variant: "destructive" });
+        return { ok: false, error: err };
       } finally {
         setBusy(null);
       }
@@ -405,8 +424,7 @@ export default function Page() {
                       onTf={(t) => void changeTf(t)}
                       cfg={state.config}
                       atr={state.engine.atr}
-                      price={liveFeedPrice > 0 ? liveFeedPrice : state.feed.price}
-                      onLivePrice={handleLivePrice}
+                      price={state.feed.price}
                       pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
                     />
                   </div>
@@ -494,13 +512,12 @@ export default function Page() {
                     onTf={(t) => void changeTf(t)}
                     cfg={state.config}
                     atr={state.engine.atr}
-                    price={liveFeedPrice > 0 ? liveFeedPrice : state.feed.price}
-                    onLivePrice={handleLivePrice}
+                    price={state.feed.price}
                     pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
                   />
                 </div>
                 <div className="col-span-12 space-y-3 xl:col-span-4">
-                  <MarketPulse state={state} candles={candles} livePrice={liveFeedPrice} />
+                  <MarketPulse state={state} candles={candles} />
                   <MarketConditions state={state} candles={candles} />
                   <LevelsCard state={state} />
                 </div>

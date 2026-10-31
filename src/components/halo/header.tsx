@@ -15,7 +15,7 @@ import { A, C, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { fxModeLabel, useFx } from "@/lib/halo/fx";
 import { usePwa } from "./pwa";
 import { useHaloVoice } from "./voice-provider";
-import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES } from "@/lib/market-symbols";
+import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES, VENUES, symbolsByVenueGroup, venueGroupLabel, type Venue } from "@/lib/market-symbols";
 
 interface Props {
   state: BotStateRes | null;
@@ -81,6 +81,29 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
   const { canInstall, install } = usePwa();
   const v = useHaloVoice();
 
+  // broker filter for the pair list — shares the chart panel's preference
+  const [venue, setVenue] = useState<Venue | null>(null);
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      try {
+        const val = localStorage.getItem("halo3el.chartvenue.v1");
+        if (val === "deriv" || val === "mt5" || val === "binance") setVenue(val);
+      } catch {
+        // ignore
+      }
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, []);
+  const switchVenue = (nv: Venue | null) => {
+    setVenue(nv);
+    try {
+      if (nv) localStorage.setItem("halo3el.chartvenue.v1", nv);
+      else localStorage.removeItem("halo3el.chartvenue.v1");
+    } catch {
+      // ignore
+    }
+  };
+
   // ── session awareness: avatar links to the customer account dashboard
   // when a signed-in session exists (commercial mode). Owner mode → the
   // avatar stays a passive badge, exactly as before.
@@ -133,25 +156,58 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
 
           {/* symbol selector — functional control, styled to the frame */}
           <div className="hidden items-center gap-2 sm:flex">
+            <Select value={venue ?? "all"} onValueChange={(val) => switchVenue(val === "all" ? null : (val as Venue))} disabled={busy !== null}>
+              <SelectTrigger
+                className="h-9 w-[118px] text-[10px] font-bold uppercase"
+                style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}
+                aria-label="Broker — filters the pair list"
+                title="Broker — the pair list shows this broker's catalog"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
+                <SelectItem value="all" className="text-xs">ALL BROKERS</SelectItem>
+                {VENUES.map((vr) => (
+                  <SelectItem key={vr.key} value={vr.key} className="text-xs">
+                    {vr.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Select value={state?.symbol ?? "PAXGUSDT"} onValueChange={(val) => void onSymbol(val)} disabled={busy !== null}>
               <SelectTrigger
                 className="h-9 w-[142px] text-[11.5px] font-bold"
                 style={{ borderColor: A.cyan(0.35), background: A.cyan(0.06), color: C.ice }}
                 aria-label="Trading symbol"
               >
-                <SelectValue />
+                <SelectValue>{state?.symbol ?? "PAXGUSDT"}</SelectValue>
               </SelectTrigger>
               <SelectContent className="max-h-[380px] text-[#EAF3FF]" style={{ borderColor: C.line2, background: C.navy2 }}>
-                {SYMBOL_GROUPS.map((g) => (
-                  <SelectGroup key={g.key}>
-                    <SelectLabel className="pl-2 text-[9px] tracking-[0.18em]" style={{ color: A.cyan(0.75) }}>{g.label}</SelectLabel>
-                    {symbolsByGroup(g.key).map((s) => (
-                      <SelectItem key={s.id} value={s.id} className="text-xs">
-                        {s.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                ))}
+                {venue === null
+                  ? SYMBOL_GROUPS.map((g) => (
+                      <SelectGroup key={g.key}>
+                        <SelectLabel className="pl-2 text-[9px] tracking-[0.18em]" style={{ color: A.cyan(0.75) }}>{g.label}</SelectLabel>
+                        {symbolsByGroup(g.key).map((s) => (
+                          <SelectItem key={s.id} value={s.id} className="text-xs">
+                            {s.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))
+                  : SYMBOL_GROUPS.map((g) => {
+                      const syms = symbolsByVenueGroup(venue, g.key);
+                      if (syms.length === 0) return null;
+                      return (
+                        <SelectGroup key={g.key}>
+                          <SelectLabel className="pl-2 text-[9px] tracking-[0.18em]" style={{ color: A.cyan(0.75) }}>{venueGroupLabel(venue, g.key)}</SelectLabel>
+                          {syms.map((s) => (
+                            <SelectItem key={s.id} value={s.id} className="text-xs">
+                              {s.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      );
+                    })}
               </SelectContent>
             </Select>
             <Select value={state?.tf ?? "5m"} onValueChange={(val) => void onTf(val)} disabled={busy !== null}>

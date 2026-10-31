@@ -24,9 +24,22 @@ export async function POST(req: Request) {
     const body = (await req.json()) as Body;
     const gate = await requireTradingAccess();
     if (!gate.ok) return NextResponse.json({ ok: false, error: gate.error }, { status: gate.status });
-    const symbol =
-      body.symbol && SYMBOLS.some((s) => s.id === body.symbol) ? body.symbol : undefined;
-    const tf = body.tf && (TIMEFRAMES as readonly string[]).includes(body.tf) ? body.tf : undefined;
+    // explicit validation — an unknown pair/timeframe must fail loudly,
+    // never silently keep the current one (that read as "selection ignored")
+    let symbol: string | undefined;
+    if (body.symbol !== undefined) {
+      if (!body.symbol || !SYMBOLS.some((s) => s.id === body.symbol)) {
+        return NextResponse.json({ ok: false, error: `Unknown symbol "${body.symbol ?? ""}".` }, { status: 400 });
+      }
+      symbol = body.symbol;
+    }
+    let tf: string | undefined;
+    if (body.tf !== undefined) {
+      if (!body.tf || !(TIMEFRAMES as readonly string[]).includes(body.tf)) {
+        return NextResponse.json({ ok: false, error: `Unknown timeframe "${body.tf ?? ""}".` }, { status: 400 });
+      }
+      tf = body.tf;
+    }
     await updateBotConfig({ cfg: body.cfg, symbol, tf, exec: body.exec });
     const state = await botState();
     return NextResponse.json({ ok: true, state });

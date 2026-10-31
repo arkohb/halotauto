@@ -42,7 +42,8 @@ import type { Candle, HaloConfig, LevelSnapshot, TradeSnapshot } from "@/lib/hal
 import { C, fmtPx, type PineOverlayData } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
 import { subscribeLiveBars, type LiveBar, type LiveFeedKind } from "@/lib/halo/live-feed";
-import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES } from "@/lib/market-symbols";
+import { publishLivePrice } from "@/lib/halo/live-price";
+import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES, VENUES, venueGroupLabel, symbolsByVenueGroup, type Venue } from "@/lib/market-symbols";
 import { ZoneOverlay, type ZoneRectSpec } from "./lwc-zone";
 import { TvChart } from "./tv-chart";
 import { TvSignalOverlay } from "./tv-signal-overlay";
@@ -82,8 +83,6 @@ interface ChartProps {
   atr: number | null;
   /** last feed price — read-only */
   price: number;
-  /** live stream price from this chart (real venue feed) — lifted so tickers stay in sync */
-  onLivePrice?: (symbol: string, price: number) => void;
 }
 
 interface LevelLines {
@@ -98,14 +97,17 @@ function sideColor(side: number, alpha: string): string {
 
 type ChartMode = "tv" | "3el";
 const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator view
+const VENUE_KEY = "halo3el.chartvenue.v1"; // broker filter for the pair picker
 
 export default function ChartPanel(props: ChartProps) {
   const {
     candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing,
-    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy, onLivePrice,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy,
   } = props;
   const [mode, setMode] = useState<ChartMode>("3el");
   const [tvNote, setTvNote] = useState<string | null>(null);
+  // broker filter for the pair picker — null = ALL brokers (sectioned list)
+  const [venue, setVenue] = useState<Venue | null>(null);
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -136,12 +138,14 @@ export default function ChartPanel(props: ChartProps) {
   const seriesWinRef = useRef<{ first: number; last: number } | null>(null);
   const [seriesWin, setSeriesWin] = useState<{ first: number; last: number } | null>(null);
 
-  // restore persisted chart mode (deferred so we never setState synchronously in an effect)
+  // restore persisted chart mode + broker filter (deferred so we never setState synchronously in an effect)
   useEffect(() => {
     const id = window.setTimeout(() => {
       try {
         const m = localStorage.getItem(MODE_KEY);
         if (m === "3el" || m === "tv" || m === "halo") setMode(m === "halo" ? "3el" : m);
+        const v = localStorage.getItem(VENUE_KEY);
+        if (v === "deriv" || v === "mt5" || v === "binance") setVenue(v);
       } catch {
         // ignore
       }
@@ -154,6 +158,17 @@ export default function ChartPanel(props: ChartProps) {
     if (m === "tv") setTvNote(null);
     try {
       localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // ignore
+    }
+  };
+
+  // broker filter toggle — null shows every broker's catalog sectioned
+  const switchVenue = (v: Venue | null) => {
+    setVenue(v);
+    try {
+      if (v) localStorage.setItem(VENUE_KEY, v);
+      else localStorage.removeItem(VENUE_KEY);
     } catch {
       // ignore
     }
@@ -219,7 +234,7 @@ export default function ChartPanel(props: ChartProps) {
       if (!force && now - lastPush < 400) return;
       lastPush = now;
       setLiveBar({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
-      onLivePrice?.(symbol, b.close);
+      publishLivePrice(symbol, b.close);
     };
     const un = subscribeLiveBars(symbol, tf, {
       onStatus: (st) => {
@@ -272,7 +287,7 @@ export default function ChartPanel(props: ChartProps) {
       alive = false;
       un();
     };
-  }, [symbol, tf, mode, onLivePrice]);
+  }, [symbol, tf, mode]);
 
   // candle data — always push the full window whenever the prop changes
   // (cheap for ≤720 bars and impossible to go stale). Skipped while the
@@ -628,19 +643,34 @@ export default function ChartPanel(props: ChartProps) {
             aria-label="Chart symbol — the EA follows automatically"
             className="h-7 w-[132px] rounded-md border-[#1C4478] bg-[#021229]/95 text-[10.5px] font-bold text-[#EAF3FF] backdrop-blur"
           >
-            <SelectValue />
+            <SelectValue>{symbol}</SelectValue>
           </SelectTrigger>
           <SelectContent className="max-h-[380px] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
-            {SYMBOL_GROUPS.map((g) => (
-              <SelectGroup key={g.key}>
-                <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">{g.label}</SelectLabel>
-                {symbolsByGroup(g.key).map((s) => (
-                  <SelectItem key={s.id} value={s.id} className="text-xs">
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            ))}
+            {venue === null
+              ? SYMBOL_GROUPS.map((g) => (
+                  <SelectGroup key={g.key}>
+                    <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">{g.label}</SelectLabel>
+                    {symbolsByGroup(g.key).map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-xs">
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                ))
+              : SYMBOL_GROUPS.map((g) => {
+                  const syms = symbolsByVenueGroup(venue, g.key);
+                  if (syms.length === 0) return null;
+                  return (
+                    <SelectGroup key={g.key}>
+                      <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">{venueGroupLabel(venue, g.key)}</SelectLabel>
+                      {syms.map((s) => (
+                        <SelectItem key={s.id} value={s.id} className="text-xs">
+                          {s.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  );
+                })}
           </SelectContent>
         </Select>
         <Select value={tf} onValueChange={(v) => onTf(v)} disabled={busy !== null}>
@@ -658,6 +688,31 @@ export default function ChartPanel(props: ChartProps) {
             ))}
           </SelectContent>
         </Select>
+        {/* broker switcher — filters the pair list to the selected broker's
+            catalog; click the active broker again to see every broker */}
+        <div
+          className="hidden overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur md:flex"
+          role="group"
+          aria-label="Broker — filters the pair list"
+        >
+          {VENUES.map((v) => (
+            <button
+              key={v.key}
+              type="button"
+              onClick={() => switchVenue(venue === v.key ? null : v.key)}
+              aria-pressed={venue === v.key}
+              aria-label={`Show ${v.label} pairs`}
+              title={`${v.label} — ${v.hint}`}
+              className="px-2 py-[5px] text-[8.5px] font-extrabold tracking-[0.12em] transition-colors"
+              style={{
+                color: venue === v.key ? "#020B1A" : "#8AA2C2",
+                background: venue === v.key ? C.gold : "transparent",
+              }}
+            >
+              {v.short}
+            </button>
+          ))}
+        </div>
         <span className="hidden rounded-md border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#E9B94E] backdrop-blur md:inline">
           {liveStat.active && liveStat.kind ? (liveStat.kind === "deriv" ? "DERIV LIVE" : "BINANCE LIVE") : source}
         </span>

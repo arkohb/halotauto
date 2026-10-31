@@ -496,8 +496,25 @@ export async function updateBotConfig(patch: ConfigPatch): Promise<void> {
   const nextCfg = clampConfig({ ...bot.cfg, ...(patch.cfg ?? {}) });
 
   if (nextSym !== bot.symbol || nextTf !== bot.tf) {
-    if (bot.engine.snapshot().trade) {
-      throw new Error("Cannot switch symbol/timeframe while a trade is open.");
+    const openTrade = bot.engine.snapshot().trade;
+    if (openTrade) {
+      // Paper trade → auto-close at the last known price so chart pair
+      // selection always works (the trade is simulated; the book keeps the
+      // record and the alert log stays transparent).
+      // LIVE trade → never abandon a real broker position (MT5 protection
+      // iron rule): the switch stays blocked until the user closes it.
+      const exec = await loadExecSettings();
+      if (exec.executionMode === "live") {
+        throw new Error("Cannot switch symbol/timeframe while a LIVE trade is open — close it first on the Trade card.");
+      }
+      const price = bot.lastPrice || openTrade.entry;
+      const events = bot.engine.forceClose(price, Date.now());
+      await handleEvents(events, { time: Date.now(), open: price, high: price, low: price, close: price });
+      void sendAlert({
+        kind: "status",
+        title: "HALO 3EL · PAPER TRADE AUTO-CLOSED",
+        body: `${bot.symbol} ${bot.tf} — the open paper trade was closed at market to switch the chart to ${nextSym} ${nextTf}.`,
+      });
     }
     bot.symbol = nextSym;
     bot.tf = nextTf;
