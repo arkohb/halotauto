@@ -36,9 +36,14 @@ env:
   # ── secrets (Cloud Secret Manager) — create with:
   #   firebase apphosting:secrets:set DATABASE_URL
   #   firebase apphosting:secrets:set HALO_CRON_SECRET
+  #   firebase apphosting:secrets:set ANTHROPIC_API_KEY
   - variable: DATABASE_URL
     secret: DATABASE_URL
     availability: [BUILD, RUNTIME]
   - variable: HALO_CRON_SECRET
     secret: HALO_CRON_SECRET
+    availability: [RUNTIME]
+  # Claude — HALO's conversation brain (voice + chat replies, journal insights)
+  - variable: ANTHROPIC_API_KEY
+    secret: ANTHROPIC_API_KEY
     availability: [RUNTIME]

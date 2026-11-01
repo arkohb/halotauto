@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import ZAI from "z-ai-web-dev-sdk";
+import { askClaude, friendlyClaudeError } from "@/lib/halo/claude";
 import { db } from "@/lib/db";
 import { botState, startBot, stopBot, closeOpenTrade, setPauseNew, updateBotConfig } from "@/lib/bot";
 import { buildSnapshot } from "@/lib/halo/assistant-snapshot";
@@ -727,21 +727,16 @@ export async function POST(req: Request) {
       // profile unavailable — never invent a name
     }
 
-    const zai = await ZAI.create();
-    const systemPrompt = `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}${surface === "scanner-bot" ? `\n\n${SCANNER_SURFACE_RULES}` : ""}\n\n${nameLine}\n\n${STRATEGY_BRIEF}\n\nACTION REGISTRY (the only executable operations):\n${REGISTRY_BRIEF}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}\n\nTIMEFRAME SCANNER BOT STATE (live, just captured${scannerSnap ? "" : " — runtime unavailable, do not invent its state"}):\n${scannerSnap ? JSON.stringify(scannerSnap) : "unavailable"}`;
+    // stable instructions first (prompt-cached), live state after the breakpoint
+    const stable = `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}${surface === "scanner-bot" ? `\n\n${SCANNER_SURFACE_RULES}` : ""}\n\n${STRATEGY_BRIEF}\n\nACTION REGISTRY (the only executable operations):\n${REGISTRY_BRIEF}`;
+    const live = `${nameLine}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}\n\nTIMEFRAME SCANNER BOT STATE (live, just captured${scannerSnap ? "" : " — runtime unavailable, do not invent its state"}):\n${scannerSnap ? JSON.stringify(scannerSnap) : "unavailable"}`;
 
-    const msgs: { role: "assistant" | "user"; content: string }[] = [
-      { role: "assistant", content: systemPrompt },
-      ...history.map((t) => ({ role: t.role === "user" ? ("user" as const) : ("assistant" as const), content: t.text })),
-      { role: "user", content: message },
-    ];
-
-    const completion = await zai.chat.completions.create({
-      messages: msgs,
-      thinking: { type: "disabled" },
+    const raw = await askClaude({
+      stable,
+      live,
+      history: history.map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text })),
+      message,
     });
-
-    const raw = completion.choices[0]?.message?.content?.trim() ?? "";
     const decision = parseDecision(raw);
     if (!decision) {
       return NextResponse.json({ ok: false, error: "The operator core returned an unreadable reply — try again." }, { status: 502 });
@@ -831,6 +826,6 @@ export async function POST(req: Request) {
       ...(serverResults.length > 0 ? { readResults: serverResults } : {}),
     });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: `Operator core unreachable: ${(e as Error).message.slice(0, 160)}` }, { status: 502 });
+    return NextResponse.json({ ok: false, error: `Operator core unreachable: ${friendlyClaudeError(e)}` }, { status: 502 });
   }
 }

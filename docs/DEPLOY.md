@@ -59,6 +59,15 @@ firebase apphosting:secrets:set DATABASE_URL
 firebase apphosting:secrets:set HALO_CRON_SECRET
 ```
 
+```bash
+firebase apphosting:secrets:set ANTHROPIC_API_KEY
+```
+
+`ANTHROPIC_API_KEY` is the Claude API key that powers HALO's conversation
+(voice and chat replies, journal insights). Create one at
+console.anthropic.com → API keys. Without it the app runs, but HALO
+answers questions with "no Claude API key is set".
+
 Use a long random string for `HALO_CRON_SECRET`, for example from
 `openssl rand -hex 32`.
 
@@ -133,6 +142,7 @@ returns the app's health JSON with `"ticked": true`.
 ## 5 · Checklist before trading real money
 
 - [ ] `/api/health` returns `ok: true` through the Cloudflare domain
+- [ ] Ask HALO a question in Voice Command — it answers (Claude key works)
 - [ ] Logged in, the dashboard shows a live price feed (not "simulator")
 - [ ] Brokers & MT5: the broker connection test passes from production
 - [ ] HALO EDGE → Capital Guardian limits are set to values you accept

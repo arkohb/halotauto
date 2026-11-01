@@ -171,21 +171,12 @@ export async function GET(req: Request) {
     };
 
     try {
-      const ZAI = (await import("z-ai-web-dev-sdk")).default;
-      const zai = await ZAI.create();
-      const completion = await zai.chat.completions.create({
-        messages: [
-          {
-            role: "assistant",
-            content:
+      const { askClaude } = await import("@/lib/halo/claude");
+      const answer = await askClaude({
+        stable:
               "You are HALO's Performance Journal analyst. You receive VERIFIED statistics computed from the trader's own journal records. RULES: (1) answer ONLY from the provided statistics — never invent trades, numbers, dates or explanations; (2) if the statistics cannot answer the question, say exactly that; (3) be analytical and educational — describe what the numbers show, not what the trader should trade; (4) NEVER suggest strategy changes, entries or exits, and NEVER offer financial advice; (5) keep it under 130 words, plain text, cite the concrete figures you use.",
-          },
-          { role: "user", content: `Trader's question: "${q}"\n\nVERIFIED JOURNAL STATISTICS:\n${JSON.stringify(statsBrief)}` },
-        ],
-        thinking: { type: "disabled" },
+        message: `Trader's question: "${q}"\n\nVERIFIED JOURNAL STATISTICS:\n${JSON.stringify(statsBrief)}`,
       });
-      const answer = completion.choices[0]?.message?.content?.trim() ?? "";
-      if (!answer) throw new Error("empty");
       return NextResponse.json({ ok: true, answer, grounded: true, deterministic: false });
     } catch {
       // LLM unavailable → fall back to an honest stats summary

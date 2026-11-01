@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import ZAI from "z-ai-web-dev-sdk";
+import { askClaude, friendlyClaudeError } from "@/lib/halo/claude";
 import { db } from "@/lib/db";
 import { buildSnapshot, type Snapshot } from "@/lib/halo/assistant-snapshot";
 
@@ -118,28 +118,19 @@ export async function POST(req: Request) {
       // profile unavailable — never invent a name
     }
 
-    const zai = await ZAI.create();
-    const systemPrompt = `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}\n\n${nameLine}\n\n${STRATEGY_BRIEF}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}`;
-
-    const msgs: { role: "assistant" | "user"; content: string }[] = [
-      { role: "assistant", content: systemPrompt },
-      ...history.map((t) => ({ role: t.role === "user" ? ("user" as const) : ("assistant" as const), content: t.text })),
-      { role: "user", content: message },
-    ];
-
-    const completion = await zai.chat.completions.create({
-      messages: msgs,
-      thinking: { type: "disabled" },
+    const reply = await askClaude({
+      stable: `${SYSTEM_RULES}\n\n${voiceMode ? VOICE_RULES : ""}\n\n${STRATEGY_BRIEF}`,
+      live: `${nameLine}\n\nVERIFIED SNAPSHOT (the only data you may cite — captured just now):\n${JSON.stringify(snapshot)}`,
+      history: history.map((t) => ({ role: t.role === "user" ? "user" : "assistant", text: t.text })),
+      message,
     });
-
-    const reply = completion.choices[0]?.message?.content?.trim() ?? "";
     if (!reply) {
       return NextResponse.json({ ok: false, error: "The model returned an empty reply — try again." }, { status: 502 });
     }
     return NextResponse.json({ ok: true, reply, snapshotAt: snapshot.now });
   } catch (e) {
     return NextResponse.json(
-      { ok: false, error: `Assistant core unreachable: ${(e as Error).message.slice(0, 160)}` },
+      { ok: false, error: `Assistant core unreachable: ${friendlyClaudeError(e)}` },
       { status: 502 }
     );
   }
