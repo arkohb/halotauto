@@ -31,8 +31,10 @@ import {
   HaloConfig,
   LevelSnapshot,
   LogEntry,
+  ManageEvent,
   Side,
   Stats,
+  TradeManagerCfg,
   TradeSnapshot,
 } from "./types";
 import { DEFAULT_CONFIG } from "./types";
@@ -110,6 +112,8 @@ export class HaloEngine {
   cfg: HaloConfig;
   pt: number; // syminfo.mintick
   state: EngineState;
+  /** EDGE Smart Trade Manager — null = classic fixed SL/TP behaviour */
+  tm: TradeManagerCfg | null = null;
 
   constructor(cfg: HaloConfig, mintick: number) {
     this.cfg = { ...DEFAULT_CONFIG, ...cfg };
@@ -125,6 +129,7 @@ export class HaloEngine {
   clone(): HaloEngine {
     const e = new HaloEngine(this.cfg, this.pt);
     e.state = structuredClone(this.state);
+    e.tm = this.tm;
     return e;
   }
 
@@ -204,6 +209,57 @@ export class HaloEngine {
   }
 
   /**
+   * EDGE · Smart Trade Manager step on a confirmed bar that did NOT close the
+   * trade: break-even → partial close → trailing stop. Stops only ever move
+   * in the trade's favour. Runs after the SL/TP check, so the new stop
+   * applies from the NEXT bar (no same-bar look-ahead).
+   */
+  private manageTrade(t: TradeSnapshot, bar: Candle, atr: number, ev: EngineEvent[]): void {
+    const tm = this.tm!;
+    if (t.origSl === undefined) t.origSl = t.sl;
+    const R = Math.abs(t.entry - t.origSl);
+    if (!(R > 0)) return;
+    const fav = t.dir === 1 ? bar.high : bar.low;
+    t.bestPx = t.bestPx === undefined ? fav : t.dir === 1 ? Math.max(t.bestPx, fav) : Math.min(t.bestPx, fav);
+    const runR = ((t.bestPx - t.entry) * t.dir) / R;
+    const better = (a: number, b: number): boolean => (t.dir === 1 ? a > b : a < b);
+    const px = (v: number): string => fmtPxOf(this.pt, v);
+    const push = (m: Omit<ManageEvent, "type" | "dir" | "entry" | "time">): void => {
+      ev.push({ type: "manage", dir: t.dir, entry: t.entry, time: bar.time, ...m });
+    };
+
+    if (tm.beAtR > 0 && !t.beDone && runR >= tm.beAtR) {
+      const be = t.entry + t.dir * Math.max(0, tm.beOffsetR) * R;
+      t.beDone = true;
+      if (better(be, t.sl)) {
+        const prev = t.sl;
+        t.sl = be;
+        push({ action: "breakeven", sl: be, prevSl: prev, message: `Stop moved to break-even ${px(be)} (trade ran ${runR.toFixed(2)}R)` });
+      }
+    }
+
+    if (tm.partialAtR > 0 && !t.partialDone && runR >= tm.partialAtR) {
+      const frac = Math.min(0.9, Math.max(0.01, tm.partialPct / 100));
+      const closePx = t.entry + t.dir * tm.partialAtR * R;
+      const pips = ((closePx - t.entry) * t.dir) / this.pip;
+      t.partialDone = true;
+      t.partialFrac = frac;
+      t.partialPips = pips;
+      push({ action: "partial", sl: t.sl, prevSl: t.sl, frac, price: closePx, pips, message: `Closed ${Math.round(frac * 100)}% at ${px(closePx)} (+${pips.toFixed(1)} pips, ${tm.partialAtR}R)` });
+    }
+
+    if (tm.trailStartR > 0 && atr > 0 && runR >= tm.trailStartR) {
+      const trail = t.bestPx - t.dir * tm.trailATR * atr;
+      t.trailOn = true;
+      if (better(trail, t.sl) && better(t.tp, trail)) {
+        const prev = t.sl;
+        t.sl = trail;
+        push({ action: "trail", sl: trail, prevSl: prev, message: `Trailing stop raised to ${px(trail)}` });
+      }
+    }
+  }
+
+  /**
    * Process one bar. `confirmed = barstate.isconfirmed`.
    * Section order matches the PineScript exactly:
    *   1. manage open trade  2. C3 break→return check  3. fire  4. detect new C1/C2
@@ -228,23 +284,32 @@ export class HaloEngine {
       const hitSL = t.dir === -1 ? bar.high >= t.sl : bar.low <= t.sl;
       const hitTP = t.dir === -1 ? bar.low <= t.tp : bar.high >= t.tp;
       if (hitSL || hitTP) {
-        if (hitSL) {
-          // same-bar SL + TP counts as SL (conservative)
-          const p = Math.abs(t.entry - t.sl) / this.pip;
+        // same-bar SL + TP counts as SL (conservative). The exit is signed so
+        // a stop the trade manager moved to break-even / into profit books
+        // correctly; partial closes are blended into the net result.
+        const exitPx = hitSL ? t.sl : t.tp;
+        const managed = hitSL && (t.beDone || t.trailOn) === true;
+        const exitPips = ((exitPx - t.entry) * t.dir) / this.pip;
+        const frac = t.partialDone ? (t.partialFrac ?? 0) : 0;
+        const net = frac * (t.partialPips ?? 0) + (1 - frac) * exitPips;
+        const p = Math.abs(net);
+        const label = hitSL ? (managed ? "MANAGED STOP" : "SL HIT") : "TP HIT";
+        if (net <= 0) {
           s.stats.losses += 1;
           s.stats.sumSL += p;
-          s.stats.lastResult = { text: `SL HIT  −${p.toFixed(1)} pips`, kind: "loss" };
+          s.stats.lastResult = { text: `${label}  −${p.toFixed(1)} pips`, kind: "loss" };
           this.pushLog({ time: bar.time, kind: "loss", dir: t.dir, pips: p, entry: t.entry });
-          ev.push({ type: "loss", pips: p, entry: t.entry, sl: t.sl, tp: t.tp, time: bar.time, message: `HALO 3EL SL HIT −${p.toFixed(1)} pips` });
+          ev.push({ type: "loss", pips: p, entry: t.entry, sl: t.sl, tp: t.tp, time: bar.time, message: `HALO 3EL ${label} −${p.toFixed(1)} pips`, reason: hitSL ? (managed ? "managed" : "sl") : "tp", exitPx });
         } else {
-          const p = Math.abs(t.tp - t.entry) / this.pip;
           s.stats.wins += 1;
           s.stats.sumTP += p;
-          s.stats.lastResult = { text: `TP HIT  +${p.toFixed(1)} pips`, kind: "win" };
+          s.stats.lastResult = { text: `${label}  +${p.toFixed(1)} pips`, kind: "win" };
           this.pushLog({ time: bar.time, kind: "win", dir: t.dir, pips: p, entry: t.entry });
-          ev.push({ type: "win", pips: p, entry: t.entry, sl: t.sl, tp: t.tp, time: bar.time, message: `HALO 3EL TP HIT +${p.toFixed(1)} pips` });
+          ev.push({ type: "win", pips: p, entry: t.entry, sl: t.sl, tp: t.tp, time: bar.time, message: `HALO 3EL ${label} +${p.toFixed(1)} pips`, reason: hitSL ? "managed" : "tp", exitPx });
         }
         s.trade = null;
+      } else if (confirmed && this.tm?.enabled) {
+        this.manageTrade(t, bar, a, ev);
       }
     }
 
@@ -428,6 +493,7 @@ export class HaloEngine {
         ext: fireExt,
         time: bar.time,
         message: msg,
+        levelTime: fireL.b2Time,
       };
       ev.push(fireEv);
     }
@@ -567,7 +633,9 @@ export class HaloEngine {
     const s = this.state;
     const t = s.trade;
     if (!t) return [];
-    const pips = ((price - t.entry) * t.dir) / this.pip;
+    const exitPips = ((price - t.entry) * t.dir) / this.pip;
+    const frac = t.partialDone ? (t.partialFrac ?? 0) : 0;
+    const pips = frac * (t.partialPips ?? 0) + (1 - frac) * exitPips;
     const win = pips >= 0;
     if (win) {
       s.stats.wins += 1;
@@ -587,6 +655,8 @@ export class HaloEngine {
       tp: t.tp,
       time,
       message: `HALO 3EL MANUAL CLOSE ${win ? "+" : "−"}${Math.abs(pips).toFixed(1)} pips`,
+      reason: "manual",
+      exitPx: price,
     };
     s.trade = null;
     return [ev];

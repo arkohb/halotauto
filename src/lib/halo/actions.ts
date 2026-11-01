@@ -37,7 +37,8 @@ export type ViewId =
   | "briefing"
   | "learning"
   | "voice"
-  | "strategies";
+  | "strategies"
+  | "edge";
 
 export interface ViewMeta {
   id: ViewId;
@@ -50,6 +51,7 @@ export const VIEWS: ViewMeta[] = [
   { id: "intel", label: "Market Intelligence", aliases: ["market intelligence", "intelligence", "market intel", "intel", "markets"] },
   { id: "activity", label: "Trading Activity", aliases: ["trading activity", "activity", "open positions", "positions"] },
   { id: "risk", label: "Risk Guardian", aliases: ["risk guardian", "risk", "protection"] },
+  { id: "edge", label: "HALO EDGE", aliases: ["edge", "halo edge", "signal quality", "trade manager", "capital guardian", "autopilot", "edge vs baseline"] },
   { id: "backtest", label: "Strategy Lab", aliases: ["strategy lab", "backtest", "lab", "signals lab"] },
   { id: "strategies", label: "Strategy Studio", aliases: ["strategy studio", "strategies", "pine editor", "pine script", "pine studio", "my strategies", "custom strategy"] },
   { id: "trade-history", label: "Trade History", aliases: ["trade history", "history", "closed trades", "trade log"] },

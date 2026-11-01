@@ -1,0 +1,15 @@
+# Cloudflare Worker · HALO keep-alive tick
+# Every minute it calls the app's /api/health?tick=1 with the shared secret,
+# so the trading engine keeps advancing even when nobody has the app open.
+name = "halo-keepalive"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+# public origin of the app behind Cloudflare, no trailing slash
+APP_ORIGIN = "https://app.example.com"
+
+# secret: wrangler secret put HALO_CRON_SECRET   (same value as in App Hosting)

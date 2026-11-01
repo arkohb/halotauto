@@ -636,6 +636,23 @@ export async function mtCancelOrder(
   );
 }
 
+/** close PART of an open position (MetaApi trade action POSITION_PARTIAL) */
+export async function mtClosePositionPartially(
+  accountId: string,
+  region: string,
+  positionId: string,
+  volume: number,
+  token?: string
+): Promise<MtOrderResult> {
+  return clientCall<MtOrderResult>(
+    accountId,
+    region,
+    "/orders",
+    { method: "POST", body: { actionType: "POSITION_PARTIAL", positionId, volume, comment: "HALO EDGE partial" }, timeoutMs: 25000 },
+    token
+  );
+}
+
 /** amend SL/TP on an open position (pass 0 to clear a level) */
 export async function mtModifyPosition(
   accountId: string,

@@ -130,6 +130,10 @@ export interface BrokerAdapter {
     positionId: string,
     patch: { sl?: number | null; tp?: number | null }
   ): Promise<OrderResult>;
+  /** close `volume` (native units) of an OPEN position — MT4/MT5 (MetaApi) only */
+  partialClose?(creds: BrokerCreds, positionId: string, volume: number): Promise<OrderResult>;
+  /** broker volume limits for partial-close rounding */
+  volumeSpec?(creds: BrokerCreds, brokerSymbol: string): Promise<{ volumeMin: number; volumeStep: number }>;
 }
 
 // ─── shared helpers ────────────────────────────────────────────────────

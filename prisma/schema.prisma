@@ -28,6 +28,11 @@ model Trade {
   levelBot      Float // C1/C2 zone bottom
   slMode        String // Fixed points | C3 wick + buffer | ATR
   note          String    @default("")
+  // EDGE · Signal Quality Score at fire time (null = fired before EDGE / ungraded)
+  grade         Int?
+  gradeLetter   String    @default("")
+  sizeMult      Float     @default(1) // grade × Capital Guardian size multiplier applied
+  partialPips   Float? // Smart Trade Manager: signed pips banked by a partial close
   openedAt      DateTime
   closedAt      DateTime?
   createdAt     DateTime  @default(now())
@@ -453,4 +458,31 @@ model JournalEquity {
 
   @@unique([userId, day])
   @@index([userId, day])
+}
+
+// EDGE suite settings (id = "main") — Signal Quality · Trade Manager ·
+// Capital Guardian · Autopilot switches, one JSON blob (see lib/edge/settings.ts)
+model EdgeSettings {
+  id        String   @id @default("main")
+  json      String   @default("{}")
+  updatedAt DateTime @updatedAt
+}
+
+// EDGE · Adaptive Autopilot walk-forward profile, one per market (symbol+tf).
+// A profile is only ever an OVERLAY: the saved BotConfig is never rewritten.
+model AutopilotProfile {
+  id           String   @id // `${symbol}:${tf}`
+  symbol       String
+  timeframe    String
+  paramsJson   String // winning parameter overlay
+  inSampleJson String // in-sample metrics of the winner
+  oosJson      String // out-of-sample metrics of the winner
+  baseJson     String // out-of-sample metrics of the current settings
+  combos       Int
+  bars         Int
+  live         Boolean  @default(false) // passed the gate AND switched on
+  passed       Boolean  @default(false) // profitable on unseen data AND beats current settings
+  verdict      String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }

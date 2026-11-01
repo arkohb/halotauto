@@ -13,7 +13,7 @@ import { db } from "@/lib/db";
 import { HaloEngine } from "./halo/engine";
 import { Candle, DEFAULT_CONFIG, EngineEvent, HaloConfig } from "./halo/types";
 import { getKlines, getSymbolMeta, tfSec } from "./market";
-import { closeBrokerPosition, clampExec, executeFire, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
+import { closeBrokerPosition, clampExec, edgeInfoFor, executeFire, gradeSpeech, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
 import { sendAlert } from "./alerts";
 import { registerBotProbe } from "./strategy-select";
 import { maybeAnnounceRangeOpportunities } from "./range-scan";
@@ -21,6 +21,35 @@ import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf } from "./market-symbols";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { getEdgeSync, liveTradeManager } from "./edge/settings";
+import { getOverlay, overlayCfg, overlayManager } from "./edge/autopilot";
+import { applyManageLive } from "./edge/trade-manager";
+import type { TradeManagerCfg } from "./halo/types";
+
+/**
+ * EDGE overlay — the config the engine actually runs. A live Autopilot
+ * profile for this market is layered on top of the SAVED settings at
+ * runtime; bot.cfg (what is persisted) is never modified by it.
+ */
+function effectiveCfg(): HaloConfig {
+  const bot = getBot();
+  const ov = getOverlay(bot.symbol, bot.tf);
+  return ov ? overlayCfg(bot.cfg, ov) : bot.cfg;
+}
+
+function effectiveTm(): TradeManagerCfg | null {
+  const bot = getBot();
+  const ov = getOverlay(bot.symbol, bot.tf);
+  return ov ? overlayManager(getEdgeSync(), ov) : liveTradeManager();
+}
+
+/** re-apply the EDGE overlay + trade manager onto the running engine */
+function syncEdge(): void {
+  const bot = getBot();
+  // never swap the stop/target geometry under an OPEN trade
+  if (!bot.engine.snapshot().trade) bot.engine.cfg = effectiveCfg();
+  bot.engine.tm = effectiveTm();
+}
 
 // register the live runtime probe for the Pine auto-trade loop (leaf module,
 // avoids a circular import between bot.ts and pine-bot.ts)
@@ -187,7 +216,8 @@ async function persistBot(): Promise<void> {
 async function warmEngine(): Promise<void> {
   const bot = getBot();
   const meta = getSymbolMeta(bot.symbol);
-  bot.engine = new HaloEngine(bot.cfg, meta.mintick);
+  bot.engine = new HaloEngine(effectiveCfg(), meta.mintick);
+  bot.engine.tm = effectiveTm();
   bot.openTradeDbId = null;
   bot.lastConfirmedTime = 0;
   try {
@@ -378,8 +408,8 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
           symbol: bot.symbol,
           tf: bot.tf,
           time: e.time,
-          title: `TRADE FIRED · ${e.dir === -1 ? "SELL" : "BUY"} ${symLabel} @ ${px(e.entry)}`,
-          spoken: `Trade fired — ${e.dir === -1 ? "sell" : "buy"} ${symLabel} at ${px(e.entry)}. Stop loss ${px(e.sl)}, take profit ${px(e.tp)}. Risk ${e.riskPips.toFixed(1)} pips for a target of ${e.rewardPips.toFixed(1)} pips.`,
+          title: `TRADE FIRED · ${e.dir === -1 ? "SELL" : "BUY"} ${symLabel} @ ${px(e.entry)}${edgeInfoFor(tradeId)?.grade ? ` · GRADE ${edgeInfoFor(tradeId)!.grade!.letter}` : ""}`,
+          spoken: `Trade fired — ${e.dir === -1 ? "sell" : "buy"} ${symLabel} at ${px(e.entry)}.${gradeSpeech(edgeInfoFor(tradeId)?.grade ?? null)} Stop loss ${px(e.sl)}, take profit ${px(e.tp)}. Risk ${e.riskPips.toFixed(1)} pips for a target of ${e.rewardPips.toFixed(1)} pips.`,
         });
       }
     } else if (e.type === "win" || e.type === "loss") {
@@ -416,8 +446,8 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
           symbol: bot.symbol,
           tf: bot.tf,
           time: e.time,
-          title: `${e.type === "win" ? "TP HIT" : "SL HIT"} ${e.type === "win" ? "+" : "−"}${e.pips.toFixed(1)} pips · ${symLabel}`,
-          spoken: `${e.type === "win" ? "Take profit hit" : "Stop loss hit"} on ${symLabel} — ${e.type === "win" ? "plus" : "minus"} ${e.pips.toFixed(1)} pips. Total is ${bot.realizedPips >= 0 ? "plus" : "minus"} ${Math.abs(bot.realizedPips).toFixed(1)} pips.`,
+          title: `${e.reason === "managed" ? "MANAGED STOP" : e.type === "win" ? "TP HIT" : "SL HIT"} ${e.type === "win" ? "+" : "−"}${e.pips.toFixed(1)} pips · ${symLabel}`,
+          spoken: `${e.reason === "managed" ? "Managed stop hit" : e.type === "win" ? "Take profit hit" : "Stop loss hit"} on ${symLabel} — ${e.type === "win" ? "plus" : "minus"} ${e.pips.toFixed(1)} pips. Total is ${bot.realizedPips >= 0 ? "plus" : "minus"} ${Math.abs(bot.realizedPips).toFixed(1)} pips.`,
         });
       }
       bot.openTradeDbId = null;
@@ -426,6 +456,25 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
       bot.liveBroker = null;
       // GLOBAL TRADE LOCK release — scanning re-activates (announced on the bus)
       maybeReleaseLock("BOT", bot.symbol, bot.tf, e.type, e.pips);
+    } else if (e.type === "manage") {
+      // ── EDGE · SMART TRADE MANAGER — mirror the step onto book + broker ──
+      if (!bot.openTradeDbId) continue; // refused fire (phantom engine trade) — nothing to manage
+      const out = await applyManageLive(e, {
+        tradeDbId: bot.openTradeDbId,
+        broker: bot.openTradeExec === "LIVE" ? bot.liveBroker : null,
+        symbol: bot.symbol,
+      });
+      const what = e.action === "breakeven" ? "Stop moved to break-even" : e.action === "trail" ? "Trailing stop raised" : `Closed ${Math.round((e.frac ?? 0) * 100)} percent early`;
+      publishBotEvent({
+        kind: "status",
+        prio: e.action === "partial" ? "high" : "low",
+        symbol: bot.symbol,
+        tf: bot.tf,
+        time: e.time,
+        title: `TRADE MANAGER · ${e.action.toUpperCase()} · ${symLabel} · SL ${px(e.sl)}`,
+        spoken: `${what} on ${symLabel}${e.action === "partial" ? ` at ${px(e.price ?? e.entry)}` : `, new stop ${px(e.sl)}`}.${out.broker === "failed" ? ` Broker update failed — ${out.note}.` : ""}`,
+      });
+      void sendAlert({ kind: "status", title: `HALO EDGE · ${e.action.toUpperCase()} · ${symLabel}`, body: `${e.message}\n${out.note}` });
     } else if (e.type === "range_skip") {
       // the strategy refused the trade: market RANGING, marked support &
       // resistance too close for entry — state it honestly, then look for
@@ -534,6 +583,7 @@ export async function tickBot(force = false): Promise<void> {
       return;
     }
     const secMs = tfSec(bot.tf) * 1000;
+    syncEdge();
 
     for (const c of candles) {
       if (c.time > bot.lastConfirmedTime && c.time + secMs <= now) {
@@ -690,7 +740,7 @@ export async function updateBotConfig(patch: ConfigPatch): Promise<void> {
     if (getTradeLock()) bot.engine.clearArmedLevels(Date.now());
   }
   bot.cfg = nextCfg;
-  bot.engine.cfg = nextCfg;
+  syncEdge();
 
   if (patch.exec) {
     // merge onto CURRENT settings so partial patches (mode toggle, GO LIVE…)

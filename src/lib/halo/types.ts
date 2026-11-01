@@ -118,6 +118,55 @@ export interface TradeSnapshot {
   levelBot: number;
   trigger: number; // the dotted wick line the trade fired at (= entry)
   slModeLabel: string;
+  // ── EDGE · Smart Trade Manager state (absent / untouched when the manager is off) ──
+  origSl?: number; // the stop the trade fired with (R anchor)
+  beDone?: boolean; // stop already moved to break-even
+  partialDone?: boolean; // part of the position already closed
+  partialFrac?: number; // fraction closed early (0..1)
+  partialPips?: number; // signed pips banked on the closed fraction
+  trailOn?: boolean; // trailing stop engaged
+  bestPx?: number; // most favourable price reached since entry
+}
+
+/**
+ * EDGE · Smart Trade Manager — break-even, partial close and trailing stop.
+ * R = the trade's initial risk (|entry − original SL|). Every step is
+ * evaluated on CONFIRMED bars only, after the bar's SL/TP check
+ * (conservative: a bar can never both move the stop and get stopped by it).
+ */
+export interface TradeManagerCfg {
+  enabled: boolean;
+  beAtR: number; // move the stop to break-even once price runs this many R in favour (0 = off)
+  beOffsetR: number; // break-even lock-in beyond entry, in R (0 = exact entry)
+  partialAtR: number; // close part of the trade at this many R (0 = off)
+  partialPct: number; // % of the position closed at partialAtR (1..90)
+  trailStartR: number; // start trailing once price runs this many R (0 = off)
+  trailATR: number; // trail distance behind the best price (× ATR)
+}
+
+export const DEFAULT_TRADE_MANAGER: TradeManagerCfg = {
+  enabled: false,
+  beAtR: 1,
+  beOffsetR: 0.05,
+  partialAtR: 1.5,
+  partialPct: 50,
+  trailStartR: 2,
+  trailATR: 1.5,
+};
+
+/** The trade manager changed the open trade (stop moved / part closed). */
+export interface ManageEvent {
+  type: "manage";
+  action: "breakeven" | "trail" | "partial";
+  dir: Side;
+  entry: number;
+  sl: number; // the (new) stop after this step
+  prevSl: number;
+  frac?: number; // partial: fraction of the ORIGINAL position closed
+  price?: number; // partial: close price
+  pips?: number; // partial: signed pips banked on the closed fraction
+  time: number;
+  message: string;
 }
 
 export interface Stats {
@@ -157,16 +206,19 @@ export interface FireEvent {
   ext: number;
   time: number;
   message: string;
+  levelTime?: number; // C2 open time of the level that fired (freshness anchor)
 }
 
 export interface CloseEvent {
   type: "win" | "loss";
-  pips: number;
+  pips: number; // net magnitude (partial closes included)
   entry: number;
   sl: number;
   tp: number;
   time: number;
   message: string;
+  reason?: "tp" | "sl" | "managed" | "manual"; // managed = trade-manager stop (BE / trail)
+  exitPx?: number;
 }
 
 /** A level was ARMED — C1/C2 pair accepted, dotted wick trigger set. */
@@ -223,6 +275,7 @@ export type EngineEvent =
   | LevelEvent
   | BreakEvent
   | LevelRemovedEvent
+  | ManageEvent
   | { type: "burned" }
   | { type: "skipped" }
   | { type: "expired"; id: number };

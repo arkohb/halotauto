@@ -13,6 +13,20 @@ import type { BrokerKind } from "./brokers/types";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf, getSymbolMeta } from "./market-symbols";
 import { engageTradeLock, getTradeLock, type TradeLockSource } from "./trade-lock";
+import { gateOrder } from "./edge/gate";
+import type { SignalGrade } from "./edge/quality";
+import { getEdgeSync } from "./edge/settings";
+
+/** EDGE info per opened trade id — read by the bot to speak the grade. */
+const gExec = globalThis as unknown as { __haloEdgeExec?: Map<string, { grade: SignalGrade | null; sizeMult: number }> };
+export function edgeInfoFor(tradeId: string): { grade: SignalGrade | null; sizeMult: number } | null {
+  return gExec.__haloEdgeExec?.get(tradeId) ?? null;
+}
+function rememberEdge(tradeId: string, grade: SignalGrade | null, sizeMult: number): void {
+  const m = (gExec.__haloEdgeExec ??= new Map());
+  m.set(tradeId, { grade, sizeMult });
+  if (m.size > 200) m.delete(m.keys().next().value as string);
+}
 
 export interface ExecSettings {
   executionMode: "paper" | "live";
@@ -108,6 +122,39 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     });
     return null;
   }
+
+  // ── EDGE gate: Signal Quality Score + Capital Guardian (every source) ──
+  const gate = await gateOrder(job.symbol, job.tf, fire);
+  if (!gate.allow) {
+    const meta = getSymbolMeta(job.symbol);
+    const label = meta.label.split("·")[0].trim() || job.symbol;
+    void sendAlert({
+      kind: "status",
+      title: `HALO EDGE · ORDER BLOCKED · ${label}`,
+      body: `${job.source} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed — ${gate.reason}.`,
+    });
+    publishBotEvent({
+      kind: "status",
+      prio: "low",
+      symbol: job.symbol,
+      tf: job.tf,
+      time: fire.time,
+      title: `EDGE BLOCKED · ${label}`,
+      spoken: `A ${fire.dir === -1 ? "sell" : "buy"} signal on ${label} was not traded. ${gate.reason}.`,
+    });
+    return null;
+  }
+  const mult = gate.sizeMult;
+  job = {
+    ...job,
+    exec: {
+      ...job.exec,
+      sizeFixed: Math.max(0.01, Math.round(job.exec.sizeFixed * mult * 100) / 100),
+      sizePercent: Math.max(0.01, job.exec.sizePercent * mult),
+    },
+  };
+  const edgeFields = { grade: gate.grade?.score ?? null, gradeLetter: gate.grade?.letter ?? "", sizeMult: mult };
+
   const base = {
     mode: job.source,
     symbol: job.symbol,
@@ -122,11 +169,13 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     levelBot: job.levelBot,
     slMode: job.slModeLabel,
     openedAt: new Date(fire.time),
+    ...edgeFields,
   };
 
   // Scanner / all-pairs sweep fires say it out loud too (the 3EL bot announces
   // its own fires in bot.ts — source BOT must not announce twice here).
   const announce = (tradeId: string): void => {
+    rememberEdge(tradeId, gate.grade, mult);
     if (job.source === "BOT") return;
     try {
       const meta = getSymbolMeta(job.symbol);
@@ -138,8 +187,8 @@ export async function executeFire(job: FireJob): Promise<string | null> {
         symbol: job.symbol,
         tf: job.tf,
         time: fire.time,
-        title: `TRADE FIRED · ${fire.dir === -1 ? "SELL" : "BUY"} ${label} @ ${px(fire.entry)}`,
-        spoken: `Trade fired — ${fire.dir === -1 ? "sell" : "buy"} ${label} at ${px(fire.entry)}. Stop loss ${px(fire.sl)}, take profit ${px(fire.tp)}. Risk ${fire.riskPips.toFixed(1)} pips for a target of ${fire.rewardPips.toFixed(1)} pips.`,
+        title: `TRADE FIRED · ${fire.dir === -1 ? "SELL" : "BUY"} ${label} @ ${px(fire.entry)}${gate.grade ? ` · GRADE ${gate.grade.letter}` : ""}`,
+        spoken: `Trade fired — ${fire.dir === -1 ? "sell" : "buy"} ${label} at ${px(fire.entry)}.${gradeSpeech(gate.grade)} Stop loss ${px(fire.sl)}, take profit ${px(fire.tp)}. Risk ${fire.riskPips.toFixed(1)} pips for a target of ${fire.rewardPips.toFixed(1)} pips.`,
       });
     } catch {
       // announcement must never break execution
@@ -266,4 +315,10 @@ export async function closeBrokerPosition(
     });
   }
   return { ok: res.ok, error: res.error };
+}
+
+/** " Signal grade A plus, score 87." — empty when ungraded or announcing is off. */
+export function gradeSpeech(g: SignalGrade | null): string {
+  if (!g || !getEdgeSync().quality.announce) return "";
+  return ` Signal grade ${g.letter.replace("+", " plus")}, score ${g.score}.`;
 }

@@ -14,7 +14,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Bell, BookOpen, BookOpenCheck, FlaskConical, Globe, Landmark, Mic, Radar, ScrollText, Settings, ShieldCheck, SunMedium, TrendingUp } from "lucide-react";
+import { Activity, Bell, BookOpen, BookOpenCheck, FlaskConical, Globe, Landmark, Mic, Radar, ScrollText, Settings, ShieldCheck, Sparkles, SunMedium, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import type { Candle } from "@/lib/halo/types";
@@ -37,6 +37,7 @@ import { BotPanel } from "@/components/halo/bot-panel";
 import { ExecutionPanel } from "@/components/halo/execution-panel";
 import { HistoryPanel } from "@/components/halo/history-panel";
 import { BacktestPanel } from "@/components/halo/backtest-panel";
+import { EdgePanel } from "@/components/halo/edge-panel";
 import { BacktestLive } from "@/components/halo/backtest-live";
 import { ScannerPanel } from "@/components/halo/scanner-panel";
 import { ScannerBotDashboard } from "@/components/halo/scanner-bot-dashboard";
@@ -674,6 +675,18 @@ export default function Page() {
                   <HaloCore state={state} />
                   <VoiceSettingsCard />
                 </div>
+              </div>
+            )}
+
+            {/* ════════ HALO EDGE · quality · manager · guardian · autopilot ════════ */}
+            {view === "edge" && (
+              <div className="space-y-6">
+                <PageHeader
+                  icon={Sparkles}
+                  title="HALO EDGE"
+                  sub="Signal Quality Score, Smart Trade Manager, Capital Guardian, Adaptive Autopilot and the EDGE vs baseline backtest."
+                />
+                <EdgePanel symbol={state.symbol} tf={state.tf} notify={notify} />
               </div>
             )}
 

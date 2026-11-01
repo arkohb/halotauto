@@ -32,6 +32,7 @@ import {
   ScrollText,
   Settings,
   ShieldCheck,
+  Sparkles,
   SunMedium,
   TrendingUp,
   type LucideIcon,
@@ -55,7 +56,8 @@ export type HaloView =
   | "briefing"
   | "learning"
   | "voice"
-  | "strategies";
+  | "strategies"
+  | "edge";
 
 interface NavItem {
   id: HaloView;
@@ -71,6 +73,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { id: "intel", label: "Market Intelligence", icon: Globe },
       { id: "activity", label: "Trading Activity", icon: Activity },
       { id: "risk", label: "Risk Guardian", icon: ShieldCheck },
+      { id: "edge", label: "HALO EDGE", icon: Sparkles },
       { id: "backtest", label: "Strategy Lab", icon: FlaskConical },
       { id: "strategies", label: "Strategy Studio", icon: Braces },
       { id: "trade-history", label: "Trade History", icon: ScrollText },

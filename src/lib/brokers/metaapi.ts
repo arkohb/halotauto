@@ -27,6 +27,7 @@ import {
   mtAccountInformation,
   mtCancelOrder,
   mtClosePosition,
+  mtClosePositionPartially,
   mtMarketOrder,
   mtModifyPosition,
   mtOrders,
@@ -369,6 +370,25 @@ async function modifyPosition(
   }
 }
 
+async function partialClose(creds: BrokerCreds, positionId: string, volume: number): Promise<OrderResult> {
+  try {
+    const a = acct(creds);
+    const res = await mtClosePositionPartially(a.id, a.region, positionId, volume, a.token);
+    if (res.errorCode || (res.description && !/done|success/i.test(res.description))) {
+      return { ok: false, error: `${res.errorCode ?? ""} ${res.description ?? ""}`.trim(), raw: res };
+    }
+    return { ok: true, brokerOrderId: res.orderId, volume, raw: res };
+  } catch (e) {
+    return { ok: false, error: friendlyMetaApiError(e) };
+  }
+}
+
+async function volumeSpec(creds: BrokerCreds, brokerSymbol: string): Promise<{ volumeMin: number; volumeStep: number }> {
+  const a = acct(creds);
+  const spec = await mtSymbolSpec(a.id, a.region, brokerSymbol, a.token);
+  return { volumeMin: spec.volumeMin, volumeStep: spec.volumeStep };
+}
+
 export const metaapiAdapter: BrokerAdapter = {
   kind: "metaapi",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -380,4 +400,6 @@ export const metaapiAdapter: BrokerAdapter = {
   getOrders,
   cancelOrder,
   modifyPosition,
+  partialClose,
+  volumeSpec,
 };

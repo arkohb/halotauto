@@ -43,6 +43,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/commerce/webhook/",  // Paystack & Flutterwave server-to-server webhooks
   "/api/webhook/",           // TradingView webhook (secret-authenticated upstream)
   "/api/commerce/plans",     // public pricing data for the /pricing page
+  "/api/health",             // hosting health check + secret-gated keep-alive tick
 ];
 
 export function proxy(req: NextRequest) {

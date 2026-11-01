@@ -1,0 +1,44 @@
+# ════════════════════════════════════════════════════════════════════════
+#  Firebase App Hosting · HALO 3EL Autotrader (Next.js server on Cloud Run)
+#
+#  The trading bot, scanner, sweep and global trade lock live IN MEMORY in
+#  one Node process. Exactly ONE instance must run at all times:
+#    minInstances 1 → the engine never scales to zero (no cold boots
+#                     mid-trade, the 2 s feed loop keeps going)
+#    maxInstances 1 → never two bots trading the same account
+#  The Cloudflare keep-alive worker (cloudflare/keepalive-worker) also
+#  ticks /api/health?tick=1 every minute as a second line of defence.
+# ════════════════════════════════════════════════════════════════════════
+
+runConfig:
+  minInstances: 1
+  maxInstances: 1
+  concurrency: 80
+  cpu: 1
+  memoryMiB: 1024
+
+scripts:
+  buildCommand: npm run build:apphosting
+  runCommand: node .next/standalone/server.js
+
+env:
+  - variable: NODE_ENV
+    value: production
+  - variable: DATABASE_PROVIDER
+    value: postgresql
+    availability: [BUILD, RUNTIME]
+  # Commercial mode (login + license gate) — keep ON in production
+  - variable: HALO_COMMERCE
+    value: "on"
+  - variable: NEXT_TELEMETRY_DISABLED
+    value: "1"
+
+  # ── secrets (Cloud Secret Manager) — create with:
+  #   firebase apphosting:secrets:set DATABASE_URL
+  #   firebase apphosting:secrets:set HALO_CRON_SECRET
+  - variable: DATABASE_URL
+    secret: DATABASE_URL
+    availability: [BUILD, RUNTIME]
+  - variable: HALO_CRON_SECRET
+    secret: HALO_CRON_SECRET
+    availability: [RUNTIME]

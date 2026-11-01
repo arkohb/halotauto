@@ -1,0 +1,24 @@
+{
+  "apphosting": [
+    {
+      "backendId": "halo-autotrader",
+      "rootDir": "/",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "db",
+        "download",
+        "upload",
+        "tool-results",
+        "agent-ctx",
+        "skills",
+        "scripts/**/*.png",
+        "tests",
+        "examples",
+        "cloudflare",
+        "-s",
+        "*.log"
+      ]
+    }
+  ]
+}

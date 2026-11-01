@@ -30,6 +30,8 @@ import { executeFire, loadExecSettings, resolveBroker, closeBrokerPosition } fro
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant, type TradeLockState } from "./trade-lock";
+import { liveTradeManager } from "./edge/settings";
+import { applyManageLive } from "./edge/trade-manager";
 
 export const SWEEP_TFS = ["1h", "4h"] as const;
 const KV_KEY = "sweepConfig";
@@ -308,6 +310,13 @@ async function handleEvents(row: SweepRow, events: EngineEvent[]): Promise<void>
           traded ? "AUTO-TRADED via the all-pairs sweep" : R.autoTrade ? "auto-trade ON but execution rejected" : "signal only — sweep auto-trade OFF"
         }\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips`,
       });
+    } else if (e.type === "manage") {
+      // EDGE Smart Trade Manager — mirror stop moves / partials onto book + broker
+      if (row.openTradeDbId) {
+        const broker = row.liveBrokerId ? await resolveBroker(row.liveBrokerId) : null;
+        const out = await applyManageLive(e, { tradeDbId: row.openTradeDbId, broker, symbol: row.symbol });
+        void sendAlert({ kind: "status", title: `${"SWEEP"} · TRADE MANAGER ${e.action.toUpperCase()} · ${symLabel}`, body: `${e.message}\n${out.note}` });
+      }
     } else if (e.type === "range_skip") {
       // range filter refused the fire on this sweep row — log it honestly
       void sendAlert({
@@ -373,6 +382,7 @@ async function tickRow(row: SweepRow): Promise<void> {
 
   const { candles, source } = await getKlines(row.symbol, row.tf, 4, { fresh: true });
   row.source = source;
+  row.engine.tm = liveTradeManager(); // EDGE Smart Trade Manager (null = off)
   for (const c of candles) {
     if (c.time > row.lastConfirmedTime && c.time + secMs <= now) {
       const ev = row.engine.processBar(c, true);

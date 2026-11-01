@@ -16,6 +16,8 @@ import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } fro
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { liveTradeManager } from "./edge/settings";
+import { applyManageLive } from "./edge/trade-manager";
 
 export const MAX_ROWS = 12;
 
@@ -265,6 +267,13 @@ async function handleEvents(row: ScannerRow, events: EngineEvent[]): Promise<voi
           row.autoTrade ? (traded ? `AUTO-TRADED (${live ? "live" : "paper"})` : "auto-trade ON but execution rejected") : "signal only — auto-trade OFF"
         }\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips`,
       });
+    } else if (e.type === "manage") {
+      // EDGE Smart Trade Manager — mirror stop moves / partials onto book + broker
+      if (row.openTradeDbId) {
+        const broker = row.liveBrokerId ? await resolveBroker(row.liveBrokerId) : null;
+        const out = await applyManageLive(e, { tradeDbId: row.openTradeDbId, broker, symbol: row.symbol });
+        void sendAlert({ kind: "status", title: `${"SCAN"} · TRADE MANAGER ${e.action.toUpperCase()} · ${symLabel}`, body: `${e.message}\n${out.note}` });
+      }
     } else if (e.type === "range_skip") {
       // range filter refused the fire on this watchlist row — announce it
       void sendAlert({
@@ -343,6 +352,7 @@ async function tickRow(row: ScannerRow): Promise<void> {
 
   const { candles, source } = await getKlines(row.symbol, row.tf, 4, { fresh: true });
   row.source = source;
+  row.engine.tm = liveTradeManager(); // EDGE Smart Trade Manager (null = off)
   for (const c of candles) {
     if (c.time > row.lastConfirmedTime && c.time + secMs <= now) {
       const ev = row.engine.processBar(c, true);
