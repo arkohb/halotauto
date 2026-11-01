@@ -75,7 +75,7 @@ const GROUPS: { title: string; items: NavItem[] }[] = [
       { id: "strategies", label: "Strategy Studio", icon: Braces },
       { id: "trade-history", label: "Trade History", icon: ScrollText },
       { id: "performance", label: "Performance", icon: TrendingUp },
-      { id: "journal", label: "Perf. Journal", icon: BookOpenCheck },
+      { id: "journal", label: "Performance Journal", icon: BookOpenCheck },
       { id: "briefing", label: "Daily Briefing", icon: SunMedium },
       { id: "learning", label: "Learning Missions", icon: BookOpen },
       { id: "settings", label: "Settings", icon: Settings },

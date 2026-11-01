@@ -63,7 +63,9 @@ export function TrendArea({
   stroke?: string;
 }) {
   if (points.length === 0) return null;
-  const line = stroke ?? (points[points.length - 1]?.value ?? 0) >= 0 ? C.cyan : C.red;
+  // falling line renders red; a caller-supplied stroke always wins
+  const lastValue = points[points.length - 1]?.value ?? 0;
+  const line = stroke ?? (lastValue >= 0 ? C.cyan : C.red);
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={points} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
