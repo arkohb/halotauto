@@ -1,6 +1,9 @@
 // ══════════════════════════════════════════════════════════════════════════
 //  LOGIN-FIRST GATE · the app always opens on the login dashboard
 //
+//  Migrated from middleware.ts → proxy.ts (Next.js 16 convention — the
+//  "middleware" file name is deprecated; behaviour is 1:1 identical).
+//
 //  COMMERCIAL MODE (default — the platform is a sold product):
 //   · unauthenticated page navigation → redirected to /login?next=… so the
 //     app ALWAYS opens on the login dashboard (server-side, before any
@@ -42,7 +45,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/commerce/plans",     // public pricing data for the /pricing page
 ];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   if (process.env.HALO_COMMERCE === "off") return NextResponse.next();
 
   const { pathname, search } = req.nextUrl;
