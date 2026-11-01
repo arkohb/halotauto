@@ -8,9 +8,9 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/commerce/auth";
-import { parseFilters } from "@/lib/journal/filters";
+import { parseFilters, prevWindow } from "@/lib/journal/filters";
 import { toRec } from "@/lib/journal/records";
-import { analyticsFor, type EquitySnapshot } from "@/lib/journal/stats";
+import { analyticsFor, coreStats, type CoreStats, type EquitySnapshot } from "@/lib/journal/stats";
 
 export const dynamic = "force-dynamic";
 
@@ -42,9 +42,27 @@ export async function GET(req: Request) {
     }));
     const payload = analyticsFor(rows.map(toRec), { year: f.year, month0: f.month0, snapshots });
 
+    // previous-period comparison — computed ONLY when a fair preceding
+    // window exists (same filters, shifted window). Never invented.
+    let prev: CoreStats | null = null;
+    const pw = prevWindow(f.period, f.from, f.to);
+    if (pw.from || pw.to) {
+      const prevRows = await db.journalTrade.findMany({
+        where: {
+          userId,
+          ...f.where,
+          closedAt: { ...(pw.from ? { gte: pw.from } : {}), ...(pw.to ? { lte: pw.to } : {}) },
+        },
+        orderBy: { closedAt: "asc" },
+        take: 20000,
+      });
+      prev = coreStats(prevRows.map(toRec));
+    }
+
     return NextResponse.json({
       ok: true,
       ...payload,
+      prev,
       sync: state
         ? {
             lastSyncAt: state.lastSyncAt?.toISOString() ?? null,

@@ -189,9 +189,42 @@ const syncBody = (await syncPost.json()) as { ok: boolean; error?: string; resul
 console.log(`MT5 sync probe → ok=${syncBody.ok} status=${syncPost.status}${syncBody.error ? ` error="${syncBody.error.slice(0, 140)}"` : ` created=${syncBody.result?.tradesCreated} deals=${syncBody.result?.dealsSeen}`}`);
 eq("sync answers with ok or explicit error", syncBody.ok === true || typeof syncBody.error === "string", true);
 
+// ── NEW (visual upgrade): 30d period + previous-period comparison + balance series ──
+const nowMs = Date.now();
+const dayMs = 86400_000;
+const iso = (ms: number) => new Date(ms).toISOString();
+const cur = await mk({ symbol: "USDJPY", direction: "BUY", volume: 1, entryPrice: 150, exitPrice: 151, sl: 149.5, openedAt: iso(nowMs - 2 * dayMs), closedAt: iso(nowMs - 1 * dayMs), grossProfit: 100, currency: "USD" });
+eq("30d current-window trade created", cur.ok, true);
+const prevTrade = await mk({ symbol: "USDJPY", direction: "SELL", volume: 1, entryPrice: 150, exitPrice: 149, sl: 150.5, openedAt: iso(nowMs - 32 * dayMs), closedAt: iso(nowMs - 31 * dayMs), grossProfit: 50, currency: "USD" });
+eq("30d previous-window trade created", prevTrade.ok, true);
+const s30 = (await (await fetch(`${BASE}/api/journal/stats?period=30d`, { headers: H })).json()) as {
+  ok: boolean; core: Record<string, number>; prev: Record<string, number> | null; balance: { mode: string; points: unknown[] };
+};
+eq("30d stats ok", s30.ok, true);
+eq("30d window includes the current trade", s30.core.totalTrades, 1);
+eq("30d prev window exists", s30.prev !== null, true);
+eq("30d prev window holds exactly the previous trade", s30.prev?.totalTrades, 1);
+eq("30d prev net is the previous trade only", s30.prev?.netPnl, 50);
+eq("30d balance mode honest (none until real snapshots)", s30.balance.mode, "none");
+eq("30d balance points empty (never fabricated)", s30.balance.points.length, 0);
+const s7 = (await (await fetch(`${BASE}/api/journal/stats?period=7d`, { headers: H })).json()) as { ok: boolean; prev: Record<string, number> | null };
+eq("7d stats ok", s7.ok, true);
+eq("7d prev window exists (even when empty)", s7.prev !== null, true);
+const sAll = (await (await fetch(`${BASE}/api/journal/stats?period=all`, { headers: H })).json()) as { ok: boolean; prev: Record<string, number> | null };
+eq("all-time prev is null (no invented comparison)", sAll.prev, null);
+
 console.log(`\n═══ JOURNAL API TESTS: ${pass} passed · ${fail} failed ═══`);
 if (fail > 0) {
   console.log("FAILURES:\n" + failures.map((f) => `  ✗ ${f}`).join("\n"));
   process.exit(1);
 }
-console.log("ALL API TESTS GREEN ✓");
+
+// ── cleanup: leave the journal empty so demo seeding stays available ──
+const fin = (await (await fetch(`${BASE}/api/journal?pageSize=200`, { headers: H })).json()) as { trades: { id: string }[] };
+for (const t of fin.trades) await fetch(`${BASE}/api/journal/trades/${t.id}`, { method: "DELETE", headers: H });
+const afterClean = (await (await fetch(`${BASE}/api/journal?pageSize=10`, { headers: H })).json()) as { total: number };
+if (afterClean.total !== 0) {
+  console.log(`WARN: cleanup left ${afterClean.total} rows`);
+  process.exit(1);
+}
+console.log("ALL API TESTS GREEN ✓ (journal left clean)");

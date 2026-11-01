@@ -461,6 +461,9 @@ export interface AnalyticsPayload {
   monthly: DayPnl[];
   cumulative: { t: string; net: number }[];
   equity: { mode: "snapshots" | "derived"; points: { day: string; value: number }[] };
+  // broker-recorded BALANCE series — exists only when real snapshots exist;
+  // a balance curve is never fabricated from trade P&L (no starting balance known)
+  balance: { mode: "snapshots" | "none"; points: { day: string; value: number }[] };
   calendar: { year: number; month0: number; weeks: CalendarCell[][] };
   bySymbol: BreakdownRow[];
   byDirection: BreakdownRow[];
@@ -485,6 +488,10 @@ export function analyticsFor(
     snaps.length >= 2
       ? { mode: "snapshots" as const, points: snaps.map((s) => ({ day: s.day, value: round(s.equity, 2) })) }
       : { mode: "derived" as const, points: cumulativeCurve(recs).map((p) => ({ day: dayKeyUtc(p.t), value: p.net })) };
+  const balance =
+    snaps.length >= 2
+      ? { mode: "snapshots" as const, points: snaps.map((s) => ({ day: s.day, value: round(s.balance, 2) })) }
+      : { mode: "none" as const, points: [] };
   const byTime = [...recs].sort((a, b) => +new Date(a.closedAt) - +new Date(b.closedAt));
   return {
     core,
@@ -493,6 +500,7 @@ export function analyticsFor(
     monthly: monthlyPnl(recs),
     cumulative: cumulativeCurve(recs),
     equity,
+    balance,
     calendar: { year: opts.year, month0: opts.month0, weeks: calendarMonth(opts.year, opts.month0, recs) },
     bySymbol: bySymbol(recs),
     byDirection: byDirection(recs),

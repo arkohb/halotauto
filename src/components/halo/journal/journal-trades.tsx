@@ -201,7 +201,9 @@ export function JournalTrades({ filterQS, refreshKey, meta, notify, onChanged }:
 
 // ── detail dialog + review editor ────────────────────────────────────────
 
-function TradeDetail({ rec, onClose, notify, onChanged }: { rec: JournalRec; onClose: () => void; notify: Props["notify"]; onChanged: () => void }) {
+// exported for reuse by the Overview command centre ("View" buttons open
+// the same full-record dialog — one source of truth for the trade review)
+export function TradeDetail({ rec, onClose, notify, onChanged }: { rec: JournalRec; onClose: () => void; notify: Props["notify"]; onChanged: () => void }) {
   const [notes, setNotes] = useState(rec.notes);
   const [tags, setTags] = useState<string[]>(rec.tags);
   const [rating, setRating] = useState<number>(rec.review.rating ?? 0);

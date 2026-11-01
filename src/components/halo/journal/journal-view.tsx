@@ -8,6 +8,10 @@
 //  It owns no trading state, touches no engine/execution surface and polls
 //  gently (60 s, visibility-gated) — the heavy charts are lazy-loaded.
 //
+//  MASTHEAD: gold HALO PERFORMANCE JOURNAL header with the date-range
+//  selector (Last 30 Days default), a Live-Data pill driven by the REAL
+//  MT5 synchronization state and the authenticated user's profile.
+//
 //  TABS  : Overview · Trade Book · Analytics · Calendar · Discipline ·
 //          Insights · Reports
 //  DATA  : /api/journal (+ stats/sync/import/export/demo/report/insights)
@@ -20,20 +24,18 @@ import {
   BookOpenCheck,
   CalendarDays,
   Database,
-  Download,
   PenLine,
-  RefreshCw,
   ShieldCheck,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import { PageHeader, PanelCard, Pill, StateFrame, StatCell } from "@/components/halo/panel";
+import { PanelCard, Pill, StateFrame } from "@/components/halo/panel";
 import { A, C } from "@/lib/halo/ui-helpers";
-import type { AnalyticsPayload, JournalRec } from "@/lib/journal/stats";
+import type { AnalyticsPayload, CoreStats, JournalRec } from "@/lib/journal/stats";
 import { JournalSyncCard } from "./journal-sync-card";
-import { EquityCurve } from "./journal-chart";
+import { JournalHeader, JournalOverview, type LiveStatus, type HeaderUser } from "./journal-overview";
 import { ManualEntryDialog } from "./journal-manual-entry";
-import { moneyPlain, pct, pnlColor, MONTHS } from "./journal-fmt";
+import { moneyPlain, pnlColor, dt, MONTHS } from "./journal-fmt";
 
 // lazy tabs — the journal opens light; heavy panels load on first use
 const JournalTrades = dynamic(() => import("./journal-trades").then((m) => m.JournalTrades), {
@@ -73,17 +75,6 @@ const TABS: { id: Tab; label: string; icon: typeof BarChart3 }[] = [
   { id: "reports", label: "Reports", icon: PenLine },
 ];
 
-const PERIODS: { id: string; label: string }[] = [
-  { id: "today", label: "Today" },
-  { id: "week", label: "This week" },
-  { id: "month", label: "This month" },
-  { id: "lastmonth", label: "Last month" },
-  { id: "90d", label: "Last 90 days" },
-  { id: "year", label: "This year" },
-  { id: "all", label: "All time" },
-  { id: "custom", label: "Custom" },
-];
-
 interface SyncMeta {
   lastSyncAt: string | null;
   lastSyncOk: boolean;
@@ -111,7 +102,7 @@ interface Floating {
 
 export function JournalView({ notify }: { notify: (title: string, desc?: string, bad?: boolean) => void }) {
   const [tab, setTab] = useState<Tab>("overview");
-  const [period, setPeriod] = useState("all");
+  const [period, setPeriod] = useState("30d");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [symbol, setSymbol] = useState("");
@@ -122,12 +113,14 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
   const [calYear, setCalYear] = useState(new Date().getUTCFullYear());
   const [calMonth, setCalMonth] = useState(new Date().getUTCMonth());
 
-  const [stats, setStats] = useState<AnalyticsPayload | null>(null);
+  const [stats, setStats] = useState<(AnalyticsPayload & { prev: CoreStats | null }) | null>(null);
   const [meta, setMeta] = useState<ListMeta | null>(null);
+  const [recent, setRecent] = useState<JournalRec[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [floating, setFloating] = useState<Floating | null>(null);
+  const [user, setUser] = useState<HeaderUser | null>(null);
 
   const filterQS = useMemo(() => {
     const qs = new URLSearchParams();
@@ -153,11 +146,12 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
         fetch(`/api/journal/stats?${filterQS}`, { cache: "no-store" }),
         fetch(`/api/journal?${filterQS}&page=1&pageSize=25`, { cache: "no-store" }),
       ]);
-      const sj = (await statsRes.json()) as { ok: boolean; error?: string } & AnalyticsPayload & { sync?: SyncMeta | null };
-      const lj = (await listRes.json()) as { ok: boolean; meta?: Omit<ListMeta, "sync">; error?: string };
+      const sj = (await statsRes.json()) as { ok: boolean; error?: string } & AnalyticsPayload & { prev?: CoreStats | null; sync?: SyncMeta | null };
+      const lj = (await listRes.json()) as { ok: boolean; trades?: JournalRec[]; meta?: Omit<ListMeta, "sync">; error?: string };
       if (!sj.ok) throw new Error(sj.error ?? "Could not load journal statistics.");
       if (!lj.ok) throw new Error(lj.error ?? "Could not load the journal.");
-      setStats(sj);
+      setStats({ ...sj, prev: sj.prev ?? null });
+      setRecent(lj.trades ?? []);
       setMeta({
         sources: lj.meta?.sources ?? [],
         symbols: lj.meta?.symbols ?? [],
@@ -190,6 +184,41 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
     const h = () => setManualOpen(true);
     document.addEventListener("halo-journal-manual-entry", h);
     return () => document.removeEventListener("halo-journal-manual-entry", h);
+  }, []);
+
+  // authenticated user profile for the masthead (cosmetic — best effort)
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        const j = (await res.json()) as {
+          ok: boolean;
+          user?: { fullName?: string; username?: string | null; email?: string; role?: string } | null;
+          license?: { planName?: string } | null;
+        };
+        if (!alive) return;
+        const u = j.user;
+        if (!u) {
+          setUser(null);
+          return;
+        }
+        const name = u.fullName?.trim() || u.username?.trim() || u.email?.split("@")[0] || "Trader";
+        const initials =
+          name
+            .split(/\s+/)
+            .slice(0, 2)
+            .map((w) => w[0]?.toUpperCase() ?? "")
+            .join("") || "T";
+        const detail = j.license?.planName ? `${j.license.planName} license` : u.role ? String(u.role).replace("_", " ") : u.email || "";
+        setUser({ initials, name, detail: detail.toLowerCase() });
+      } catch {
+        /* the masthead profile is cosmetic — never blocks the journal */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // live account floating P&L (existing READ endpoint, reused — no new MT5 path)
@@ -230,6 +259,20 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
   const hasDemo = meta?.sources.includes("DEMO") ?? false;
   const demoOnly = meta?.sources.length === 1 && hasDemo;
 
+  // Live-Data pill — reflects the ACTUAL synchronization state, never faked
+  const live: LiveStatus = useMemo(() => {
+    const s = meta?.sync ?? null;
+    if (s && s.lastSyncOk)
+      return {
+        tone: "live",
+        label: "Live Data",
+        title: `MT5 history synchronized — ${s.lastSyncMsg || `last sync ${dt(s.lastSyncAt)}`}`,
+      };
+    if (s && !s.lastSyncOk) return { tone: "error", label: "Sync Error", title: s.lastSyncMsg || "The last MT5 synchronization failed — retry from Data Sources." };
+    if ((c?.totalTrades ?? 0) > 0) return { tone: "journal", label: "Journal Data", title: "Records loaded from CSV import / manual entry — no MT5 synchronization yet." };
+    return { tone: "none", label: "No Data", title: "No synchronized MT5 history and no recorded trades yet — use Data Sources below." };
+  }, [meta, c]);
+
   const selectDay = (day: string) => {
     setPeriod("custom");
     setFrom(`${day}T00:00`);
@@ -238,25 +281,9 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
   };
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        icon={BookOpenCheck}
-        title="PERFORMANCE JOURNAL"
-        sub="Record, review, analyse and understand your actual trading performance — every figure computed from real recorded trades, never invented."
-        right={
-          <>
-            <button type="button" onClick={onChanged} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[9px] font-extrabold tracking-[0.12em] transition-all hover:brightness-125" style={{ borderColor: C.line2, background: C.navy2, color: C.txt2 }}>
-              <RefreshCw size={11} className={loading ? "animate-spin" : ""} /> REFRESH
-            </button>
-            <button type="button" onClick={() => setManualOpen(true)} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[9px] font-extrabold tracking-[0.12em] transition-all hover:brightness-125" style={{ borderColor: A.cyan(0.45), background: A.cyan(0.08), color: C.cyan }}>
-              <PenLine size={11} /> MANUAL ENTRY
-            </button>
-            <a href={`/api/journal/export?${filterQS}`} className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[9px] font-extrabold tracking-[0.12em] transition-all hover:brightness-125" style={{ borderColor: A.gold(0.45), background: A.gold(0.08), color: C.goldHover }}>
-              <Download size={11} /> CSV
-            </a>
-          </>
-        }
-      />
+    <div className="space-y-3">
+      {/* ═══ masthead ═══ */}
+      <JournalHeader period={period} onPeriod={setPeriod} live={live} user={user} loading={loading} onRefresh={onChanged} />
 
       {/* demo banner — always visible while demo rows exist */}
       {hasDemo && (
@@ -270,45 +297,53 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
         </div>
       )}
 
-      {/* filter bar */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: C.panelLine, background: `linear-gradient(180deg, ${A.blue(0.06)}, ${C.deep})` }}>
-        <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Date filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
-          {PERIODS.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
-        {period === "custom" && (
-          <>
-            <input value={from} onChange={(e) => setFrom(e.target.value)} type="datetime-local" aria-label="Custom range start" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }} />
-            <span className="text-[9px]" style={{ color: C.label }}>→</span>
-            <input value={to} onChange={(e) => setTo(e.target.value)} type="datetime-local" aria-label="Custom range end" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }} />
-          </>
-        )}
-        <select value={symbol} onChange={(e) => setSymbol(e.target.value)} aria-label="Instrument filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
-          <option value="">Instrument: all</option>
-          {(meta?.symbols ?? []).map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
-        <select value={direction} onChange={(e) => setDirection(e.target.value)} aria-label="Direction filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
-          <option value="">BUY / SELL: all</option>
-          <option value="BUY">BUY only</option>
-          <option value="SELL">SELL only</option>
-        </select>
-        <select value={outcome} onChange={(e) => setOutcome(e.target.value)} aria-label="Outcome filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
-          <option value="">Winners &amp; losers</option>
-          <option value="win">Winners only</option>
-          <option value="loss">Losers only</option>
-          <option value="breakeven">Breakeven only</option>
-        </select>
-        <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
-          <option value="">Source: all</option>
-          {(meta?.sources ?? []).map((s) => (
-            <option key={s} value={s}>{s === "DEMO" ? "DEMO (labeled)" : s}</option>
-          ))}
-        </select>
-        {c && c.mixedCurrency && <Pill tone="warn">MIXED CURRENCIES — TOTALS INDICATIVE</Pill>}
-      </div>
+      {/* filter bar — advanced facets live on the detail tabs; the custom
+          range inputs stay reachable wherever they are needed */}
+      {(tab !== "overview" || period === "custom") && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2.5" style={{ borderColor: C.panelLine, background: `linear-gradient(180deg, ${A.blue(0.06)}, ${C.deep})` }}>
+          {period === "custom" && (
+            <>
+              <input value={from} onChange={(e) => setFrom(e.target.value)} type="datetime-local" aria-label="Custom range start" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }} />
+              <span className="text-[9px]" style={{ color: C.label }}>
+                →
+              </span>
+              <input value={to} onChange={(e) => setTo(e.target.value)} type="datetime-local" aria-label="Custom range end" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }} />
+            </>
+          )}
+          {tab !== "overview" && (
+            <>
+              <select value={symbol} onChange={(e) => setSymbol(e.target.value)} aria-label="Instrument filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
+                <option value="">Instrument: all</option>
+                {(meta?.symbols ?? []).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <select value={direction} onChange={(e) => setDirection(e.target.value)} aria-label="Direction filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
+                <option value="">BUY / SELL: all</option>
+                <option value="BUY">BUY only</option>
+                <option value="SELL">SELL only</option>
+              </select>
+              <select value={outcome} onChange={(e) => setOutcome(e.target.value)} aria-label="Outcome filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
+                <option value="">Winners &amp; losers</option>
+                <option value="win">Winners only</option>
+                <option value="loss">Losers only</option>
+                <option value="breakeven">Breakeven only</option>
+              </select>
+              <select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Source filter" className="rounded-md border px-2 py-1.5 text-[10px] font-bold outline-none" style={{ borderColor: C.line2, background: C.navy2, color: C.txt }}>
+                <option value="">Source: all</option>
+                {(meta?.sources ?? []).map((s) => (
+                  <option key={s} value={s}>
+                    {s === "DEMO" ? "DEMO (labeled)" : s}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
+          {c && c.mixedCurrency && <Pill tone="warn">MIXED CURRENCIES — TOTALS INDICATIVE</Pill>}
+        </div>
+      )}
 
       {/* tab bar */}
       <div className="halo-scroll flex gap-1.5 overflow-x-auto pb-0.5">
@@ -344,91 +379,81 @@ export function JournalView({ notify }: { notify: (title: string, desc?: string,
         </PanelCard>
       )}
 
-      {/* ════════ OVERVIEW ════════ */}
-      {tab === "overview" && (
-        <>
-          {loading || !c || !stats ? (
-            !err && (
-              <PanelCard title="JOURNAL OVERVIEW" icon={TrendingUp}>
-                <div className="p-3">
-                  <StateFrame state="loading" title="Computing your performance" hint="Reading every recorded trade in the selected range." />
-                </div>
-              </PanelCard>
-            )
-          ) : (
-            <div className="space-y-4">
-              {/* KPI grid — all computed from the recorded trades */}
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-                <StatCell label="Total trades" value={String(c.totalTrades)} sub={`${c.wins}W / ${c.losses}L${c.breakeven ? ` / ${c.breakeven}BE` : ""}`} />
-                <StatCell label="Net P&L (realized)" value={moneyPlain(c.netPnl, ccy)} color={pnlColor(c.netPnl)} />
-                <StatCell label="Gross profit" value={moneyPlain(c.grossProfit, ccy)} color={C.green} />
-                <StatCell label="Gross loss" value={moneyPlain(-c.grossLoss, ccy)} color={C.red} />
-                <StatCell label="Win rate" value={pct(c.winRatePct)} color={C.green} />
-                <StatCell label="Loss rate" value={pct(c.lossRatePct)} color={C.red} />
-                <StatCell label="Profit factor" value={c.profitFactorLabel} />
-                <StatCell label="Avg winning trade" value={moneyPlain(c.avgWin, ccy)} color={C.green} />
-                <StatCell label="Avg losing trade" value={moneyPlain(c.avgLoss !== null ? -c.avgLoss : null, ccy)} color={C.red} />
-                <StatCell label="Avg R-multiple" value={c.avgR !== null ? `${c.avgR.toFixed(2)}R` : "—"} sub={`${c.rCount} trades with SL recorded`} color={c.avgR !== null ? pnlColor(c.avgR) : undefined} />
-                <StatCell label="Max drawdown" value={moneyPlain(c.maxDrawdown, ccy)} color={C.red} sub={c.maxDrawdownPct !== null ? pct(c.maxDrawdownPct) + " of peak" : undefined} />
-                <StatCell label="Trading costs (net)" value={moneyPlain(c.totalCosts, ccy)} sub="commission + swap + fees" />
+      {/* ════════ OVERVIEW — the command centre ════════ */}
+      {tab === "overview" &&
+        (loading || !c || !stats ? (
+          !err && (
+            <PanelCard title="JOURNAL OVERVIEW" icon={TrendingUp}>
+              <div className="p-3">
+                <StateFrame state="loading" title="Computing your performance" hint="Reading every recorded trade in the selected range." />
               </div>
+            </PanelCard>
+          )
+        ) : (
+          <div className="space-y-2.5">
+            <JournalOverview
+              stats={stats}
+              prev={stats.prev ?? null}
+              ccy={ccy}
+              recent={recent}
+              filterQS={filterQS}
+              calMonth={calMonth}
+              calYear={calYear}
+              onMonthShift={(d) => {
+                const next = new Date(Date.UTC(calYear, calMonth + d, 1));
+                setCalYear(next.getUTCFullYear());
+                setCalMonth(next.getUTCMonth());
+              }}
+              onSelectDay={selectDay}
+              onTab={(t) => setTab(t)}
+              onAddNote={() => setManualOpen(true)}
+              notify={notify}
+              onChanged={onChanged}
+            />
 
-              {/* realized vs floating — always distinct, honestly labeled */}
-              <div className="grid gap-2 sm:grid-cols-3">
-                <PanelCard title="REALIZED P&L (JOURNAL)" icon={TrendingUp} accent="green">
-                  <div className="p-3">
-                    <div className="font-mono text-[19px] font-extrabold leading-tight" style={{ color: pnlColor(c.netPnl) }}>
-                      {moneyPlain(c.netPnl, ccy)}
-                    </div>
-                    <p className="pt-1 text-[8.5px] leading-relaxed" style={{ color: C.label }}>
-                      Sum of net results of {c.totalTrades} CLOSED trades in this range — booked, final, auditable.
-                    </p>
-                  </div>
-                </PanelCard>
-                <PanelCard title={floating?.live ? "FLOATING P&L (LIVE ACCOUNT)" : "FLOATING P&L (UNREALIZED)"} icon={TrendingUp} accent={floating && floating.floating !== 0 ? (floating.floating > 0 ? "green" : "red") : "cyan"}>
-                  <div className="p-3">
-                    <div className="font-mono text-[19px] font-extrabold leading-tight" style={{ color: floating && floating.floating !== 0 ? pnlColor(floating.floating) : C.muted }}>
-                      {floating ? moneyPlain(floating.floating, floating.currency) : "—"}
-                    </div>
-                    <p className="pt-1 text-[8.5px] leading-relaxed" style={{ color: C.label }}>
-                      {floating
-                        ? floating.live
-                          ? `Live ${floating.kind} account: equity ${moneyPlain(floating.equity, floating.currency)} − balance ${moneyPlain(floating.balance, floating.currency)} — open positions only, not booked.`
-                          : "Open EA position(s) on the paper engine — not booked until closed."
-                        : "Connect a live account (or open a paper position) to see unrealized P&L."}
-                    </p>
-                  </div>
-                </PanelCard>
-                <PanelCard title="EQUITY PROGRESSION" icon={TrendingUp} accent="cyan" right={<span className="text-[7.5px] font-bold" style={{ color: C.label }}>{stats.equity.mode === "snapshots" ? "BROKER SNAPSHOTS" : "DERIVED · REALIZED NET"}</span>}>
-                  <div className="p-2">
-                    {stats.equity.points.length > 1 ? (
-                      <EquityCurve points={stats.equity.points} height={116} />
-                    ) : (
-                      <p className="py-4 text-center text-[9px]" style={{ color: C.label }}>
-                        {stats.equity.mode === "snapshots" ? "Not enough snapshots yet — sync daily to build the curve." : "Curve builds as closed trades accumulate in the range."}
-                      </p>
-                    )}
-                  </div>
-                </PanelCard>
+            {/* live-account strip — floating P&L is REALIZED-only's honest complement */}
+            {floating && (
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-[9px]" style={{ borderColor: C.lineInner, background: C.deep }}>
+                <span className="font-extrabold tracking-[0.14em]" style={{ color: C.label }}>
+                  {floating.live ? `LIVE ACCOUNT · ${floating.kind.toUpperCase()}` : "PAPER ENGINE"}
+                </span>
+                <span style={{ color: C.label }}>
+                  Balance{" "}
+                  <b className="font-mono" style={{ color: C.txt2 }}>
+                    {moneyPlain(floating.balance, floating.currency)}
+                  </b>
+                </span>
+                <span style={{ color: C.label }}>
+                  Equity{" "}
+                  <b className="font-mono" style={{ color: C.txt2 }}>
+                    {moneyPlain(floating.equity, floating.currency)}
+                  </b>
+                </span>
+                <span style={{ color: C.label }}>
+                  Floating P&L{" "}
+                  <b className="font-mono" style={{ color: pnlColor(floating.floating) }}>
+                    {moneyPlain(floating.floating, floating.currency)}
+                  </b>{" "}
+                  — open positions only, not booked
+                </span>
               </div>
+            )}
 
-              {/* data sources */}
-              <JournalSyncCard
-                sync={meta?.sync ?? null}
-                accounts={meta?.mtAccounts ?? []}
-                onChanged={onChanged}
-                notify={notify}
-                demoLoaded={hasDemo}
-                hasAnyRecords={(c.totalTrades ?? 0) > 0}
-              />
+            {/* data sources */}
+            <JournalSyncCard
+              sync={meta?.sync ?? null}
+              accounts={meta?.mtAccounts ?? []}
+              onChanged={onChanged}
+              notify={notify}
+              demoLoaded={hasDemo}
+              hasAnyRecords={(c.totalTrades ?? 0) > 0}
+            />
 
-              <p className="px-1 text-[8.5px] leading-relaxed" style={{ color: C.label }}>
-                All timestamps UTC · sessions derived from the UTC open hour · R-multiples price-based where a stop loss was recorded · metrics that cannot be computed from the records show &ldquo;—&rdquo; rather than a guess · calendar figures {MONTHS[calMonth]} {calYear}.
-              </p>
-            </div>
-          )}
-        </>
-      )}
+            <p className="px-1 text-[8.5px] leading-relaxed" style={{ color: C.label }}>
+              All timestamps UTC · sessions derived from the UTC open hour · R-multiples price-based where a stop loss was recorded · metrics that cannot be computed from the records show &ldquo;—&rdquo; rather than a guess · calendar figures {MONTHS[calMonth]} {calYear}.
+            </p>
+          </div>
+        ))}
 
       {/* ════════ TRADES ════════ */}
       {tab === "trades" && <JournalTrades filterQS={filterQS} refreshKey={refreshKey} meta={meta} notify={notify} onChanged={onChanged} />}
