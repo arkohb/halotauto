@@ -7,6 +7,8 @@
 //  __HALO_SECRET__ is replaced with the user's webhook secret at copy-time.
 // ════════════════════════════════════════════════════════════════════════
 
+import type { HaloConfig } from "@/lib/halo/types";
+
 export const PINE_EA_TEMPLATE = `//@version=5
 // ════════════════════════════════════════════════════════════════
 //  HALO 3-CANDLE EQUAL LEVEL [3EL] · EA   v1.2  © Ant · HALO Suite
@@ -276,6 +278,57 @@ if barstate.isconfirmed and atrOK and (not levelPersist or strategy.position_siz
 `;
 
 /** Pine EA source with the user's webhook secret embedded. */
-export function buildPineEa(secret: string): string {
-  return PINE_EA_TEMPLATE.replace("__HALO_SECRET__", secret || "PASTE-YOUR-HALO-SECRET");
+/** Pine literal for an input default: floats keep a decimal point, strings are quoted. */
+function pineLit(v: number | boolean | string, float: boolean): string {
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "string") return JSON.stringify(v);
+  if (!isFinite(v)) return "0";
+  if (!float) return String(Math.round(v));
+  const t = String(Math.round(v * 1e6) / 1e6);
+  return t.includes(".") || t.includes("e") ? t : `${t}.0`;
+}
+
+/** replace the DEFAULT (first argument) of `name = input.xxx(DEFAULT, "…"` */
+function withDefault(src: string, name: string, value: number | boolean | string): string {
+  const re = new RegExp(`^(${name}\\s*=\\s*input\\.(int|float|bool|string)\\()([^,]+)(,)`, "m");
+  return src.replace(re, (_m, head: string, kind: string, _old: string, comma: string) => `${head}${pineLit(value, kind === "float")}${comma}`);
+}
+
+const SL_MODE_LABEL: Record<HaloConfig["slMode"], string> = {
+  points: "Fixed points",
+  wick: "Break extreme + buffer",
+  atr: "ATR",
+};
+
+/**
+ * The Pine EA with the webhook secret embedded and — when the bot's live
+ * config is passed — every strategy input pre-set to the bot's own values,
+ * so the levels TradingView draws are the levels the bot trades.
+ */
+export function buildPineEa(secret: string, cfg?: HaloConfig): string {
+  let src = PINE_EA_TEMPLATE.replace("__HALO_SECRET__", secret || "PASTE-YOUR-HALO-SECRET");
+  if (!cfg) return src;
+  const set: Array<[string, number | boolean | string]> = [
+    ["atrLen", cfg.atrLen],
+    ["bodyMinATR", cfg.bodyMinATR],
+    ["pairTolATR", cfg.pairTolATR],
+    ["minSepATR", cfg.minSepATR],
+    ["rangeFilter", cfg.rangeFilter],
+    ["rangeSepATR", cfg.rangeSepATR],
+    ["maxLevels", cfg.maxLevels],
+    ["levelPersist", cfg.levelPersist],
+    ["retestBars", cfg.retestBars],
+    ["expiryBars", cfg.expiryBars],
+    ["sigMode", cfg.sigMode === "barclose" ? "Bar close" : "Instant"],
+    ["breakATR", cfg.breakATR],
+    ["eqTolATR", cfg.eqTolATR],
+    ["slMode", SL_MODE_LABEL[cfg.slMode] ?? "Fixed points"],
+    ["slPts", cfg.slPts],
+    ["slBufPts", cfg.slBufPts],
+    ["slATRm", cfg.slATRm],
+    ["rrMult", cfg.rrMult],
+    ["pipMult", cfg.pipMult],
+  ];
+  for (const [name, v] of set) src = withDefault(src, name, v);
+  return src;
 }

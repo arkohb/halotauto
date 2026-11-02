@@ -96,14 +96,14 @@ export function EaAttachCard({ state, notify, busy, onToggleBot }: Props) {
     if (!info?.secret) return;
     setPineBusy("pine");
     try {
-      await navigator.clipboard.writeText(buildPineEa(info.secret));
-      notify("PINE EA COPIED", "Secret embedded — paste into TradingView Pine Editor.");
+      await navigator.clipboard.writeText(buildPineEa(info.secret, state.config));
+      notify("PINE EA COPIED", "Your bot's settings and secret are embedded — paste into TradingView's Pine Editor.");
     } catch {
       notify("Cannot copy Pine EA", "Clipboard blocked by the browser.", true);
     } finally {
       setPineBusy(null);
     }
-  }, [info, notify]);
+  }, [info, notify, state.config]);
 
   const regenerate = useCallback(async () => {
     setPineBusy("regen");
