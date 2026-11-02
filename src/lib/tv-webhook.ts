@@ -6,6 +6,10 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
+import { gateOrder } from "./edge/gate";
+import { engageTradeLock, getTradeLock, maybeReleaseLock } from "./trade-lock";
+import { publishBotEvent } from "./halo/event-bus";
+import type { FireEvent } from "./halo/types";
 import { SYMBOLS, SYMBOL_BY_TV, getSymbolMeta } from "./market-symbols";
 import { getKlines } from "./market";
 import { getAdapter, parseCreds } from "./brokers";
@@ -243,8 +247,10 @@ export async function processTvAlert(
 
   // ═══ CLOSE ═══
   if (alert.action === "close") {
+    // only a trade TradingView itself opened — a close alert must never
+    // close a position the bot, scanner or sweep is managing
     const open = await db.trade.findFirst({
-      where: { symbol: alert.symbol, status: "OPEN" },
+      where: { symbol: alert.symbol, status: "OPEN", mode: src },
       orderBy: { openedAt: "desc" },
     });
     if (!open) {
@@ -285,6 +291,11 @@ export async function processTvAlert(
       body: `TradingView EA closed the ${open.direction === -1 ? "SELL" : "BUY"} at ${roundPx(exitPx)}.`,
     });
     await bumpFireCount();
+    // GLOBAL TRADE LOCK release — scanning everywhere resumes
+    const lock = getTradeLock();
+    if (lock && lock.source === "TV" && lock.symbol === alert.symbol) {
+      maybeReleaseLock("TV", alert.symbol, lock.tf, resultPips >= 0 ? "win" : "loss", Math.abs(resultPips));
+    }
     return { ok: true, status: 200, mode: open.execMode === "LIVE" ? "LIVE" : "PAPER", tradeId: open.id, detail: "closed" };
   }
 
@@ -297,6 +308,54 @@ export async function processTvAlert(
   const riskDist = Math.abs(entry - alert.sl);
   const riskPips = alert.sl ? riskDist / pip : alert.riskPips;
   const rewardPips = alert.tp ? Math.abs(alert.tp - entry) / pip : riskPips * 3;
+  const label = meta.label.split("·")[0].trim() || alert.symbol;
+
+  const refuse = (reason: string): TvExecResult => {
+    void sendAlert({
+      kind: "status",
+      title: `HALO 3EL · TV ${dir === -1 ? "SELL" : "BUY"} NOT EXECUTED · ${label}`,
+      body: `TradingView alert ${alert.symbol} ${alert.tf} @ ${roundPx(entry)} was refused — ${reason}.`,
+    });
+    publishBotEvent({
+      kind: "status",
+      prio: "low",
+      symbol: alert.symbol,
+      tf: alert.tf,
+      time: Date.now(),
+      title: `TV ALERT REFUSED · ${label}`,
+      spoken: `A TradingView ${dir === -1 ? "sell" : "buy"} alert on ${label} was not traded. ${reason}.`,
+    });
+    return { ok: false, status: 409, error: `Not executed — ${reason}.` };
+  };
+
+  // ── ONE TRADE AT A TIME (global trade lock) ──
+  // the bot trades the same 3EL signals itself; without this a TradingView
+  // alert would open a second position on the very same setup
+  const lock = getTradeLock();
+  if (lock) return refuse(`a trade is already running on ${lock.symbol} ${lock.tf} (${lock.source})`);
+
+  // ── EDGE gate: Signal Quality Score + Capital Guardian ──
+  const fire: FireEvent = {
+    type: "fire",
+    dir,
+    entry,
+    sl: alert.sl,
+    tp: alert.tp,
+    risk: riskDist,
+    riskPips: riskPips || 0,
+    rewardPips,
+    levelTop: 0,
+    levelBot: 0,
+    ext: entry, // TradingView does not send the C3 break extreme
+    time: Date.now(),
+    message: alert.comment,
+  };
+  const gate = await gateOrder(alert.symbol, alert.tf, fire);
+  if (!gate.allow) return refuse(gate.reason);
+  const mult = gate.sizeMult;
+  const edgeFields = { grade: gate.grade?.score ?? null, gradeLetter: gate.grade?.letter ?? "", sizeMult: mult };
+  const lockFor = (tradeDbId: string): void =>
+    engageTradeLock({ source: "TV", symbol: alert.symbol, tf: alert.tf, dir, entry, sl: alert.sl, tp: alert.tp, tradeDbId, openedAt: Date.now() });
 
   const base = {
     mode: src,
@@ -312,6 +371,7 @@ export async function processTvAlert(
     levelBot: 0,
     slMode: "Webhook alert",
     openedAt: new Date(),
+    ...edgeFields,
   };
 
   // ── PAPER ──
@@ -319,6 +379,7 @@ export async function processTvAlert(
     const tr = await db.trade.create({
       data: { ...base, execMode: "PAPER", status: "OPEN", note: alert.comment.slice(0, 250) },
     });
+    lockFor(tr.id);
     await bumpFireCount();
     void sendAlert({
       kind: "fire",
@@ -366,8 +427,8 @@ export async function processTvAlert(
     riskPips: riskPips,
     sizing:
       exec.sizingMode === "percent"
-        ? { mode: "percent", percent: exec.sizePercent, size: 0 }
-        : { mode: "fixed", size: exec.sizeFixed, percent: 0 },
+        ? { mode: "percent", percent: Math.max(0.01, exec.sizePercent * mult), size: 0 }
+        : { mode: "fixed", size: Math.max(0.01, Math.round(exec.sizeFixed * mult * 100) / 100), percent: 0 },
     comment: `HALO3EL ${src}`,
   });
 
@@ -400,6 +461,7 @@ export async function processTvAlert(
       note: alert.comment.slice(0, 250),
     },
   });
+  lockFor(tr.id);
   await bumpFireCount();
   void sendAlert({
     kind: "fire",

@@ -20,7 +20,7 @@
 import { publishBotEvent } from "./halo/event-bus";
 import { sendAlert } from "./alerts";
 
-export type TradeLockSource = "BOT" | "SCAN" | "SWEEP";
+export type TradeLockSource = "BOT" | "SCAN" | "SWEEP" | "TV";
 
 export interface TradeLockState {
   source: TradeLockSource;

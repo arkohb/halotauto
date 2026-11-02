@@ -175,13 +175,16 @@ export function gradeFire(series: QualitySeries, i: number, fire: Pick<FireEvent
   }
 
   // ── 4 · BREAK QUALITY (C3 break depth beyond the line, × ATR) ──
+  // ext === entry means the source did not report the break extreme
+  // (TradingView webhook alerts) — scored neutral instead of "no break"
   {
     const depth = Math.abs(fire.ext - fire.entry) / a;
     let score: number;
-    if (depth < 0.15) score = lerp(depth, 0, 0.15, 0.3, 1);
-    else if (depth <= 0.9) score = 1;
-    else score = lerp(depth, 0.9, 2.5, 1, 0.15);
-    const note = depth < 0.15 ? `shallow break (${depth.toFixed(2)} ATR)` : depth <= 0.9 ? `clean break (${depth.toFixed(2)} ATR)` : `over-extended break (${depth.toFixed(2)} ATR)`;
+    let note: string;
+    if (fire.ext === fire.entry) [score, note] = [0.6, "break depth not reported"];
+    else if (depth < 0.15) [score, note] = [lerp(depth, 0, 0.15, 0.3, 1), `shallow break (${depth.toFixed(2)} ATR)`];
+    else if (depth <= 0.9) [score, note] = [1, `clean break (${depth.toFixed(2)} ATR)`];
+    else [score, note] = [lerp(depth, 0.9, 2.5, 1, 0.15), `over-extended break (${depth.toFixed(2)} ATR)`];
     factors.push({ key: "break", label: "Break quality", weight: 15, score, note });
   }
 
