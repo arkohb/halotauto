@@ -1,6 +1,6 @@
 # Git history cleanup plan (decision D3)
 
-**Status: prepared, NOT executed.** Nothing below runs until you explicitly authorise it.
+**Status: prepared and dry-run tested on a throwaway clone — NOT executed on your repository.** Nothing below runs until you explicitly authorise it.
 Rewriting history removes copies of the secrets from this repository. It does **not** make a leaked secret safe — every exposed credential must be revoked or rotated regardless (step 0).
 
 ## 1. What is affected (checked 2 November 2026)
@@ -38,7 +38,7 @@ Pattern scan of all history found **no** Paystack/Flutterwave live or test keys,
 ## 3. Execution steps (after your authorisation)
 
 ```bash
-# 3.1 install the standard tool (once)
+# 3.1 install the standard tool (done on 2 Nov 2026 — installed at ~/Library/Python/3.9/bin/git-filter-repo)
 pip3 install --user git-filter-repo
 ```
 
@@ -62,7 +62,7 @@ printf 'regex:eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}==>
 
 ```bash
 # 3.5 rewrite all branches: drop the sensitive files entirely and scrub the token text everywhere else
-git filter-repo --force \
+python3 ~/Library/Python/3.9/bin/git-filter-repo --force \
   --invert-paths --path .env --path db/custom.db --path tool-results/ \
   --replace-text ~/halo-replacements.txt
 ```
@@ -105,3 +105,41 @@ git branch -a        # all three branches are back with their original IDs
 ```
 
 Or replace the `.git` folder with the `~/HALO-pre-rewrite-git-YYYYMMDD` copy.
+
+## 7. The `skills/` deletions (to decide before execution)
+
+| Fact | Evidence |
+|---|---|
+| What it is | 167 files of AI-assistant "skills" from the platform the project was first built on (pdf 38, docx 35, xlsx 21, skill-creator 18, pptx 14, charts 12, image/TTS/ASR/VLM helpers) |
+| When added | commit `dbf988d`, 31 Oct 2026 |
+| Used by the app? | **No** — nothing in `src/`, `scripts/`, `package.json`, `next.config.ts`, `tsconfig.json` or `.zscripts/` references it |
+| Current state | the **whole folder** is gone from disk (167 of 167 files) — consistent with a deliberate removal |
+| Effect of keeping the deletion | none on the app; also removes one TypeScript error that lives inside `skills/image-edit` |
+
+**Recommendation:** commit the deletion (step 3.2, first option). Only you can confirm it was intentional.
+
+## 8. Dry-run results (2 Nov 2026, throwaway clone — your repository untouched)
+
+| Check | Before | After |
+|---|---|---|
+| Branches | 3 | 3 (same names) |
+| Commits (all branches) | 87 | 83 (commits that only touched removed files become empty and are dropped) |
+| Commits touching `.env`, `db/custom.db`, `tool-results/` | 71 | **0** |
+| Complete JWTs in any stored object | present | **0** |
+| Looser `eyJ…` pattern matches | 6 commits | 2 commits — random base64 inside images embedded in `skills/` templates (decoded: binary noise, not tokens) |
+| Current source tree vs original | — | identical except the 96 `tool-results/` files |
+| Type-check `src/` | — | 0 errors (the only error is inside `skills/`, removed by step 3.2) |
+| `next build` | — | ✅ compiles |
+| Engine / EDGE / journal tests | — | ✅ all pass |
+
+The clone was deleted after the test.
+
+## 9. Final execution checklist (for your approval)
+
+1. You have revoked the old MetaApi token and changed the Super Admin password (step 0).
+2. You confirm the `skills/` deletion is intentional → commit it (3.2).
+3. Backup bundle + `.git` copy created and verified (3.3).
+4. Rewrite (3.4–3.6) on all three branches.
+5. Verification commands (§4) all pass; build + tests pass on the rewritten branch.
+6. `tool-results/` added to `.gitignore`.
+7. Backups kept offline; deleted after your retention period.
