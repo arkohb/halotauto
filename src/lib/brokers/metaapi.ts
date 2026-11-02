@@ -18,6 +18,7 @@ import {
   OrderResult,
   PendingOrderInfo,
   PositionInfo,
+  QuoteResult,
   mapWith,
   num,
 } from "./types";
@@ -28,6 +29,7 @@ import {
   mtCancelOrder,
   mtClosePosition,
   mtClosePositionPartially,
+  mtCurrentPrice,
   mtMarketOrder,
   mtModifyPosition,
   mtOrders,
@@ -383,6 +385,17 @@ async function partialClose(creds: BrokerCreds, positionId: string, volume: numb
   }
 }
 
+async function getQuote(creds: BrokerCreds, symbol: string): Promise<QuoteResult> {
+  try {
+    const a = acct(creds);
+    const j = await mtCurrentPrice(a.id, a.region, mapWith(creds, symbol, DEFAULT_MAP), a.token);
+    const t = j.time ? new Date(j.time).getTime() : undefined;
+    return { ok: true, bid: num(j.bid) || undefined, ask: num(j.ask) || undefined, time: t && Number.isFinite(t) ? t : undefined };
+  } catch (e) {
+    return { ok: false, error: friendlyMetaApiError(e) };
+  }
+}
+
 async function volumeSpec(creds: BrokerCreds, brokerSymbol: string): Promise<{ volumeMin: number; volumeStep: number }> {
   const a = acct(creds);
   const spec = await mtSymbolSpec(a.id, a.region, brokerSymbol, a.token);
@@ -402,4 +415,5 @@ export const metaapiAdapter: BrokerAdapter = {
   modifyPosition,
   partialClose,
   volumeSpec,
+  getQuote,
 };

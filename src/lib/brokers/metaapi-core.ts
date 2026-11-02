@@ -595,6 +595,22 @@ export async function mtCancelOrder(
   );
 }
 
+/** current bid/ask for a broker symbol */
+export async function mtCurrentPrice(
+  accountId: string,
+  region: string,
+  symbol: string,
+  token?: string
+): Promise<{ bid?: number; ask?: number; time?: string }> {
+  return clientCall<{ bid?: number; ask?: number; time?: string }>(
+    accountId,
+    region,
+    `/symbols/${encodeURIComponent(symbol)}/current-price`,
+    { timeoutMs: 10000 },
+    token
+  );
+}
+
 /** close PART of an open position (MetaApi trade action POSITION_PARTIAL) */
 export async function mtClosePositionPartially(
   accountId: string,

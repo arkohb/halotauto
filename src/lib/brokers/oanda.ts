@@ -12,6 +12,7 @@ import {
   OrderResult,
   PendingOrderInfo,
   PositionInfo,
+  QuoteResult,
   jfetch,
   mapWith,
   num,
@@ -313,6 +314,25 @@ async function modifyPosition(
   }
 }
 
+async function getQuote(creds: BrokerCreds, symbol: string): Promise<QuoteResult> {
+  const id = String(creds.accountId ?? "");
+  if (!id || !String(creds.apiToken ?? "")) return { ok: false, error: "accountId / apiToken missing" };
+  try {
+    const inst = mapWith(creds, symbol, DEFAULT_MAP);
+    const j = (await jfetch(
+      `${base(creds)}/v3/accounts/${encodeURIComponent(id)}/pricing?instruments=${encodeURIComponent(inst)}`,
+      { headers: headers(creds) },
+      10000
+    )) as { prices?: { time?: string; bids?: { price?: string }[]; asks?: { price?: string }[] }[] };
+    const p = j.prices?.[0];
+    if (!p) return { ok: false, error: "no price returned" };
+    const t = p.time ? new Date(p.time).getTime() : undefined;
+    return { ok: true, bid: num(p.bids?.[0]?.price) || undefined, ask: num(p.asks?.[0]?.price) || undefined, time: t && Number.isFinite(t) ? t : undefined };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export const oandaAdapter: BrokerAdapter = {
   kind: "oanda",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -324,4 +344,5 @@ export const oandaAdapter: BrokerAdapter = {
   getOrders,
   cancelOrder,
   modifyPosition,
+  getQuote,
 };

@@ -14,7 +14,8 @@ import type { FireEvent } from "./halo/types";
 import { SYMBOLS, SYMBOL_BY_TV, getSymbolMeta } from "./market-symbols";
 import { getKlines } from "./market";
 import { getAdapter, parseCreds } from "./brokers";
-import { loadExecSettings, resolveBroker, type ActiveBroker } from "./execution";
+import { loadExecSettings, recordPriceGuardRejection, resolveBroker, type ActiveBroker } from "./execution";
+import { verifyOrderPrice } from "./price-guard";
 import { sendAlert } from "./alerts";
 import { roundPx } from "./brokers/types";
 
@@ -335,6 +336,20 @@ export async function processTvAlert(
   const lock = getTradeLock();
   if (lock) return refuse(`a trade is already running on ${lock.symbol} ${lock.tf} (${lock.source})`);
 
+  // ── PRICE GUARD (Decision B) — entry only ──
+  const priceOk = await verifyOrderPrice({
+    symbol: alert.symbol,
+    tf: tfForGuard(alert.tf),
+    entry,
+    dir,
+    live,
+    broker: live ? await resolveBroker(exec.brokerAccountId) : null,
+  });
+  if (!priceOk.ok) {
+    await recordPriceGuardRejection({ source: src, symbol: alert.symbol, tf: alert.tf, dir, entry, sl: alert.sl, tp: alert.tp, riskPips: riskPips || 0, rewardPips, levelTop: 0, levelBot: 0, slMode: "Webhook alert", live, reason: priceOk.reason });
+    return { ok: false, status: 409, error: `Not executed — price guard: ${priceOk.reason}.` };
+  }
+
   // ── EDGE gate: Signal Quality Score + Capital Guardian ──
   const fire: FireEvent = {
     type: "fire",
@@ -470,6 +485,13 @@ export async function processTvAlert(
     body: `${alert.comment}\nSymbol: ${alert.symbol} · TF ${alert.tf}\nEntry ${roundPx(res.fillPrice ?? entry)} · SL ${roundPx(alert.sl)} · TP ${roundPx(alert.tp)}\nMode: LIVE · ${broker.label}`,
   });
   return { ok: true, status: 200, mode: "LIVE", tradeId: tr.id, broker: broker.label };
+}
+
+/** TradingView sends timeframe.period ("1", "15", "60", "240", "1D"…) — map to the app's ids */
+function tfForGuard(tf: string): string {
+  const t = tf.trim().toUpperCase();
+  const map: Record<string, string> = { "1": "1m", "3": "3m", "5": "5m", "15": "15m", "30": "30m", "60": "1h", "120": "2h", "240": "4h", D: "1d", "1D": "1d" };
+  return map[t] ?? tf;
 }
 
 /** constant-time secret compare (hashing first hides the length too) */

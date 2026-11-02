@@ -16,6 +16,7 @@ import { engageTradeLock, getTradeLock, type TradeLockSource } from "./trade-loc
 import { gateOrder } from "./edge/gate";
 import type { SignalGrade } from "./edge/quality";
 import { getEdgeSync } from "./edge/settings";
+import { verifyOrderPrice } from "./price-guard";
 
 /** EDGE info per opened trade id — read by the bot to speak the grade. */
 const gExec = globalThis as unknown as { __haloEdgeExec?: Map<string, { grade: SignalGrade | null; sizeMult: number }> };
@@ -120,6 +121,23 @@ export async function executeFire(job: FireJob): Promise<string | null> {
       title: "HALO 3EL · FIRE REFUSED — TRADE ALREADY RUNNING",
       body: `${job.symbol} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} was NOT executed: a trade is already running on ${getTradeLock()!.symbol} ${getTradeLock()!.tf}. Scanning resumes when it hits TP or SL.`,
     });
+    return null;
+  }
+
+  // ── PRICE GUARD (Decision B): never open a position on simulated,
+  // stale, missing or unverifiable prices. Entry-only — open positions,
+  // stops and closes are never affected. ──
+  const isLive = job.exec.executionMode === "live";
+  const priceOk = await verifyOrderPrice({
+    symbol: job.symbol,
+    tf: job.tf,
+    entry: fire.entry,
+    dir: fire.dir,
+    live: isLive,
+    broker: isLive ? await resolveBroker(job.exec.brokerAccountId) : null,
+  });
+  if (!priceOk.ok) {
+    await recordPriceGuardRejection({ source: job.source, symbol: job.symbol, tf: job.tf, dir: fire.dir, entry: fire.entry, sl: fire.sl, tp: fire.tp, riskPips: fire.riskPips, rewardPips: fire.rewardPips, levelTop: job.levelTop, levelBot: job.levelBot, slMode: job.slModeLabel, live: isLive, reason: priceOk.reason });
     return null;
   }
 
@@ -321,4 +339,63 @@ export async function closeBrokerPosition(
 export function gradeSpeech(g: SignalGrade | null): string {
   if (!g || !getEdgeSync().quality.announce) return "";
   return ` Signal grade ${g.letter.replace("+", " plus")}, score ${g.score}.`;
+}
+
+/** price-guard refusal: REJECTED trade row (with the reason) + alert + voice */
+export async function recordPriceGuardRejection(r: {
+  source: string;
+  symbol: string;
+  tf: string;
+  dir: -1 | 1;
+  entry: number;
+  sl: number;
+  tp: number;
+  riskPips: number;
+  rewardPips: number;
+  levelTop: number;
+  levelBot: number;
+  slMode: string;
+  live: boolean;
+  reason: string;
+}): Promise<void> {
+  try {
+    await db.trade.create({
+      data: {
+        mode: r.source,
+        execMode: r.live ? "LIVE" : "PAPER",
+        symbol: r.symbol,
+        timeframe: r.tf,
+        direction: r.dir,
+        entry: r.entry,
+        sl: r.sl,
+        tp: r.tp,
+        riskPips: r.riskPips,
+        rewardPips: r.rewardPips,
+        levelTop: r.levelTop,
+        levelBot: r.levelBot,
+        slMode: r.slMode,
+        status: "REJECTED",
+        note: `price guard: ${r.reason}`.slice(0, 250),
+        openedAt: new Date(),
+      },
+    });
+  } catch {
+    // the alert below still reports it
+  }
+  const meta = getSymbolMeta(r.symbol);
+  const label = meta.label.split("·")[0].trim() || r.symbol;
+  void sendAlert({
+    kind: "status",
+    title: `HALO · ORDER REFUSED — PRICE GUARD · ${label}`,
+    body: `${r.source} ${r.dir === -1 ? "SELL" : "BUY"} @ ${r.entry} on ${r.symbol} ${r.tf} was NOT executed — ${r.reason}.`,
+  });
+  publishBotEvent({
+    kind: "status",
+    prio: "low",
+    symbol: r.symbol,
+    tf: r.tf,
+    time: Date.now(),
+    title: `PRICE GUARD · ORDER REFUSED · ${label}`,
+    spoken: `A ${r.dir === -1 ? "sell" : "buy"} signal on ${label} was not traded: ${r.reason}.`,
+  });
 }

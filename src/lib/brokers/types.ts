@@ -49,6 +49,15 @@ export interface OrderResult {
   raw?: unknown;
 }
 
+export interface QuoteResult {
+  ok: boolean;
+  bid?: number;
+  ask?: number;
+  /** quote time, epoch ms (when the broker reports one) */
+  time?: number;
+  error?: string;
+}
+
 export interface AccountInfo {
   ok: boolean;
   id?: string;
@@ -132,6 +141,8 @@ export interface BrokerAdapter {
   ): Promise<OrderResult>;
   /** close `volume` (native units) of an OPEN position — MT4/MT5 (MetaApi) only */
   partialClose?(creds: BrokerCreds, positionId: string, volume: number): Promise<OrderResult>;
+  /** fresh bid/ask for `symbol` (internal id) — used by the live-quote price guard */
+  getQuote?(creds: BrokerCreds, symbol: string): Promise<QuoteResult>;
   /** broker volume limits for partial-close rounding */
   volumeSpec?(creds: BrokerCreds, brokerSymbol: string): Promise<{ volumeMin: number; volumeStep: number }>;
 }
