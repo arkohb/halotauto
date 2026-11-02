@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { isBrokerKind } from "@/lib/brokers";
 import { sendAlert } from "@/lib/alerts";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const rows = await db.brokerAccount.findMany({ orderBy: { createdAt: "asc" } });
     const { maskCreds, parseCreds } = await import("@/lib/brokers");
@@ -32,6 +35,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const body = (await req.json()) as {
       kind?: string;

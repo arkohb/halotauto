@@ -3,10 +3,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { tradeR } from "@/lib/edge/guardian";
 import { GRADE_LETTERS } from "@/lib/edge/settings";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const rows = await db.trade.findMany({
     where: { mode: { not: "BACKTEST" }, gradeLetter: { not: "" } },
     orderBy: { openedAt: "desc" },

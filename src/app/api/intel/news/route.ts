@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { getNews } from "@/lib/halo/intel";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/intel/news?source=bloomberg|yahoo&topic=keyword&limit=20
 export async function GET(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const url = new URL(req.url);
   const source = url.searchParams.get("source") === "yahoo" ? "yahoo" : "bloomberg";
   const topic = (url.searchParams.get("topic") ?? "").slice(0, 40) || undefined;

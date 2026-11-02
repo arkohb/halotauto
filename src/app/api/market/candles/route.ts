@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { getKlines, getSymbolMeta, SYMBOLS, TIMEFRAMES } from "@/lib/market";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const url = new URL(req.url);
   const symbol = SYMBOLS.some((s) => s.id === url.searchParams.get("symbol"))
     ? (url.searchParams.get("symbol") as string)

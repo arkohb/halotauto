@@ -8,10 +8,13 @@ import {
 } from "@/lib/scanner";
 import { configSweep, sweepNow, sweepState } from "@/lib/sweep";
 import { SYMBOLS, TIMEFRAMES } from "@/lib/market";
+import { guardLicensed, guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const state = await scannerState();
     const sweep = await sweepState();
@@ -22,6 +25,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const body = (await req.json()) as {
       action: "add" | "remove" | "patch" | "scan" | "sweep" | "sweepNow";

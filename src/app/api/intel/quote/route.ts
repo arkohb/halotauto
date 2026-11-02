@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { resolveQuoteTarget } from "@/lib/halo/actions";
 import { getQuote } from "@/lib/halo/intel";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 // GET /api/intel/quote?symbol=spx|gold|XAUUSD|oil|dxy...
 export async function GET(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const url = new URL(req.url);
   const input = (url.searchParams.get("symbol") ?? "").slice(0, 40);
   if (!input) {

@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { vapidPublicKey } from "@/lib/alerts";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 /** GET → VAPID public key for push subscription */
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const pub = await vapidPublicKey();
     return NextResponse.json({ ok: true, publicKey: pub });
@@ -16,6 +19,8 @@ export async function GET() {
 
 /** POST → save this device's push subscription */
 export async function POST(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const sub = (await req.json()) as {
       endpoint?: string;
@@ -37,6 +42,8 @@ export async function POST(req: Request) {
 
 /** DELETE → unsubscribe a device */
 export async function DELETE(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const { endpoint } = (await req.json()) as { endpoint?: string };
     if (endpoint) await db.pushSubscription.deleteMany({ where: { endpoint } });

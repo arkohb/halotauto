@@ -11,10 +11,13 @@
 
 import { NextResponse } from "next/server";
 import { configTfScanner, tfScannerState } from "@/lib/tf-scanner";
+import { guardLicensed, guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const state = await tfScannerState();
     return NextResponse.json({ ok: true, ...state });
@@ -24,6 +27,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const body = (await req.json()) as { action?: string };
     const action = body.action;

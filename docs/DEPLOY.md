@@ -63,6 +63,13 @@ firebase apphosting:secrets:set HALO_CRON_SECRET
 firebase apphosting:secrets:set ANTHROPIC_API_KEY
 ```
 
+```bash
+firebase apphosting:secrets:set METAAPI_TOKEN
+```
+
+`METAAPI_TOKEN` is the MetaApi token used for MT4/MT5 connections. It is no
+longer stored in the source code.
+
 `ANTHROPIC_API_KEY` is the Claude API key that powers HALO's conversation
 (voice and chat replies, journal insights). Create one at
 console.anthropic.com → API keys. Without it the app runs, but HALO

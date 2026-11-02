@@ -6,6 +6,7 @@ import {
   processTvAlert,
   secretMatches,
 } from "@/lib/tv-webhook";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -19,6 +20,8 @@ export const maxDuration = 60;
 // ════════════════════════════════════════════════════════════════════════
 
 export async function GET() {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const info = await getWebhookInfo();
     return NextResponse.json(info);

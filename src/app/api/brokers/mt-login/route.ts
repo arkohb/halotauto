@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { testBrokerAccount } from "@/lib/brokers/service";
 import { friendlyMetaApiError, mgmtReachable, platformKeyStatus, provisionMtAccount } from "@/lib/brokers/metaapi-core";
 import { sendAlert } from "@/lib/alerts";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 90;
@@ -35,6 +36,8 @@ interface Body {
 
 // ── platform-key + cloud-reachability status for the UI badge ────────
 export async function GET() {
+  const deny = await guardTrading();
+  if (deny) return deny;
   const st = platformKeyStatus();
   const cloud = st.present ? await mgmtReachable() : { ok: false, httpSeen: false };
   return NextResponse.json({
@@ -49,6 +52,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const b = (await req.json()) as Body;
     // zero-manual-api: the deployment's own platform key, or an Advanced override

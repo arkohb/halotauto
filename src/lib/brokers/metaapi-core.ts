@@ -4,7 +4,7 @@
 //  The MetaApi cloud API is BUILT INTO HALO. Traders never add API keys:
 //  they paste their MT4/MT5 login · password · server and this module
 //  provisions + deploys + trades the account with the platform key that
-//  ships inside the deployment (env METAAPI_TOKEN → baked fallback).
+//  comes from the METAAPI_TOKEN server secret (never stored in source).
 //
 //  Wire format per official metaapi.cloud SDK v29 (agiliumtrade-ai):
 //    · auth header ........ "auth-token: <jwt>"   (NOT auth-auth0)
@@ -24,15 +24,14 @@
 //        DELETE /users/current/accounts/:id/positions/:positionId
 //        GET    /users/current/accounts/:id/symbols/:sym/specification
 //
-//  TLS NOTE: MetaApi's edge serves mismatched/incomplete certs on several
-//  hosts (e.g. *.london cert on new-york client hosts, *.agiliumtrade-b on
-//  the provisioning host). Every MetaApi call therefore runs through a
-//  SCOPED insecure undici Agent — encryption stays intact, only hostname
-//  verification is relaxed, and ONLY for MetaApi hosts. All other TLS in
-//  the app stays strict.
+//  TLS: every MetaApi call uses full certificate validation (chain AND
+//  hostname). The live provisioning and client hosts pass strict checks
+//  (verified 2026-11-02). The legacy api.metaapi.cloud host serves a
+//  self-signed certificate — with strict TLS it simply fails and the next
+//  domain is tried, so the auth token is never sent to it.
 //
 //  Env knobs (all optional — the defaults are production-correct):
-//    METAAPI_TOKEN ........ platform key (falls back to the baked key)
+//    METAAPI_TOKEN ........ platform key (required for MT4/MT5 via MetaApi)
 //    METAAPI_DOMAIN ....... management domain (default auto: metaapi.cloud,
 //                           then ln.ln.ai)
 //    METAAPI_CLIENT_BASE .. full trading-API base override (stub/CI tests)
@@ -51,15 +50,11 @@
 
 import { jfetch, num } from "./types";
 
-// ── platform key baked into this deployment (traders never touch it) ──
-export const BAKED_METAAPI_TOKEN =
-  "***REMOVED-JWT***";
-
 export const METAAPI_MAGIC = 300311;
 
-/** platform key: env first, baked key as the always-on fallback */
+/** platform key — server secret METAAPI_TOKEN only (never in source) */
 export function platformToken(): string {
-  return String(process.env.METAAPI_TOKEN ?? "").trim() || BAKED_METAAPI_TOKEN;
+  return String(process.env.METAAPI_TOKEN ?? "").trim();
 }
 
 /** does a JWT-shaped platform key exist AND decode with a future exp? */
@@ -153,32 +148,12 @@ async function clientCall<T>(
   throw firstHttpErr ?? lastErr;
 }
 
-// ── fetch with TLS-chain resilience + auth-token header ─────────────────
-// Some hosts serve an incomplete certificate chain ("unable to verify the
-// first certificate"); retry those ONCE through a scoped insecure agent so
-// the integration survives real-world gateway quirks. Only MetaApi calls
-// are affected — every other TLS connection in the app stays strict.
-
-let insecureAgent: unknown = null;
-async function insecureDispatcher(): Promise<unknown> {
-  if (insecureAgent === null) {
-    try {
-      const undici = (await import("undici")) as { Agent: new (o: object) => unknown };
-      insecureAgent = new undici.Agent({ connect: { rejectUnauthorized: false } });
-    } catch {
-      insecureAgent = false; // undici unavailable — plain fetch fallback
-    }
-  }
-  return insecureAgent || undefined;
-}
-
 // ── egress-proxy escape hatch ──────────────────────────────────────────
 // Locked-down hosts (sandbox / PaaS egress allow-lists) hijack MetaApi
 // domains at the TLS layer — only a proxy that CAN reach MetaApi fixes
 // that. Set METAAPI_PROXY=http(s)://host:port (HALO_EGRESS_PROXY and the
 // standard HTTPS_PROXY are also honoured) and every MetaApi call tunnels
-// through CONNECT automatically. TLS stays encrypted end-to-end; only
-// hostname verification is relaxed, exactly like the direct agent.
+// through CONNECT automatically. TLS stays end-to-end and fully verified.
 
 export function proxyUri(): string {
   return (
@@ -191,25 +166,19 @@ export function proxyUri(): string {
 let proxyAgent: unknown = null;
 async function egressDispatcher(): Promise<unknown> {
   const uri = proxyUri();
-  if (!uri) return insecureDispatcher();
+  if (!uri) return undefined; // direct: Node's default, strictly verified TLS
   if (proxyAgent === null) {
     try {
       const undici = (await import("undici")) as {
         ProxyAgent: new (o: object) => unknown;
       };
-      proxyAgent = new undici.ProxyAgent({
-        uri,
-        requestTls: { rejectUnauthorized: false },
-        proxyTls: { rejectUnauthorized: false },
-      });
+      proxyAgent = new undici.ProxyAgent({ uri });
     } catch {
       proxyAgent = false; // undici unavailable — plain fetch fallback
     }
   }
   return proxyAgent || undefined;
 }
-
-const TLS_ERR = /first certificate|UNABLE_TO_VERIFY|SELF_SIGNED|unable to verify|CERT_HAS_EXPIRED|hostname|IP address mismatch|CERT_COMMON_NAME/i;
 
 /** full error message including the fetch cause chain (Node hides TLS errors in e.cause) */
 export function errChain(e: unknown): string {
@@ -230,11 +199,12 @@ export interface MFetchInit {
   timeoutMs?: number;
 }
 
-/** MetaApi JSON request: scoped TLS agent (their edge serves sloppy certs)
- *  + auth-token header + plain-fetch fallback + friendly errors.
- *  Returns HTTP-level errors untouched so callers can distinguish 4xx/5xx. */
+/** MetaApi JSON request: strictly verified TLS (optionally via the egress
+ *  proxy) + auth-token header. Returns HTTP-level errors untouched so
+ *  callers can distinguish 4xx/5xx. */
 export async function mFetch<T = Record<string, unknown>>(url: string, init: MFetchInit = {}): Promise<T> {
   const token = init.token ?? platformToken();
+  if (!token) throw new Error("MetaApi is not configured — set the METAAPI_TOKEN server secret.");
   const headers: Record<string, string> = {
     "auth-token": token,
     "Content-Type": "application/json",
@@ -245,25 +215,14 @@ export async function mFetch<T = Record<string, unknown>>(url: string, init: MFe
   const doFetch = (extra?: Record<string, unknown>) =>
     jfetch(url, { method, headers, body, ...(extra ?? {}) }, init.timeoutMs ?? 20000);
 
-  try {
-    return (await doFetch(dispatcher ? { dispatcher } : undefined)) as T;
-  } catch (e) {
-    const msg = errChain(e);
-    // HTTP-level answers are authoritative — no point retrying without the agent
-    if (/HTTP \d{3}/.test(msg) || !dispatcher) throw e;
-    // network/TLS-level failure with the agent — one plain-fetch fallback attempt
-    if (TLS_ERR.test(msg) || /fetch failed|ECONNRESET|EPROTO/i.test(msg)) {
-      return (await doFetch()) as T;
-    }
-    throw e;
-  }
+  return (await doFetch(dispatcher ? { dispatcher } : undefined)) as T;
 }
 
 /** map raw MetaApi/network errors to trader-actionable messages */
 export function friendlyMetaApiError(e: unknown, ctx = ""): string {
   const msg = errChain(e);
   if (/invalid auth-token/i.test(msg))
-    return "The built-in platform key was rejected by MetaApi (invalid or revoked). Paste a fresh token from app.metaapi.cloud under ADVANCED → TOKEN OVERRIDE, or ask the operator to update METAAPI_TOKEN.";
+    return "MetaApi rejected the platform token (invalid or revoked). Paste a fresh token from app.metaapi.cloud under ADVANCED → TOKEN OVERRIDE, or ask the operator to update the METAAPI_TOKEN secret.";
   if (/ACCOUNT_UNAUTHORIZED|auth.*reject|login.*password/i.test(msg) || (ctx === "deploy" && /DEPLOY_FAILED/i.test(msg)))
     return "Your MT login, password or server was rejected by the broker — open your MT4/MT5 terminal and double-check all three (use the MASTER password, not the investor password).";
   if (/HTTP 404/.test(msg) && ctx === "account")

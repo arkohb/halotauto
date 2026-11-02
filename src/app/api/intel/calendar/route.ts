@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCalendar, type CalendarDay } from "@/lib/halo/intel";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -7,6 +8,8 @@ const DAYS: CalendarDay[] = ["today", "tomorrow", "this_week", "next_week"];
 
 // GET /api/intel/calendar?day=today&impact=high|med_high|all&currency=USD
 export async function GET(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const url = new URL(req.url);
   const dayRaw = url.searchParams.get("day") ?? "today";
   const day = (DAYS as string[]).includes(dayRaw) ? (dayRaw as CalendarDay) : "today";

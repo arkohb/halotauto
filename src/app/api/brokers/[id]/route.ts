@@ -3,10 +3,13 @@ import { db } from "@/lib/db";
 import { mergeCreds, parseCreds, maskCreds } from "@/lib/brokers";
 import { testBrokerAccount } from "@/lib/brokers/service";
 import { sendAlert } from "@/lib/alerts";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const { id } = await ctx.params;
     const body = (await req.json()) as {
@@ -85,6 +88,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const { id } = await ctx.params;
     const row = await db.brokerAccount.findUnique({ where: { id } });
@@ -103,6 +108,8 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const { id } = await ctx.params;
     const row = await db.brokerAccount.findUnique({ where: { id } });

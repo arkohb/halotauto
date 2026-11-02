@@ -12,12 +12,15 @@ import { getKlines, getSymbolMeta, tfSec } from "@/lib/market";
 import { TIMEFRAMES } from "@/lib/market-symbols";
 import { metaOf, toSummary } from "@/lib/strategy-store";
 import type { Candle } from "@/lib/halo/types";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, ctx: Ctx) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const { id } = await ctx.params;
   try {
     const row = await db.pineStrategy.findUnique({ where: { id } });

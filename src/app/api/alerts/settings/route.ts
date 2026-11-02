@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getAlertSettings, parseEvents, vapidPublicKey } from "@/lib/alerts";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ function mask(s: string): string {
 }
 
 export async function GET() {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const s = await getAlertSettings();
     const pub = s.vapidPublicKey || (await vapidPublicKey().catch(() => ""));
@@ -38,6 +41,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const body = (await req.json()) as Record<string, unknown>;
     const s = await getAlertSettings();

@@ -17,6 +17,7 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -135,6 +136,8 @@ function concatWav(parts: Buffer[]): Buffer {
 }
 
 export async function POST(req: NextRequest) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
   if (rateLimited(ip)) {
     return NextResponse.json({ ok: false, error: "Too many voice requests — wait a moment." }, { status: 429 });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { guardLicensed, guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,8 @@ async function readRow() {
 }
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const row = await readRow();
     return NextResponse.json({ ok: true, profile: shape(row) });
@@ -65,6 +68,8 @@ export async function GET() {
 }
 
 export async function PUT(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   let body: Record<string, unknown>;
   try {
     body = (await req.json()) as Record<string, unknown>;

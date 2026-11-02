@@ -6,6 +6,7 @@ import { mtCancelOrder, mtModifyPosition } from "@/lib/brokers/metaapi-core";
 import { ensureBoot, getBot, closeOpenTrade } from "@/lib/bot";
 import { loadExecSettings } from "@/lib/execution";
 import { getSymbolMeta } from "@/lib/market-symbols";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -322,6 +323,8 @@ async function buildPayload(): Promise<Payload> {
 }
 
 export async function GET() {
+  const deny = await guardTrading();
+  if (deny) return deny;
   const now = Date.now();
   if (cache && now - cache.at < 2000) {
     return NextResponse.json({ ...cache.data, cached: true });
@@ -357,6 +360,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const body = (await req.json()) as {
       action?: string;

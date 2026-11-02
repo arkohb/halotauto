@@ -13,11 +13,14 @@
 
 import type { NextRequest } from "next/server";
 import { botEventsSince, subscribeBotEvents, type BotEventEnvelope } from "@/lib/halo/event-bus";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest): Promise<Response> {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   const enc = new TextEncoder();
   let unsub: (() => void) | null = null;
   let hb: ReturnType<typeof setInterval> | null = null;

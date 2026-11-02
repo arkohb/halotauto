@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getWebhookInfo, regenerateWebhookSecret, setWebhookEnabled } from "@/lib/tv-webhook";
+import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,8 @@ export const dynamic = "force-dynamic";
 // ════════════════════════════════════════════════════════════════════════
 
 export async function POST(req: Request) {
+  const deny = await guardTrading();
+  if (deny) return deny;
   try {
     const b = (await req.json().catch(() => ({}))) as { regenerate?: boolean; enabled?: boolean };
     let info = await getWebhookInfo();

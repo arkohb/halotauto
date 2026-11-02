@@ -19,6 +19,8 @@ import {
   selectStrategyExec,
 } from "@/lib/halo/operations";
 import { decimalsOf } from "@/lib/market-symbols";
+import { guardLicensed, guardTrading } from "@/lib/api-guard";
+import { getSessionUser } from "@/lib/commerce/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +57,8 @@ const hits = (gStore.__haloBrainHits ??= new Map<string, number[]>());
 const pending = (gStore.__haloPending ??= new Map<string, PendingAction>());
 
 interface PendingAction {
+  /** who asked — only the same account may confirm (user id, or "owner" in owner mode) */
+  owner: string;
   id: string;
   params: Record<string, string | boolean>;
   source: "voice" | "text";
@@ -243,6 +247,8 @@ async function scannerReadDetail(id: string): Promise<string> {
 
 /** scanner_start / scanner_pause / scanner_resume — run now, verify, report. */
 async function scannerExecDetail(id: string): Promise<{ ok: boolean; detail: string }> {
+  // the scanner controls are the same operations as POST /api/tf-scanner
+  if (await guardTrading()) return { ok: false, detail: "Your plan does not include trading controls, so I cannot change the scanner." };
   try {
     const before = await tfScannerState();
     if (id === "scanner_start" && before.status === "scanning") {
@@ -609,10 +615,15 @@ function parseDecision(raw: string): LlmDecision | null {
 const ACTION_COUNT = ACTIONS.length;
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   return NextResponse.json({ ok: true, service: "halo-brain", registry: ACTION_COUNT, confirmTtlMs: CONFIRM_TTL_MS });
 }
 
 export async function POST(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
+  const owner = (await getSessionUser())?.id ?? "owner";
   // ── rate limit ──
   const fwd = req.headers.get("x-forwarded-for") ?? "";
   const ip = fwd.split(",")[0].trim() || "local";
@@ -641,9 +652,20 @@ export async function POST(req: Request) {
     if (!p) {
       return NextResponse.json({ ok: false, error: "That confirmation window expired — ask me again and confirm promptly." });
     }
+    // a confirmation is bound to the account that asked for it
+    if (p.owner !== owner) {
+      void audit(p.id, p.params, p.source, "rejected", "Confirmation attempted by a different account.");
+      return NextResponse.json({ ok: false, error: "That confirmation belongs to a different session." }, { status: 403 });
+    }
     if (body.approve !== true) {
       void audit(p.id, p.params, p.source, "rejected", "Trader declined the confirmation.");
       return NextResponse.json({ ok: true, say: "Cancelled — nothing was changed.", declined: true, action: p.id });
+    }
+    // trading actions need the trading entitlement, checked again at execution time
+    const tdeny = await guardTrading();
+    if (tdeny) {
+      void audit(p.id, p.params, p.source, "rejected", "Account lacks the trading entitlement.");
+      return tdeny;
     }
     const res = await executeConsequential(p);
     await audit(p.id, p.params, p.source, res.ok ? "executed" : "failed", res.detail);
@@ -757,7 +779,7 @@ export async function POST(req: Request) {
     if (consequential) {
       prunePending();
       const token = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      pending.set(token, { id: consequential.id, params: consequential.params, source, say: decision.say, createdAt: Date.now() });
+      pending.set(token, { owner, id: consequential.id, params: consequential.params, source, say: decision.say, createdAt: Date.now() });
       return NextResponse.json({
         ok: true,
         say: decision.say || `Ready to ${consequential.id.replace(/_/g, " ")}.`,

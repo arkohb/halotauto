@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { getDeepHistory } from "@/lib/market-history";
 import { tfSec } from "@/lib/market-symbols";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -37,6 +38,8 @@ function parseBars(raw: number | string | undefined): number | null {
 }
 
 export async function POST(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   try {
     const body = (await req.json()) as Body;
     const symbol = (body.symbol ?? "").toUpperCase().trim() || "PAXGUSDT";

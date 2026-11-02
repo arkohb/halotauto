@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { askClaude, friendlyClaudeError } from "@/lib/halo/claude";
 import { db } from "@/lib/db";
 import { buildSnapshot, type Snapshot } from "@/lib/halo/assistant-snapshot";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -60,10 +61,14 @@ HARD RULES (non-negotiable):
 const VOICE_RULES = `SPOKEN-MODE ADDENDUM: this answer will be read aloud by text-to-speech. Keep it under ~65 words. Plain conversational sentences only — no markdown, no bullet lists, no symbols like ⚠ or arrows. Say numbers naturally ("three thousand three hundred" is fine, digits also read well).`;
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   return NextResponse.json({ ok: true, service: "halo-assistant", readOnly: true });
 }
 
 export async function POST(req: Request) {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   // ── rate limit ──
   const fwd = req.headers.get("x-forwarded-for") ?? "";
   const ip = fwd.split(",")[0].trim() || "local";

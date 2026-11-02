@@ -55,3 +55,8 @@ server.log
 !.env.example
 .firebase/
 .firebaserc
+
+# local databases and secrets — never commit
+/db/*.db
+/db/*.db-journal
+.env

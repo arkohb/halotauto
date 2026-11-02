@@ -3,10 +3,13 @@ import { NextResponse } from "next/server";
 import { getBot, ensureBoot } from "@/lib/bot";
 import { getJob, listProfiles, setProfileLive, startAutopilot } from "@/lib/edge/autopilot";
 import { requireTradingAccess } from "@/lib/license";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   return NextResponse.json({ ok: true, job: getJob(), profiles: await listProfiles() });
 }
 

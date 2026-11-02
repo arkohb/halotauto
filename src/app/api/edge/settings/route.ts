@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { loadEdge, saveEdge } from "@/lib/edge/settings";
 import { requireTradingAccess } from "@/lib/license";
+import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const deny = await guardLicensed();
+  if (deny) return deny;
   return NextResponse.json({ ok: true, settings: await loadEdge() });
 }
 
