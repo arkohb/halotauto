@@ -12,8 +12,12 @@
 //      (wss://ws.derivws.com · public market data · app_id 1089):
 //      `ticks_history` seeds REAL candles, then `ohlc` pushes the forming
 //      candle on every tick (~1–2s for synthetics).
-//    • CRYPTO → Binance kline websocket (same venue as the REST candles,
-//      so history and live bars always agree).
+//    • CRYPTO → Binance combined stream: kline (authoritative OHLC + bar
+//      rollover) AND aggTrade (every trade). Binance pushes kline updates
+//      only every ~2 s, so on its own the candle lagged TradingView; the
+//      trade stream moves the forming candle on EVERY trade, exactly like
+//      the BINANCE: chart on TradingView. Same venue as the REST candles,
+//      so history and live bars always agree.
 //    • Anything not covered → no stream; the polling feed keeps driving.
 //
 //  ⚠ Presentation layer only — no orders, no EA behaviour. Nothing here
@@ -50,7 +54,7 @@ export interface LiveHandlers {
 
 const DERIV_APP_ID = (process.env.NEXT_PUBLIC_DERIV_APP_ID ?? "1089").trim();
 const DERIV_URL = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(DERIV_APP_ID)}`;
-const BINANCE_URL = "wss://stream.binance.com:9443/ws";
+const BINANCE_URL = "wss://stream.binance.com:9443/stream?streams=";
 const HISTORY_COUNT = 300;
 const IDLE_CLOSE_MS = 45_000;
 /** warm-socket window after the last viewer leaves a binance stream —
@@ -438,6 +442,10 @@ interface BinanceConn {
   reconnectTimer: ReturnType<typeof setTimeout> | null;
   /** grace-period close — the socket stays warm for fast re-attach */
   closeTimer: ReturnType<typeof setTimeout> | null;
+  /** forming candle built from kline + trades */
+  bar: LiveBar | null;
+  /** trade time (ms) of the last trade folded into `bar` */
+  lastTradeAt: number;
 }
 
 function binanceInterval(tf: string): string | null {
@@ -449,7 +457,7 @@ function binanceOpen(conn: BinanceConn, sub: LiveSub): void {
   if (typeof WebSocket === "undefined") return;
   let ws: WebSocket;
   try {
-    ws = new WebSocket(`${BINANCE_URL}/${conn.stream}`);
+    ws = new WebSocket(`${BINANCE_URL}${conn.stream}`);
   } catch {
     binanceScheduleReconnect(conn, sub);
     return;
@@ -467,25 +475,74 @@ function binanceOpen(conn: BinanceConn, sub: LiveSub): void {
       }
     }
   };
+  const tfMs = sub.sec * 1000;
+  const emit = (bar: LiveBar): void => {
+    sub.updates++;
+    for (const h of sub.cbs) {
+      try {
+        h.onUpdate?.({ ...bar });
+      } catch {
+        // ignore
+      }
+    }
+  };
   ws.onmessage = (ev) => {
-    let msg: { k?: { t?: number; o?: string; h?: string; l?: string; c?: string } };
+    let msg: {
+      data?: {
+        e?: string;
+        E?: number;
+        k?: { t?: number; o?: string; h?: string; l?: string; c?: string };
+        p?: string;
+        T?: number;
+      };
+    };
     try {
       msg = JSON.parse(String(ev.data));
     } catch {
       return;
     }
-    const k = msg.k;
-    if (!k?.t || k.c === undefined) return;
-    const bar: LiveBar = { time: Number(k.t), open: Number(k.o), high: Number(k.h), low: Number(k.l), close: Number(k.c) };
-    if (!isFinite(bar.time) || !isFinite(bar.close)) return;
-    sub.updates++;
-    for (const h of sub.cbs) {
-      try {
-        h.onUpdate?.(bar);
-      } catch {
-        // ignore
+    const d = msg.data;
+    if (!d) return;
+
+    if (d.e === "aggTrade") {
+      // ── every trade: move the forming candle immediately ──
+      const px = Number(d.p);
+      const t = Number(d.T);
+      if (!isFinite(px) || !isFinite(t) || px <= 0) return;
+      const cur = conn.bar;
+      if (!cur) return; // wait for the first kline to anchor the bar
+      if (t < cur.time) return; // late trade from a closed bar
+      if (t >= cur.time + tfMs) {
+        // bar rollover between kline pushes — open the new bar on this trade
+        const open = Math.floor(t / tfMs) * tfMs;
+        conn.bar = { time: open, open: px, high: px, low: px, close: px };
+      } else {
+        cur.close = px;
+        if (px > cur.high) cur.high = px;
+        if (px < cur.low) cur.low = px;
       }
+      conn.lastTradeAt = t;
+      emit(conn.bar!);
+      return;
     }
+
+    const k = d.k;
+    if (!k?.t || k.c === undefined) return;
+    const kb: LiveBar = { time: Number(k.t), open: Number(k.o), high: Number(k.h), low: Number(k.l), close: Number(k.c) };
+    if (!isFinite(kb.time) || !isFinite(kb.close)) return;
+    const cur = conn.bar;
+    if (cur && kb.time < cur.time) return; // final push of an older bar — the chart already moved on
+    if (!cur || kb.time > cur.time) {
+      conn.bar = kb;
+    } else {
+      // same bar: kline is authoritative for open/high/low; its close is up
+      // to ~2 s old, so keep the newer trade price when we have one
+      cur.open = kb.open;
+      cur.high = Math.max(cur.high, kb.high);
+      cur.low = Math.min(cur.low, kb.low);
+      if (!(conn.lastTradeAt > Number(d.E ?? 0))) cur.close = kb.close;
+    }
+    emit(conn.bar!);
   };
   ws.onerror = () => {
     try {
@@ -546,10 +603,11 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
   if (sub.cbs.size === 1) {
     if (sub.kind === "binance") {
       const bins = (g.__haloLiveFeedBins ??= new Map<string, BinanceConn>());
-      const stream = `${sub.symbol.toLowerCase()}@kline_${binanceInterval(sub.tf)}`;
+      const sym = sub.symbol.toLowerCase();
+      const stream = `${sym}@kline_${binanceInterval(sub.tf)}/${sym}@aggTrade`;
       let conn = bins.get(key);
       if (!conn || conn.closed) {
-        conn = { ws: null, key, stream, backoff: 1000, closed: false, reconnectTimer: null, closeTimer: null };
+        conn = { ws: null, key, stream, backoff: 1000, closed: false, reconnectTimer: null, closeTimer: null, bar: null, lastTradeAt: 0 };
         bins.set(key, conn);
         binanceOpen(conn, sub);
       } else {

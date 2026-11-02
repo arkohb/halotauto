@@ -136,6 +136,10 @@ export default function ChartPanel(props: ChartProps) {
   // ref = source of truth (kept fresh before the overlays effect runs);
   // state = re-render trigger for the feed-driven window changes.
   const seriesWinRef = useRef<{ first: number; last: number } | null>(null);
+  // newest bar drawn from the live stream — re-applied after every polled
+  // setData so the (cached, seconds-old) REST window never drags the
+  // forming candle back to an older price
+  const lastLiveRef = useRef<LiveBar | null>(null);
   const [seriesWin, setSeriesWin] = useState<{ first: number; last: number } | null>(null);
 
   // restore persisted chart mode + broker filter (deferred so we never setState synchronously in an effect)
@@ -228,13 +232,48 @@ export default function ChartPanel(props: ChartProps) {
   useEffect(() => {
     let alive = true;
     let lastPush = 0;
+    // React overlays (indicator rail, candle timer) stay throttled — they
+    // re-render a whole subtree. The price store is cheap (only the price
+    // tickers subscribe), so it follows the candle every frame.
     const pushLive = (b: LiveBar, force: boolean) => {
       if (!alive) return;
+      publishLivePrice(symbol, b.close);
       const now = Date.now();
       if (!force && now - lastPush < 400) return;
       lastPush = now;
       setLiveBar({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
-      publishLivePrice(symbol, b.close);
+    };
+    // ── frame-coalesced candle drawing ──
+    // the trade stream can push dozens of updates per second; drawing the
+    // latest state once per display frame (~16 ms) shows every visible move
+    // with zero added lag and no wasted redraws. A bar rollover inside one
+    // frame flushes the old bar first so its final close is never lost.
+    let pending: LiveBar | null = null;
+    let raf = 0;
+    const draw = (bar: LiveBar) => {
+      lastLiveRef.current = bar;
+      if (mode === "3el") {
+        candleRef.current?.update({
+          time: (bar.time / 1000) as UTCTimestamp,
+          open: bar.open,
+          high: bar.high,
+          low: bar.low,
+          close: bar.close,
+        });
+      }
+      // a brand-new bar extends the series window (bar rollover)
+      setSeriesWin((w) => (w && bar.time > w.last ? { first: w.first, last: bar.time } : w));
+      if (seriesWinRef.current && bar.time > seriesWinRef.current.last) {
+        seriesWinRef.current = { first: seriesWinRef.current.first, last: bar.time };
+      }
+      pushLive(bar, false);
+    };
+    const flush = () => {
+      raf = 0;
+      if (!alive || !pending) return;
+      const b = pending;
+      pending = null;
+      draw(b);
     };
     const un = subscribeLiveBars(symbol, tf, {
       onStatus: (st) => {
@@ -266,25 +305,15 @@ export default function ChartPanel(props: ChartProps) {
       },
       onUpdate: (bar) => {
         if (!alive) return;
-        if (mode === "3el") {
-          candleRef.current?.update({
-            time: (bar.time / 1000) as UTCTimestamp,
-            open: bar.open,
-            high: bar.high,
-            low: bar.low,
-            close: bar.close,
-          });
-        }
-        // a brand-new bar extends the series window (bar rollover)
-        setSeriesWin((w) => (w && bar.time > w.last ? { first: w.first, last: bar.time } : w));
-        if (seriesWinRef.current && bar.time > seriesWinRef.current.last) {
-          seriesWinRef.current = { first: seriesWinRef.current.first, last: bar.time };
-        }
-        pushLive(bar, false);
+        if (pending && pending.time !== bar.time) draw(pending);
+        pending = bar;
+        if (!raf) raf = requestAnimationFrame(flush);
       },
     });
     return () => {
       alive = false;
+      if (raf) cancelAnimationFrame(raf);
+      lastLiveRef.current = null;
       un();
     };
   }, [symbol, tf, mode]);
@@ -309,6 +338,11 @@ export default function ChartPanel(props: ChartProps) {
       }))
     );
     seriesWinRef.current = { first: candles[0].time, last: candles[candles.length - 1].time };
+    const lb = lastLiveRef.current;
+    if (lb && liveStat.active && lb.time >= candles[candles.length - 1].time) {
+      s.update({ time: (lb.time / 1000) as UTCTimestamp, open: lb.open, high: lb.high, low: lb.low, close: lb.close });
+      if (lb.time > seriesWinRef.current.last) seriesWinRef.current = { first: seriesWinRef.current.first, last: lb.time };
+    }
     // (no setState here — the `candles` dependency already re-triggers the
     // overlays effect, and the feed path owns the seriesWin state updates)
     // fit the full window once per symbol/timeframe switch (never fights user zoom)
