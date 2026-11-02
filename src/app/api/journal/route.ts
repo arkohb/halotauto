@@ -90,8 +90,14 @@ export async function POST(req: Request) {
   if (!g.ok) return NextResponse.json({ ok: false, error: g.error }, { status: g.status });
   const userId = g.user!.id;
 
+  let b: Record<string, unknown>;
   try {
-    const b = (await req.json()) as Record<string, unknown>;
+    b = (await req.json()) as Record<string, unknown>;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
+  }
+
+  try {
     const symbol = String(b.symbol ?? "").trim().toUpperCase();
     const direction = String(b.direction ?? "").trim().toUpperCase();
     const entryPrice = numField(b.entryPrice);

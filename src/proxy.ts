@@ -44,15 +44,83 @@ const PUBLIC_API_PREFIXES = [
   "/api/webhook/",           // TradingView webhook (secret-authenticated upstream)
   "/api/commerce/plans",     // public pricing data for the /pricing page
   "/api/health",             // hosting health check + secret-gated keep-alive tick
+  "/api/csp-report",         // browser CSP violation reports (no cookies sent)
 ];
 
+// ── CONTENT SECURITY POLICY (pages only) ─────────────────────────────────
+// Per-request nonce: Next.js reads it from this header and stamps it on its
+// own scripts; 'strict-dynamic' then lets those trusted scripts load what
+// they need (the TradingView loader is injected by our own bundle). Only
+// the origins the browser really uses are listed:
+//   · TradingView  — chart widget script + its iframe
+//   · Binance      — live trade/kline websocket
+//   · Deriv        — live tick websocket (synthetics / FX / metals)
+// HALO_CSP=report → Content-Security-Policy-Report-Only (testing);
+// anything else  → enforced.
+function buildCsp(nonce: string): string {
+  const dev = process.env.NODE_ENV !== "production";
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://s3.tradingview.com${dev ? " 'unsafe-eval'" : ""}`,
+    // React SSR emits style="" attributes and Tailwind/Next inject <style>;
+    // inline styles cannot execute code
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self' data:",
+    `connect-src 'self' wss://stream.binance.com:9443 wss://ws.derivws.com${dev ? " ws://localhost:*" : ""}`,
+    "frame-src https://s.tradingview.com https://www.tradingview.com",
+    "media-src 'self' blob: data:",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "report-uri /api/csp-report",
+  ].join("; ");
+}
+
+/** pass the request on, attaching the nonce + CSP to page responses */
+function nextWithCsp(req: NextRequest): NextResponse {
+  if (req.nextUrl.pathname.startsWith("/api/")) return NextResponse.next();
+  const nonce = btoa(crypto.randomUUID());
+  const csp = buildCsp(nonce);
+  const header = process.env.HALO_CSP === "report" ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy";
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
+  requestHeaders.set(header, csp);
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set(header, csp);
+  return res;
+}
+
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/** no Origin header (non-browser caller) or an Origin matching the host the request was sent to */
+function sameOrigin(req: NextRequest): boolean {
+  const origin = req.headers.get("origin");
+  if (!origin) return true;
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 export function proxy(req: NextRequest) {
-  if (process.env.HALO_COMMERCE === "off") return NextResponse.next();
+  if (process.env.HALO_COMMERCE === "off") return nextWithCsp(req);
 
   const { pathname, search } = req.nextUrl;
   const hasSession = () => !!req.cookies.get(SESSION_COOKIE)?.value;
 
   if (pathname.startsWith("/api/")) {
+    // CSRF backstop (on top of the SameSite=Lax session cookie): a browser
+    // request that changes state must come from this site. Server-to-server
+    // callers (payment + TradingView webhooks) send no Origin header.
+    if (!SAFE_METHODS.has(req.method) && !sameOrigin(req)) {
+      return NextResponse.json({ ok: false, error: "Cross-site request refused.", code: "BAD_ORIGIN" }, { status: 403 });
+    }
     if (hasSession()) return NextResponse.next();
     if (PUBLIC_API_PREFIXES.some((p) => pathname === p || pathname.startsWith(p))) {
       return NextResponse.next();
@@ -63,8 +131,8 @@ export function proxy(req: NextRequest) {
     );
   }
 
-  if (hasSession()) return NextResponse.next();
-  if (PUBLIC_PAGES.has(pathname)) return NextResponse.next();
+  if (hasSession()) return nextWithCsp(req);
+  if (PUBLIC_PAGES.has(pathname)) return nextWithCsp(req);
 
   const url = req.nextUrl.clone();
   url.pathname = "/login";

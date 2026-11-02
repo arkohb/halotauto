@@ -13,6 +13,10 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// every page is rendered per request so it carries that request's CSP nonce
+// (set in src/proxy.ts) — a build-time prerender would have no nonce
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "HALO 3EL Autotrader · EA Trading Bot",
   description:
