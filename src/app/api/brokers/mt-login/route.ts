@@ -14,7 +14,7 @@ export const maxDuration = 90;
 //  broker MT credentials (login · password · server) and HALO provisions
 //  the MetaApi cloud bridge automatically — no API keys to add, nothing to
 //  wire up. The platform key is baked into the deployment:
-//    token = body token (Advanced override) → env METAAPI_TOKEN → baked key
+//    token = body token (Advanced override) → env METAAPI_TOKEN (server secret; no built-in fallback)
 //  Flow (per official MetaApi wire format):
 //    1) POST /users/current/accounts          (login+password+server+platform)
 //    2) POST /users/current/accounts/:id/deploy

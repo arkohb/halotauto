@@ -8,7 +8,7 @@ const globalForPrisma = globalThis as unknown as {
 // still points at the pre-push client (missing e.g. pineStrategy/license).
 // Detect that and re-instantiate so hot reloads pick the generated schema up.
 function clientIsCurrent(c: PrismaClient): boolean {
-  return 'pineStrategy' in c && 'license' in c && 'journalTrade' in c && 'journalState' in c && 'journalEquity' in c && 'edgeSettings' in c && 'autopilotProfile' in c
+  return 'pineStrategy' in c && 'license' in c && 'journalTrade' in c && 'journalState' in c && 'journalEquity' in c && 'edgeSettings' in c && 'autopilotProfile' in c && 'tvAlertEvent' in c
 }
 
 function makeClient(): PrismaClient {

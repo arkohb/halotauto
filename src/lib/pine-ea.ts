@@ -75,7 +75,10 @@ var L_WK   = array.new_line()
 
 // ── webhook JSON payload ──
 js(x) => str.tostring(x, format.mintick)
-tvMsg(action, dirTxt, px, slp, tpp, rp) => '{"secret":"' + secretIn + '","strategy":"HALO3EL","action":"' + action + '","symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","price":' + js(px) + ',"sl":' + js(slp) + ',"tp":' + js(tpp) + ',"riskPips":' + str.tostring(rp, "#.##") + ',"comment":"HALO 3EL ' + dirTxt + '"}'
+// replay protection: ts = TradingView send time (ms); id = one event per
+// action per bar, so repeated intrabar alerts collapse into one
+tvId(action) => 'HALO3EL|' + syminfo.ticker + '|' + timeframe.period + '|' + action + '|' + str.tostring(time, "#")
+tvMsg(action, dirTxt, px, slp, tpp, rp) => '{"secret":"' + secretIn + '","ts":' + str.tostring(timenow, "#") + ',"id":"' + tvId(action) + '","strategy":"HALO3EL","action":"' + action + '","symbol":"' + syminfo.ticker + '","tf":"' + timeframe.period + '","price":' + js(px) + ',"sl":' + js(slp) + ',"tp":' + js(tpp) + ',"riskPips":' + str.tostring(rp, "#.##") + ',"comment":"HALO 3EL ' + dirTxt + '"}'
 
 // ── entry / SL / TP visuals while a trade runs ──
 var float curEn = na

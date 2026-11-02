@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import {
+  checkAlertFreshness,
+  claimAlertEvent,
   extractJson,
   getWebhookInfo,
   parseTvAlert,
@@ -14,8 +16,10 @@ export const maxDuration = 60;
 // ════════════════════════════════════════════════════════════════════════
 //  TRADINGVIEW ALERT WEBHOOK · the EA → linked account bridge
 //  POST  /api/webhook/tv          ← paste this URL into the TradingView alert
-//    • body: JSON (or text containing JSON) with {secret, action, symbol, sl, tp…}
+//    • body: JSON (or text containing JSON) with {secret, ts, id, action, symbol, sl, tp…}
 //    • header X-HALO-SECRET also accepted
+//    • replay protection: `ts` must be fresh and `id` never seen before
+//      (claimed atomically in TvAlertEvent before anything executes)
 //  GET   /api/webhook/tv          → { secret, enabled, fireCount } for the UI
 // ════════════════════════════════════════════════════════════════════════
 
@@ -63,9 +67,18 @@ export async function POST(req: Request) {
     );
   }
 
+  const fresh = checkAlertFreshness(payload);
+  if (!fresh.ok) {
+    return NextResponse.json({ ok: false, error: fresh.error }, { status: fresh.status });
+  }
+
   const { alert, error } = parseTvAlert(payload);
   if (!alert) {
     return NextResponse.json({ ok: false, error }, { status: 400 });
+  }
+
+  if (!(await claimAlertEvent(fresh.eventId, alert, fresh.ts))) {
+    return NextResponse.json({ ok: false, duplicate: true, error: "Duplicate alert — this event was already received; nothing executed." }, { status: 409 });
   }
 
   const result = await processTvAlert(alert);

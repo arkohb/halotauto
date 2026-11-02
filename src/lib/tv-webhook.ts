@@ -5,6 +5,7 @@
 //  bridge) — or a paper record when live routing is off. Server-only.
 // ════════════════════════════════════════════════════════════════════════
 
+import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { gateOrder } from "./edge/gate";
 import { engageTradeLock, getTradeLock, maybeReleaseLock } from "./trade-lock";
@@ -471,10 +472,68 @@ export async function processTvAlert(
   return { ok: true, status: 200, mode: "LIVE", tradeId: tr.id, broker: broker.label };
 }
 
-/** constant-ish time string compare (secrets are short; this is adequate) */
+/** constant-time secret compare (hashing first hides the length too) */
 export function secretMatches(a: string, b: string): boolean {
-  if (!a || !b || a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+  if (!a || !b) return false;
+  const ha = crypto.createHash("sha256").update(a, "utf8").digest();
+  const hb = crypto.createHash("sha256").update(b, "utf8").digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
+
+// ── replay protection ──────────────────────────────────────────────────
+// Every alert must carry `ts` (TradingView `timenow`, epoch ms) and `id`
+// (a per-event id built by the Pine EA). An alert is accepted only when it
+// is fresh and its id has never been accepted before. The id is claimed in
+// the TvAlertEvent table BEFORE any execution: the primary-key insert is
+// atomic, so concurrent copies and replays after a restart both fail.
+
+export const TV_MAX_AGE_MS = Math.max(15, Math.min(900, Number(process.env.HALO_TV_MAX_AGE_SEC) || 120)) * 1000;
+export const TV_MAX_FUTURE_MS = 30_000;
+const EVENT_ID_RE = /^[A-Za-z0-9:._|+!/^=\-]{8,200}$/;
+
+export type FreshnessResult = { ok: true; ts: number; eventId: string } | { ok: false; status: number; error: string };
+
+/** validate the alert's timestamp + event id (no side effects) */
+export function checkAlertFreshness(payload: Record<string, unknown>, now = Date.now()): FreshnessResult {
+  const rawTs = payload.ts ?? payload.timestamp;
+  const eventId = String(payload.id ?? payload.eventId ?? "").trim();
+  if (rawTs === undefined || rawTs === null || rawTs === "" || !eventId) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Alert has no timestamp/event id — re-copy the Pine EA from Settings → EA attach (alerts now carry \"ts\" and \"id\").",
+    };
+  }
+  const ts = Number(rawTs);
+  if (!Number.isFinite(ts) || ts < 1e12 || ts > 1e14) {
+    return { ok: false, status: 400, error: "Alert timestamp is malformed (expected epoch milliseconds)." };
+  }
+  if (!EVENT_ID_RE.test(eventId)) {
+    return { ok: false, status: 400, error: "Alert event id is malformed." };
+  }
+  if (ts > now + TV_MAX_FUTURE_MS) {
+    return { ok: false, status: 400, error: "Alert timestamp is in the future — check the clock." };
+  }
+  if (now - ts > TV_MAX_AGE_MS) {
+    return { ok: false, status: 410, error: `Alert expired — older than ${Math.round(TV_MAX_AGE_MS / 1000)} s.` };
+  }
+  return { ok: true, ts, eventId };
+}
+
+let lastPrune = 0;
+
+/** claim an event id; false when it was already accepted (duplicate / replay) */
+export async function claimAlertEvent(eventId: string, alert: TvAlert, ts: number): Promise<boolean> {
+  const id = crypto.createHash("sha256").update(eventId, "utf8").digest("hex");
+  try {
+    await db.tvAlertEvent.create({ data: { id, action: alert.action, symbol: alert.symbol, alertTs: new Date(ts) } });
+  } catch (e) {
+    if ((e as { code?: string }).code === "P2002") return false; // unique violation → seen before
+    throw e;
+  }
+  if (Date.now() - lastPrune > 3_600_000) {
+    lastPrune = Date.now();
+    void db.tvAlertEvent.deleteMany({ where: { receivedAt: { lt: new Date(Date.now() - 7 * 86_400_000) } } }).catch(() => {});
+  }
+  return true;
 }

@@ -486,3 +486,17 @@ model AutopilotProfile {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+
+// TradingView webhook replay protection: one row per accepted alert event.
+// The primary key is a SHA-256 of the alert's event id, so a duplicate or
+// replayed alert fails the insert — atomically, across concurrent requests
+// and application restarts. Rows older than 7 days are pruned.
+model TvAlertEvent {
+  id         String   @id // sha256(event id)
+  action     String
+  symbol     String
+  alertTs    DateTime // the alert's own timestamp (TradingView timenow)
+  receivedAt DateTime @default(now())
+
+  @@index([receivedAt])
+}
