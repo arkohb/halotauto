@@ -143,3 +143,18 @@ The clone was deleted after the test.
 5. Verification commands (§4) all pass; build + tests pass on the rewritten branch.
 6. `tool-results/` added to `.gitignore`.
 7. Backups kept offline; deleted after your retention period.
+
+## 10. Pre-execution verification (Phase 4, 2 Nov 2026)
+
+| Check | Result |
+|---|---|
+| `skills/` deletion | confirmed unused (only historical notes mention it) → committed separately as `64f614f`; step 3.2 is done |
+| Working tree | only the uncommitted Phase 4 work remains; it will be committed before execution so the tree is clean |
+| Branches and heads | `main` 860622a · `feature/scanner-bot-holographic-art` e330af6 · `feature/halo-edge-firebase-cloudflare` 64f614f (moves forward with Phase 4 commits) — 90 commits in total |
+| Remotes / tags / stashes | none / none / none |
+| Secrets to remove | MetaApi token (in `.env`, `src/lib/brokers/metaapi-core.ts`, `tool-results/`), Super Admin email + password (`.env`), everything in `db/custom.db` history (password hashes, sessions, broker credentials, webhook secret, alert settings) |
+| Backup procedure | **rehearsed**: `git bundle create --all` → `git bundle verify` OK (176 MB) → clone from the bundle reproduced all 3 branch heads exactly and all 90 commits; the scratch restore was deleted |
+| Backup location | `~/HALO-backups/` (owner-only permissions, outside the project). The rehearsal bundle stays there; a **fresh** bundle is created immediately before execution |
+| Dry run | §8 — secrets removed, app builds, tests pass |
+
+**Waiting for:** your explicit authorisation of §9, after the old MetaApi token is revoked and the admin password changed.
