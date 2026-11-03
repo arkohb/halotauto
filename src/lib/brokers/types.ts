@@ -13,7 +13,8 @@ export type BrokerKind =
   | "fxcm"
   | "ctrader"
   | "deriv"
-  | "webhook";
+  | "webhook"
+  | "mt5ea";
 
 export interface BrokerCreds {
   [key: string]: string | number | boolean | Record<string, string> | undefined;

@@ -11,6 +11,7 @@ import { metaapiAdapter } from "./metaapi";
 import { binanceAdapter } from "./binance";
 import { paperAdapter } from "./paper";
 import { createBridgeAdapter } from "./bridge";
+import { mt5EaAdapter } from "./mt5-ea";
 
 const fxcmAdapter = createBridgeAdapter("fxcm");
 const ctraderAdapter = createBridgeAdapter("ctrader");
@@ -27,6 +28,7 @@ const REGISTRY: Record<BrokerKind, BrokerAdapter> = {
   ctrader: ctraderAdapter,
   deriv: derivAdapter,
   webhook: webhookAdapter,
+  mt5ea: mt5EaAdapter,
 };
 
 export function isBrokerKind(k: string): k is BrokerKind {

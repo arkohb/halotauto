@@ -51,7 +51,7 @@ interface Props {
 }
 
 // platform tiles of the always-on catalog (metaapi has the featured card; paper is built-in)
-const CATALOG_KINDS = ["oanda", "ig", "binance", "fxcm", "ctrader", "deriv", "webhook"] as const;
+const CATALOG_KINDS = ["mt5ea", "oanda", "ig", "binance", "fxcm", "ctrader", "deriv", "webhook"] as const;
 
 // shared token class strings — CSS consumes the --hx-* mirror of C
 const IN_CLS = "h-9 bg-[var(--hx-bg)] border-[var(--hx-line)] text-sm text-[var(--hx-txt)]";

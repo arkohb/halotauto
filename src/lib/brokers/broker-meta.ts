@@ -169,6 +169,29 @@ export const BROKERS: BrokerMeta[] = [
     bridge: true,
   },
   {
+    kind: "mt5ea",
+    name: "MT5 · HALO Bridge EA (free)",
+    tagline: "Your own MetaTrader 5 places the orders — no MetaApi, no fees",
+    supportsPercent: true,
+    sizeLabel: "LOTS",
+    sizeHint: "Fixed lots, or % risk of equity (the EA sizes from the SL distance).",
+    fields: [
+      {
+        key: "eaKey",
+        label: "Pairing key",
+        type: "password",
+        placeholder: "24+ random characters",
+        hint: "Make one with your password manager's generator. Enter the SAME key in the EA's inputs in MT5.",
+      },
+    ],
+    notes: [
+      "Install mt5/HALO_Bridge.mq5 in MT5 (File → Open Data Folder → MQL5/Experts), attach it to any chart, enable Algo Trading.",
+      "MT5 → Tools → Options → Expert Advisors → allow WebRequest for this HALO address.",
+      "Orders only flow while MT5 is open with the EA attached. DEMO accounts only during testing.",
+    ],
+    bridge: true,
+  },
+  {
     kind: "paper",
     name: "Paper (simulated)",
     tagline: "Instant simulated fills — test the live pipeline risk-free",

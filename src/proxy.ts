@@ -42,6 +42,7 @@ const PUBLIC_API_PREFIXES = [
   "/api/auth/",              // login / register / verify-email / forgot / reset / logout / me
   "/api/commerce/webhook/",  // Paystack & Flutterwave server-to-server webhooks
   "/api/webhook/",           // TradingView webhook (secret-authenticated upstream)
+  "/api/bridge/mt5",         // HALO Bridge EA in the trader's MT5 (pairing-key authenticated)
   "/api/commerce/plans",     // public pricing data for the /pricing page
   "/api/health",             // hosting health check + secret-gated keep-alive tick
   "/api/csp-report",         // browser CSP violation reports (no cookies sent)

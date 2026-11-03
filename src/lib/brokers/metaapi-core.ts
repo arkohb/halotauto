@@ -228,7 +228,7 @@ export function friendlyMetaApiError(e: unknown, ctx = ""): string {
   if (/HTTP 404/.test(msg) && ctx === "account")
     return "MetaApi does not know this account id — it may have been deleted on app.metaapi.cloud.";
   if (/HTTP 402|Payment Required|billing|quota|top up|high reliability/i.test(msg))
-    return "MetaApi requires a one-time top-up on the token owner's account before it will start (deploy) any cloud MT connection — new or redeployed. Open app.metaapi.cloud → Billing, add the minimum funds, then press CONNECT again. Nothing else is needed: your credentials and the cloud connection are already saved, HALO redeploys it automatically — the top-up is the only step left.";
+    return "MetaApi refused to create or start the cloud MT connection until the MetaApi account (the token owner's) has funds. Open app.metaapi.cloud → Billing, add the minimum top-up, then press CONNECT again — HALO reuses the cloud account if MetaApi kept one, otherwise it creates it then.";
   if (/HTTP 429|rate limit/i.test(msg))
     return "MetaApi rate limit hit — wait ~30 seconds and press TEST again.";
   if (/is not connected to broker yet|does not match the account region/i.test(msg))
