@@ -177,3 +177,24 @@ Run only after you say "authorise the history rewrite". Old credentials are not 
 | 10 | Keep the bundle offline for your retention period, then delete it | your decision |
 
 Recovery at any point: `git clone ~/HALO-backups/HALO-pre-rewrite-<date>.bundle <new folder>` (rehearsed: all branches and commits restored exactly).
+
+## 12. Executed — 3 November 2026
+
+Authorised by you after the MetaApi token was replaced and the Super Admin password changed.
+
+| Check | Result |
+|---|---|
+| Backups (owner-only, `~/HALO-backups/`) | `HALO-pre-rewrite-20261103.bundle` ("is okay", all 3 branches) · `HALO-pre-rewrite-git-20261103/` · `HALO-local-files-20261103/` (`.env`, `custom.db`, `tool-results/`) |
+| Branches | 3, same names: `main` 1ac4619 · `feature/scanner-bot-holographic-art` 5047f3b · `feature/halo-edge-firebase-cloudflare` 606af89 (before this commit) |
+| Commits | 100 → 96 (commits that only touched removed files were dropped); every ID changed |
+| Commits touching `.env`, `db/custom.db`, `tool-results/` | 0 |
+| Removed paths in any tree | 0 |
+| Full JWTs in any commit | 0 |
+| Old `.env` / `custom.db` blobs still in the object store (of 72) | 0 · old HEAD unreachable |
+| Exact old `METAAPI_TOKEN` / `ADMIN_PASSWORD` values anywhere in history or working tree | 0 |
+| `tsc` on `src/` · `next build` | 0 errors · compiles |
+| secret-box, price-guard, EDGE, journal, engine, range-filter, level-lifecycle tests | all pass |
+| `tool-results/` | added to `.gitignore` |
+
+Commit IDs quoted in earlier reports refer to the pre-rewrite history (kept only in the bundle).
+Still open: MetaApi support to revoke the old token; delete the backups after your retention period (suggested 30 days); sign out old sessions when convenient.

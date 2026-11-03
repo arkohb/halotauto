@@ -52,6 +52,9 @@ prompt
 server.log
 # Skills directory
 /skills/tool-results/
+
+# Saved tool output from assistant sessions (removed from history 3 Nov 2026)
+/tool-results/
 !.env.example
 .firebase/
 .firebaserc
