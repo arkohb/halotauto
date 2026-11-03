@@ -223,6 +223,8 @@ export interface ActivationResult {
   ok: boolean;
   error?: string;
   licenseId?: string;
+  /** the activation (device) this request is now bound to */
+  activationId?: string;
 }
 
 /**
@@ -249,38 +251,63 @@ export async function activateLicenseForKey(opts: {
   const license = await db.license.findUnique({ where: { key }, include: { activations: true, user: true } });
   if (!license) return { ok: false, error: "Invalid license key — it was not found in the license registry." };
   if (license.status === LICENSE_STATUSES.REVOKED) return { ok: false, error: "This license has been revoked. Contact support." };
+  if (license.status === LICENSE_STATUSES.SUSPENDED) return { ok: false, error: "This license is suspended — no devices can be activated. Contact support." };
   if (license.userId && license.userId !== opts.userId) return { ok: false, error: "This license was issued to a different account." };
   if (license.expiresAt && license.expiresAt.getTime() < Date.now()) return { ok: false, error: "This license has expired." };
 
-  // Re-activation on a known device is always allowed.
+  // A device already ACTIVE on this licence keeps its slot.
   const existing = await db.licenseActivation.findUnique({ where: { deviceToken: opts.deviceToken } });
   if (existing && existing.licenseId !== license.id) {
     return { ok: false, error: "This device already holds a different license. Deactivate it there first." };
   }
-  if (existing && existing.licenseId === license.id) {
-    if (!existing.active) {
-      await db.licenseActivation.update({ where: { id: existing.id }, data: { active: true, revokedAt: null } });
-    }
+  if (existing && existing.active) {
+    if (existing.slot === null) await backfillSlots(license.id, license.deviceLimit);
     await ensureLicenseActive(license.id);
-    return { ok: true, licenseId: license.id };
+    return { ok: true, licenseId: license.id, activationId: existing.id };
   }
 
-  const activeCount = license.activations.filter((a) => a.active).length;
-  if (activeCount >= license.deviceLimit) {
-    return {
-      ok: false,
-      error: `Device limit reached (${license.deviceLimit} active ${license.deviceLimit === 1 ? "device" : "devices"}). Deactivate an old device from your account dashboard or contact support for a transfer.`,
-    };
+  // New device, or a previously deactivated one: it needs a free slot. The
+  // (licenseId, slot) unique index makes this race-safe — a concurrent
+  // request that picked the same slot fails the write and retries.
+  let activationId = "";
+  let activeCount = 0;
+  for (let attempt = 0; attempt < 5 && !activationId; attempt++) {
+    await backfillSlots(license.id, license.deviceLimit);
+    const active = await db.licenseActivation.findMany({ where: { licenseId: license.id, active: true }, select: { slot: true } });
+    activeCount = active.length;
+    const used = new Set(active.map((a) => a.slot).filter((x): x is number => x !== null));
+    let slot = 0;
+    for (let k = 1; k <= license.deviceLimit; k++) if (!used.has(k)) { slot = k; break; }
+    if (activeCount >= license.deviceLimit || slot === 0) {
+      return {
+        ok: false,
+        error: `Device limit reached (${license.deviceLimit} active ${license.deviceLimit === 1 ? "device" : "devices"}). Deactivate an old device from your account dashboard or contact support for a transfer.`,
+      };
+    }
+    try {
+      if (existing) {
+        const r = await db.licenseActivation.update({
+          where: { id: existing.id },
+          data: { active: true, revokedAt: null, slot, deviceLabel: (opts.deviceLabel || existing.deviceLabel || "Device").slice(0, 80), userAgent: (opts.userAgent || "").slice(0, 250) },
+        });
+        activationId = r.id;
+      } else {
+        const r = await db.licenseActivation.create({
+          data: {
+            licenseId: license.id,
+            deviceToken: opts.deviceToken,
+            deviceLabel: (opts.deviceLabel || "Device").slice(0, 80),
+            userAgent: (opts.userAgent || "").slice(0, 250),
+            slot,
+          },
+        });
+        activationId = r.id;
+      }
+    } catch (e) {
+      if ((e as { code?: string }).code !== "P2002") throw e; // slot (or device) taken concurrently → retry
+    }
   }
-
-  await db.licenseActivation.create({
-    data: {
-      licenseId: license.id,
-      deviceToken: opts.deviceToken,
-      deviceLabel: (opts.deviceLabel || "Device").slice(0, 80),
-      userAgent: (opts.userAgent || "").slice(0, 250),
-    },
-  });
+  if (!activationId) return { ok: false, error: "Activation is busy — please try again." };
   await ensureLicenseActive(license.id);
 
   // Bind the license to this account on first use when unassigned.
@@ -297,7 +324,49 @@ export async function activateLicenseForKey(opts: {
     meta: { deviceLabel: (opts.deviceLabel || "").slice(0, 80), activeCount: activeCount + 1, deviceLimit: license.deviceLimit },
   });
   await notify(opts.userId, "license", "Device activated", `${(opts.deviceLabel || "Device").slice(0, 80)} is now authorized (${activeCount + 1}/${license.deviceLimit}).`);
-  return { ok: true, licenseId: license.id };
+  return { ok: true, licenseId: license.id, activationId };
+}
+
+/** give slots to active devices activated before slots existed (oldest first) */
+async function backfillSlots(licenseId: string, deviceLimit: number): Promise<void> {
+  const rows = await db.licenseActivation.findMany({ where: { licenseId, active: true }, orderBy: { activatedAt: "asc" } });
+  if (rows.every((r) => r.slot !== null)) return;
+  const used = new Set(rows.map((r) => r.slot).filter((x): x is number => x !== null));
+  for (const r of rows) {
+    if (r.slot !== null) continue;
+    let slot = 0;
+    for (let k = 1; k <= deviceLimit; k++) if (!used.has(k)) { slot = k; break; }
+    if (!slot) break; // legacy over-limit devices stay active but count toward the limit
+    try {
+      await db.licenseActivation.update({ where: { id: r.id }, data: { slot } });
+      used.add(slot);
+    } catch {
+      // a concurrent backfill took it — the caller re-reads
+    }
+  }
+}
+
+/**
+ * Bind this signed-in session to an activated device. One signed-in browser
+ * per device: other sessions bound to the same device are signed out, so a
+ * copied device token cannot multiply a licence's devices.
+ */
+export async function bindSessionToActivation(sessionId: string, activationId: string): Promise<void> {
+  await db.session.update({ where: { id: sessionId }, data: { activationId } });
+  await db.session.updateMany({ where: { activationId, id: { not: sessionId }, revokedAt: null }, data: { revokedAt: new Date() } });
+}
+
+/** Is this request's session bound to an ACTIVE device of `licenseId`, presenting that device's cookie? */
+export async function sessionDeviceAuthorized(
+  ctx: { activationId: string | null; deviceToken: string | null } | null,
+  licenseId: string
+): Promise<boolean> {
+  if (!ctx?.activationId || !ctx.deviceToken) return false;
+  const a = await db.licenseActivation.findUnique({ where: { id: ctx.activationId } });
+  if (!a || !a.active || a.licenseId !== licenseId) return false;
+  const x = crypto.createHash("sha256").update(a.deviceToken).digest();
+  const y = crypto.createHash("sha256").update(ctx.deviceToken).digest();
+  return crypto.timingSafeEqual(x, y);
 }
 
 async function ensureLicenseActive(licenseId: string): Promise<void> {
@@ -312,7 +381,9 @@ async function ensureLicenseActive(licenseId: string): Promise<void> {
 export async function deactivateDevice(activationId: string, actor?: { id: string; email: string; role: string }): Promise<boolean> {
   const a = await db.licenseActivation.findUnique({ where: { id: activationId }, include: { license: true } });
   if (!a || !a.active) return false;
-  await db.licenseActivation.update({ where: { id: activationId }, data: { active: false, revokedAt: new Date() } });
+  await db.licenseActivation.update({ where: { id: activationId }, data: { active: false, revokedAt: new Date(), slot: null } });
+  // browsers signed in on that device lose licensed access immediately
+  await db.session.updateMany({ where: { activationId, revokedAt: null }, data: { revokedAt: new Date() } });
   await logAudit({
     action: "LICENSE_DEVICE_DEACTIVATED",
     actorId: actor?.id ?? a.license.userId ?? "",

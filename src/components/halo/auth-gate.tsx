@@ -20,7 +20,7 @@
 //  SL/TP management.
 // ══════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { KeyRound, Loader2, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { A, C } from "@/lib/halo/ui-helpers";
 import {
@@ -38,6 +38,18 @@ type Me = {
   reason: string;
 };
 
+// same key as /activate — one browser must never hold two device identities
+const DEVICE_KEY = "halo-device-token.v1";
+const LEGACY_DEVICE_KEY = "halo-device-token";
+
+function storedDeviceTokens(): string[] {
+  try {
+    return [...new Set([localStorage.getItem(DEVICE_KEY), localStorage.getItem(LEGACY_DEVICE_KEY)].filter((t): t is string => !!t))];
+  } catch {
+    return [];
+  }
+}
+
 export function AuthGate() {
   const [me, setMe] = useState<Me | null>(null);
   const [key, setKey] = useState("");
@@ -45,10 +57,24 @@ export function AuthGate() {
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
+  const triedBind = useRef(false);
   const load = useCallback(async () => {
     try {
       const r = await fetch("/api/auth/me", { cache: "no-store" });
-      const j = (await r.json()) as Me;
+      let j = (await r.json()) as Me;
+      // licensed account, but this browser isn't linked to an activated
+      // device yet: try this browser's stored device token(s) once — the
+      // server only accepts a device that is already active on the licence
+      if (j.reason === "device-not-activated" && !triedBind.current) {
+        triedBind.current = true;
+        for (const t of storedDeviceTokens()) {
+          const b = await fetch("/api/license/bind", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceToken: t }) }).catch(() => null);
+          if (b?.ok) {
+            j = (await (await fetch("/api/auth/me", { cache: "no-store" })).json()) as Me;
+            break;
+          }
+        }
+      }
       setMe(j);
     } catch {
       setMe(null);
@@ -58,9 +84,9 @@ export function AuthGate() {
   useEffect(() => { void load(); }, [load]);
 
   const deviceToken = (): string => {
-    const k = "halo-device-token";
-    let t = localStorage.getItem(k);
-    if (!t) { t = crypto.randomUUID().replaceAll("-", "").slice(0, 32); localStorage.setItem(k, t); }
+    let t = localStorage.getItem(DEVICE_KEY) ?? localStorage.getItem(LEGACY_DEVICE_KEY);
+    if (!t) t = crypto.randomUUID().replaceAll("-", "").slice(0, 32);
+    localStorage.setItem(DEVICE_KEY, t);
     return t;
   };
 

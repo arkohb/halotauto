@@ -18,8 +18,8 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
-import { getSessionUser, isAdminRole, type SafeUser } from "@/lib/commerce/auth";
-import { evaluateUserLicense } from "@/lib/commerce/license-engine";
+import { getSessionContext, getSessionUser, isAdminRole, type SafeUser } from "@/lib/commerce/auth";
+import { evaluateUserLicense, sessionDeviceAuthorized } from "@/lib/commerce/license-engine";
 import { hasFeature, parseEntitlements } from "@/lib/commerce/entitlements";
 import { GATE_FEATURES } from "@/lib/commerce/constants";
 
@@ -78,6 +78,21 @@ export async function licenseStatus(): Promise<LicenseStatus> {
     return { commerce: true, licensing: true, authenticated: false, activated: false, mode: "unactivated", user: null, license: null, reason: "not-authenticated" };
   }
   const ev = await evaluateUserLicense(user.id);
+  // device limit on every request: the browser must be one of the licence's
+  // activated devices (administrators manage the platform, they don't use a seat)
+  const deviceOk = ev.valid && ev.license && (isAdminRole(user.role) || (await sessionDeviceAuthorized(await getSessionContext(), ev.license.id)));
+  if (ev.valid && ev.license && !deviceOk) {
+    return {
+      commerce: true,
+      licensing: true,
+      authenticated: true,
+      activated: false,
+      mode: "unactivated",
+      user,
+      license: null,
+      reason: "device-not-activated",
+    };
+  }
   if (ev.valid && ev.license) {
     return {
       commerce: true,
@@ -124,6 +139,13 @@ export async function requireLicensed(): Promise<Guard> {
   if (isAdminRole(user.role)) return { ok: true, user }; // administrators manage, not trade
 
   const ev = await evaluateUserLicense(user.id);
+  if (ev.valid && ev.license && !(await sessionDeviceAuthorized(await getSessionContext(), ev.license.id))) {
+    return {
+      ok: false,
+      status: 402,
+      error: `This browser is not an activated device for your licence (${ev.license.deviceCount}/${ev.license.deviceLimit} devices in use). Activate it from the licence screen, or deactivate an old device in your account.`,
+    };
+  }
   if (!ev.valid) {
     return {
       ok: false,

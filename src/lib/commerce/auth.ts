@@ -12,6 +12,8 @@ import { db } from "@/lib/db";
 import { ROLES, type Role } from "./constants";
 
 export const SESSION_COOKIE = "halo_session";
+/** httpOnly cookie holding this browser's activated-device token (set by the server on activation) */
+export const DEVICE_COOKIE = "halo_device";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days ("remember me")
 const SCRYPT_KEYLEN = 64;
 
@@ -119,6 +121,32 @@ export async function destroyCurrentSession(): Promise<void> {
     await db.session.updateMany({ where: { tokenHash: sha256(raw), revokedAt: null }, data: { revokedAt: new Date() } });
   }
   jar.delete(SESSION_COOKIE);
+}
+
+/** Session id + bound device for this request (null when signed out / revoked). */
+export async function getSessionContext(): Promise<{ sessionId: string; userId: string; activationId: string | null; deviceToken: string | null } | null> {
+  try {
+    const jar = await cookies();
+    const raw = jar.get(SESSION_COOKIE)?.value;
+    if (!raw) return null;
+    const session = await db.session.findUnique({ where: { tokenHash: sha256(raw) } });
+    if (!session || session.revokedAt || session.expiresAt <= new Date()) return null;
+    return { sessionId: session.id, userId: session.userId, activationId: session.activationId, deviceToken: jar.get(DEVICE_COOKIE)?.value ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/** was this request made over HTTPS (directly or behind a proxy)? */
+export function requestIsHttps(req: Request): boolean {
+  const proto = req.headers.get("x-forwarded-proto") ?? new URL(req.url).protocol.replace(":", "");
+  return proto === "https";
+}
+
+/** Set the device cookie on this response (httpOnly — page scripts cannot read or forge it). */
+export async function setDeviceCookie(deviceToken: string, secure: boolean): Promise<void> {
+  const jar = await cookies();
+  jar.set(DEVICE_COOKIE, deviceToken, { httpOnly: true, sameSite: "lax", secure, path: "/", maxAge: 60 * 60 * 24 * 365 });
 }
 
 /** The authenticated user for this request (null when signed out / revoked). */

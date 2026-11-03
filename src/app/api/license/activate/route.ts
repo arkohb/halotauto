@@ -5,6 +5,8 @@
 //  device limit reached, unverified payment, pending approval.
 // ══════════════════════════════════════════════════════════════════════════
 
+import { getSessionContext, requestIsHttps, setDeviceCookie } from "@/lib/commerce/auth";
+import { bindSessionToActivation } from "@/lib/commerce/license-engine";
 import { NextRequest, NextResponse } from "next/server";
 import { USER_STATUSES, USER_STATUS_LABEL, clientIp, rateLimit } from "@/lib/commerce/constants";
 import { getSessionUser } from "@/lib/commerce/auth";
@@ -39,6 +41,12 @@ export async function POST(req: NextRequest) {
       userAgent: req.headers.get("user-agent") ?? "",
     });
     if (!r.ok) return NextResponse.json({ ok: false, error: r.error }, { status: 400 });
+    // bind this browser: httpOnly device cookie + session ↔ device link
+    const ctx = await getSessionContext();
+    if (ctx && r.activationId) {
+      await bindSessionToActivation(ctx.sessionId, r.activationId);
+      await setDeviceCookie(String(body.deviceToken), requestIsHttps(req));
+    }
 
     const ev = await evaluateUserLicense(user.id);
     return NextResponse.json({ ok: true, activated: ev.valid, license: ev.license ?? null, reason: ev.reason });
