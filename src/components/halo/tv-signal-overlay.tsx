@@ -20,12 +20,14 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Candle, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
+import type { Candle, LevelSnapshot, LogEntry, TradeSnapshot } from "@/lib/halo/types";
 import { fmtPx } from "@/lib/halo/ui-helpers";
 
 interface Props {
   candles: Candle[]; // engine window — same symbol/timeframe as the widget
   levels: LevelSnapshot[]; // fresh levels only (the current signal)
+  history?: LevelSnapshot[]; // ALL LEVELS: fired / burned levels, drawn as time-bounded segments
+  log?: LogEntry[]; // ALL LEVELS: fires + TP/SL hits, drawn as marks
   trade: TradeSnapshot | null;
   mintick: number;
   symbol: string;
@@ -59,7 +61,10 @@ interface LineSpec {
   label: string;
 }
 
-export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }: Props) {
+/** TradingView's right price axis — the plot area ends left of it */
+const TV_AXIS_W = 66;
+
+export function TvSignalOverlay({ candles, levels, history = [], log = [], trade, mintick, symbol, tf }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const offKey = `halo3el.tvoverlay.off.${symbol}|${tf}`;
@@ -132,7 +137,7 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
     }
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return null;
     const pad = (hi - lo) * 0.12;
-    return { pLo: lo - pad, pHi: hi + pad };
+    return { pLo: lo - pad, pHi: hi + pad, win };
   }, [candles, levels, trade, size.w, size.h]);
 
   // ── lines to draw: BOTH armed levels + open trade only ─────────────────
@@ -215,7 +220,7 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
     dragRef.current = null;
   };
 
-  if (!scale || lines.length === 0 || size.h < 80) {
+  if (!scale || (lines.length === 0 && history.length === 0 && log.length === 0) || size.h < 80) {
     return <div ref={hostRef} className="pointer-events-none absolute inset-0 z-[12]" aria-hidden />;
   }
 
@@ -328,6 +333,87 @@ export function TvSignalOverlay({ candles, levels, trade, mintick, symbol, tf }:
           </div>
         );
       })}
+
+      {/* ALL LEVELS history — fired / burned levels and past fires + TP/SL
+          hits, placed on the SAME estimated window (bars fill the plot area
+          left of TV's axis, newest bar at the right). Past levels stop where
+          they fired or burned; anything older than the window is skipped. */}
+      {(() => {
+        const win = scale.win;
+        const plotW = Math.max(40, size.w - TV_AXIS_W);
+        const barW = plotW / win.length;
+        const t0 = win[0].time;
+        const tN = win[win.length - 1].time;
+        const xOf = (t: number): number | null => {
+          if (t < t0 || t > tN) return null;
+          let i = win.length - 1;
+          while (i > 0 && win[i].time > t) i--;
+          return (i + 0.5) * barW;
+        };
+        const segs = history.map((d) => {
+          const x1 = xOf(Math.max(d.b1Time, t0));
+          const x2 = xOf(Math.min(d.endTime ?? tN, tN));
+          const mid = (d.top + d.bot) / 2;
+          const y = yOf(mid);
+          if (x1 === null || x2 === null || y < 8 || y > size.h - 8 || d.endTime !== null && d.endTime < t0) return null;
+          const rgb = sideRgb(d.side);
+          const fired = d.state === "fired";
+          const col = `rgba(${rgb},${fired ? "0.85" : "0.55"})`;
+          return (
+            <div key={`h${d.id}`} className="absolute" style={{ left: x1, top: y - 1, width: Math.max(4, x2 - x1) }}>
+              <span
+                className="block"
+                style={{
+                  height: 2,
+                  background: fired ? col : `repeating-linear-gradient(90deg, ${col} 0 6px, transparent 6px 10px)`,
+                }}
+              />
+              <span
+                className="absolute text-[7.5px] font-extrabold tracking-wider tabular-nums"
+                style={{ left: 0, top: d.side === -1 ? -11 : 4, color: col, whiteSpace: "nowrap" }}
+              >
+                {fired ? "FIRED" : "BURNED"} {d.side === -1 ? "▼" : "▲"} {fmtPx(mid, mintick)}
+              </span>
+            </div>
+          );
+        });
+        const marks = log.map((e, i) => {
+          if (e.kind !== "fire" && e.kind !== "win" && e.kind !== "loss") return null;
+          const x = xOf(e.time);
+          if (x === null) return null;
+          if (e.kind === "fire") {
+            const y = yOf(e.entry);
+            if (y < 8 || y > size.h - 8) return null;
+            return (
+              <span
+                key={`m${i}`}
+                className="absolute text-[8px] font-extrabold tracking-wider"
+                style={{ left: x - 5, top: e.dir === -1 ? y - 16 : y + 3, color: GOLD, whiteSpace: "nowrap" }}
+              >
+                {e.dir === -1 ? "▼ C3 SELL" : "▲ C3 BUY"}
+              </span>
+            );
+          }
+          const tp = e.kind === "win";
+          const col = `rgba(${tp ? GREEN : RED},0.95)`;
+          return (
+            <span
+              key={`m${i}`}
+              className="absolute rounded border px-1 text-[7.5px] font-extrabold tabular-nums"
+              style={{ left: x - 14, top: 22, borderColor: col, color: col, background: "rgba(7,13,27,0.85)", whiteSpace: "nowrap" }}
+            >
+              {tp ? "TP +" : "SL −"}
+              {Math.abs(e.pips).toFixed(0)}p
+            </span>
+          );
+        });
+        return (
+          <>
+            {segs}
+            {marks}
+          </>
+        );
+      })()}
 
       {/* alignment hint */}
       <div

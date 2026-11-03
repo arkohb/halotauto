@@ -98,6 +98,7 @@ function sideColor(side: number, alpha: string): string {
 type ChartMode = "tv" | "3el";
 const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator view
 const VENUE_KEY = "halo3el.chartvenue.v1"; // broker filter for the pair picker
+const LEVELS_KEY = "halo3el.chartlevels.v1"; // "all" (default) | "current"
 
 export default function ChartPanel(props: ChartProps) {
   const {
@@ -108,6 +109,9 @@ export default function ChartPanel(props: ChartProps) {
   const [tvNote, setTvNote] = useState<string | null>(null);
   // broker filter for the pair picker — null = ALL brokers (sectioned list)
   const [venue, setVenue] = useState<Venue | null>(null);
+  // ALL LEVELS shows every level the engine still holds (armed, fired,
+  // burned) plus past fires and TP/SL hits; CURRENT shows the live signal only
+  const [allLevels, setAllLevels] = useState(true);
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -150,6 +154,7 @@ export default function ChartPanel(props: ChartProps) {
         if (m === "3el" || m === "tv" || m === "halo") setMode(m === "halo" ? "3el" : m);
         const v = localStorage.getItem(VENUE_KEY);
         if (v === "deriv" || v === "mt5" || v === "binance") setVenue(v);
+        if (localStorage.getItem(LEVELS_KEY) === "current") setAllLevels(false);
       } catch {
         // ignore
       }
@@ -162,6 +167,16 @@ export default function ChartPanel(props: ChartProps) {
     if (m === "tv") setTvNote(null);
     try {
       localStorage.setItem(MODE_KEY, m);
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleLevels = () => {
+    const next = !allLevels;
+    setAllLevels(next);
+    try {
+      localStorage.setItem(LEVELS_KEY, next ? "all" : "current");
     } catch {
       // ignore
     }
@@ -394,8 +409,10 @@ export default function ChartPanel(props: ChartProps) {
         [...drawings].reverse().find((d) => d.state === "fired") ??
         null;
     }
-    const visible = [...freshAll];
-    if (firedForTrade) visible.push(firedForTrade);
+    // ALL LEVELS: every level the engine still holds (up to 30), oldest
+    // first so the armed ones draw on top
+    const visible = allLevels ? [...drawings].sort((a, b) => a.b1Time - b.b1Time) : [...freshAll];
+    if (!allLevels && firedForTrade) visible.push(firedForTrade);
 
     const addLevelLine = (
       t1: number,
@@ -437,7 +454,7 @@ export default function ChartPanel(props: ChartProps) {
     const rayEnd = lastT + tfSec(tf) * 1000 * 12;
     const zoneRects: ZoneRectSpec[] = [];
     for (const d of visible) {
-      const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.32";
+      const alpha = d.state === "fresh" ? "0.95" : d.state === "fired" ? "0.85" : "0.55";
       const col = sideColor(d.side, alpha);
       const end = d.endTime ?? rayEnd;
       const startT = d.b1Time; // pinned anchor — the lines cannot shift
@@ -574,8 +591,33 @@ export default function ChartPanel(props: ChartProps) {
       });
     }
 
-    // ── 5. the current trade's fire marker — old signals never clutter the chart ──
-    if (trade) {
+    // ── 5. fire markers — ALL LEVELS: every fire plus its TP/SL outcome;
+    //       CURRENT: only the open trade's fire ──
+    if (allLevels) {
+      for (const e of log) {
+        if (!inWin(e.time)) continue;
+        if (e.kind === "fire") {
+          markers.push({
+            time: (e.time / 1000) as UTCTimestamp,
+            position: e.dir === -1 ? "aboveBar" : "belowBar",
+            shape: e.dir === -1 ? "arrowDown" : "arrowUp",
+            text: e.dir === -1 ? "C3 SELL" : "C3 BUY",
+            color: C.gold,
+            size: 2,
+          });
+        } else if (e.kind === "win" || e.kind === "loss") {
+          const hitTp = e.kind === "win";
+          markers.push({
+            time: (e.time / 1000) as UTCTimestamp,
+            position: e.dir === -1 ? "belowBar" : "aboveBar",
+            shape: "square",
+            text: `${hitTp ? "TP +" : "SL −"}${Math.abs(e.pips).toFixed(0)}p`,
+            color: hitTp ? C.green : C.red,
+            size: 1.5,
+          });
+        }
+      }
+    } else if (trade) {
       const f = log.find((e) => e.kind === "fire" && e.time === trade.entryTime);
       if (f && inWin(f.time)) {
         markers.push({
@@ -591,7 +633,7 @@ export default function ChartPanel(props: ChartProps) {
 
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     mk.setMarkers(markers);
-  }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin]);
+  }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin, allLevels]);
 
   // ── PINE STRATEGY OVERLAY · the active custom indicator draws itself here ──
   const [pineData, setPineData] = useState<PineOverlayData | null>(null);
@@ -792,6 +834,20 @@ export default function ChartPanel(props: ChartProps) {
               AUTO
             </span>
           )}
+          <button
+            type="button"
+            onClick={toggleLevels}
+            aria-pressed={allLevels}
+            aria-label={allLevels ? "Showing all indicator levels — switch to current signal only" : "Showing current signal only — switch to all indicator levels"}
+            className="rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+            style={{
+              borderColor: allLevels ? "rgba(233,185,78,0.6)" : "#0F2E58",
+              background: allLevels ? "rgba(233,185,78,0.12)" : "rgba(2,18,41,0.95)",
+              color: allLevels ? C.gold : C.muted,
+            }}
+          >
+            {allLevels ? "ALL LEVELS" : "CURRENT"}
+          </button>
           <div className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur">
             {(
               [
@@ -851,6 +907,8 @@ export default function ChartPanel(props: ChartProps) {
           <TvSignalOverlay
             candles={candles}
             levels={freshLevels}
+            history={allLevels ? drawings.filter((d) => d.state !== "fresh") : []}
+            log={allLevels ? log : []}
             trade={trade}
             mintick={mintick}
             symbol={symbol}
