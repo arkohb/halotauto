@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { isBrokerKind } from "@/lib/brokers";
+import { isBrokerKind, sealCreds } from "@/lib/brokers";
 import { sendAlert } from "@/lib/alerts";
 import { guardTrading } from "@/lib/api-guard";
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     if (!isBrokerKind(kind)) return NextResponse.json({ ok: false, error: "unknown broker kind" }, { status: 400 });
     if (kind === "paper") return NextResponse.json({ ok: false, error: "paper needs no account" }, { status: 400 });
     const label = String(body.label ?? "").trim() || kind.toUpperCase();
-    const credsJson = JSON.stringify(body.creds ?? {});
+    const credsJson = sealCreds(body.creds ?? {});
     const row = await db.brokerAccount.create({ data: { kind, label, credsJson } });
     void sendAlert({
       kind: "broker",

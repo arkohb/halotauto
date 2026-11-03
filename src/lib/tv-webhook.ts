@@ -5,6 +5,7 @@
 //  bridge) — or a paper record when live routing is off. Server-only.
 // ════════════════════════════════════════════════════════════════════════
 
+import { seal, tryOpen } from "@/lib/secret-box";
 import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { gateOrder } from "./edge/gate";
@@ -14,7 +15,8 @@ import type { FireEvent } from "./halo/types";
 import { SYMBOLS, SYMBOL_BY_TV, getSymbolMeta } from "./market-symbols";
 import { getKlines } from "./market";
 import { getAdapter, parseCreds } from "./brokers";
-import { loadExecSettings, recordPriceGuardRejection, resolveBroker, type ActiveBroker } from "./execution";
+import { isUncertainBrokerError, loadExecSettings, recordPriceGuardRejection, resolveBroker, type ActiveBroker } from "./execution";
+import { beginIntent, ensureReconciled, markOpen, markRejected, markSubmitting, markUncertain } from "./exec-lock";
 import { verifyOrderPrice } from "./price-guard";
 import { sendAlert } from "./alerts";
 import { roundPx } from "./brokers/types";
@@ -41,13 +43,14 @@ function genSecret(): string {
 export async function getWebhookInfo(): Promise<TvWebhookInfo> {
   let row = await db.webhookConfig.findUnique({ where: { id: "tv" } });
   if (!row) {
-    row = await db.webhookConfig.create({ data: { id: "tv", secret: genSecret() } });
+    row = await db.webhookConfig.create({ data: { id: "tv", secret: seal(genSecret()) } });
   } else if (!row.secret) {
-    row = await db.webhookConfig.update({ where: { id: "tv" }, data: { secret: genSecret() } });
+    row = await db.webhookConfig.update({ where: { id: "tv" }, data: { secret: seal(genSecret()) } });
   }
   return {
     id: "tv",
-    secret: row.secret,
+    // stored encrypted; an undecryptable secret reads as "" → every alert is refused (fail closed)
+    secret: tryOpen(row.secret) ?? "",
     enabled: row.enabled,
     fireCount: row.fireCount,
     lastFireAt: row.lastFireAt ? row.lastFireAt.toISOString() : null,
@@ -56,10 +59,11 @@ export async function getWebhookInfo(): Promise<TvWebhookInfo> {
 
 export async function regenerateWebhookSecret(): Promise<TvWebhookInfo> {
   await getWebhookInfo(); // ensure row exists
-  const row = await db.webhookConfig.update({ where: { id: "tv" }, data: { secret: genSecret() } });
+  const row = await db.webhookConfig.update({ where: { id: "tv" }, data: { secret: seal(genSecret()) } });
   return {
     id: "tv",
-    secret: row.secret,
+    // stored encrypted; an undecryptable secret reads as "" → every alert is refused (fail closed)
+    secret: tryOpen(row.secret) ?? "",
     enabled: row.enabled,
     fireCount: row.fireCount,
     lastFireAt: row.lastFireAt ? row.lastFireAt.toISOString() : null,
@@ -71,7 +75,8 @@ export async function setWebhookEnabled(enabled: boolean): Promise<TvWebhookInfo
   const row = await db.webhookConfig.update({ where: { id: "tv" }, data: { enabled } });
   return {
     id: "tv",
-    secret: row.secret,
+    // stored encrypted; an undecryptable secret reads as "" → every alert is refused (fail closed)
+    secret: tryOpen(row.secret) ?? "",
     enabled: row.enabled,
     fireCount: row.fireCount,
     lastFireAt: row.lastFireAt ? row.lastFireAt.toISOString() : null,
@@ -390,11 +395,18 @@ export async function processTvAlert(
     ...edgeFields,
   };
 
+  // ── PERSISTENT EXECUTION LOCK ──
+  await ensureReconciled();
+  const intent = await beginIntent({ source: "TV", symbol: alert.symbol, tf: alert.tf, dir, entry, sl: alert.sl, tp: alert.tp, live, brokerAccountId: live ? exec.brokerAccountId : "" });
+  if (!intent) return refuse("another order is open or awaiting reconciliation (execution lock held)");
+
   // ── PAPER ──
   if (!live) {
+    await markSubmitting(intent.id);
     const tr = await db.trade.create({
-      data: { ...base, execMode: "PAPER", status: "OPEN", note: alert.comment.slice(0, 250) },
+      data: { ...base, execMode: "PAPER", status: "OPEN", note: alert.comment.slice(0, 250), brokerOrderId: intent.clientOrderId },
     });
+    await markOpen(intent.id, tr.id);
     lockFor(tr.id);
     await bumpFireCount();
     void sendAlert({
@@ -411,6 +423,7 @@ export async function processTvAlert(
       data: { ...base, execMode: "LIVE", status: "REJECTED", note: "webhook alert had no SL" },
     });
     void tr;
+    await markRejected(intent.id, "webhook alert had no SL");
     return { ok: false, status: 400, error: "Live orders require an SL in the alert payload (sl)." };
   }
 
@@ -420,6 +433,7 @@ export async function processTvAlert(
       data: { ...base, execMode: "LIVE", status: "REJECTED", note: "no linked broker account" },
     });
     void tr;
+    await markRejected(intent.id, "no linked broker account").catch(() => {});
     void sendAlert({
       kind: "broker",
       title: "HALO 3EL · TV ORDER SKIPPED",
@@ -433,7 +447,10 @@ export async function processTvAlert(
   }
 
   const adapter = getAdapter(broker.kind);
-  const res = await adapter.marketOrder(parseCreds(broker.credsJson), {
+  await markSubmitting(intent.id);
+  let res: Awaited<ReturnType<typeof adapter.marketOrder>>;
+  try {
+    res = await adapter.marketOrder(parseCreds(broker.credsJson), {
     symbol: alert.symbol,
     side: dir,
     entry,
@@ -446,9 +463,20 @@ export async function processTvAlert(
         ? { mode: "percent", percent: Math.max(0.01, exec.sizePercent * mult), size: 0 }
         : { mode: "fixed", size: Math.max(0.01, Math.round(exec.sizeFixed * mult * 100) / 100), percent: 0 },
     comment: `HALO3EL ${src}`,
+    clientOrderId: intent.clientOrderId,
   });
+  } catch (e) {
+    await markUncertain(intent.id, `broker call failed: ${(e as Error).message}`);
+    return { ok: false, status: 502, error: "No reliable answer from the broker — new orders are paused until this order is reconciled." };
+  }
+
+  if (!res.ok && isUncertainBrokerError(res.error ?? "")) {
+    await markUncertain(intent.id, `no reliable broker answer: ${res.error ?? ""}`);
+    return { ok: false, status: 502, error: "No reliable answer from the broker — new orders are paused until this order is reconciled." };
+  }
 
   if (!res.ok) {
+    await markRejected(intent.id, res.error ?? "broker rejected the order");
     await db.trade.create({
       data: {
         ...base,
@@ -477,6 +505,7 @@ export async function processTvAlert(
       note: alert.comment.slice(0, 250),
     },
   });
+  await markOpen(intent.id, tr.id, (res.brokerOrderId ?? "").slice(0, 120));
   lockFor(tr.id);
   await bumpFireCount();
   void sendAlert({

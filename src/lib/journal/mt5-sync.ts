@@ -29,6 +29,7 @@
 //  This module performs NO order actions — it is read-only against MT5.
 // ══════════════════════════════════════════════════════════════════════════
 
+import { parseCreds } from "@/lib/brokers";
 import { db } from "@/lib/db";
 import type { JournalTrade } from "@prisma/client";
 import type { MtHistoryDeal } from "@/lib/brokers/metaapi-core";
@@ -205,7 +206,7 @@ export async function syncMt5History(opts: SyncOptions): Promise<SyncResult> {
 
   let creds: Record<string, unknown> = {};
   try {
-    creds = JSON.parse(row.credsJson) as Record<string, unknown>;
+    creds = parseCreds(row.credsJson) as Record<string, unknown>;
   } catch {
     /* handled below */
   }

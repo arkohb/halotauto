@@ -3,6 +3,7 @@
 //  SERVER-ONLY (imports adapters that use crypto / node APIs).
 // ════════════════════════════════════════════════════════════════════════
 
+import { open as openSecret, seal as sealSecret } from "@/lib/secret-box";
 import { BrokerAdapter, BrokerCreds, BrokerKind } from "./types";
 import { oandaAdapter } from "./oanda";
 import { igAdapter } from "./ig";
@@ -37,12 +38,29 @@ export function getAdapter(kind: BrokerKind): BrokerAdapter {
 }
 
 export function parseCreds(json: string): BrokerCreds {
+  let plain: string;
   try {
-    const j = JSON.parse(json) as BrokerCreds;
+    plain = openSecret(json); // stored credentials are encrypted at rest
+  } catch (e) {
+    // missing/wrong HALO_DATA_KEY: fail closed with no credentials (never log values)
+    if (!warnedKey) {
+      warnedKey = true;
+      console.error("[brokers] cannot decrypt stored credentials:", (e as Error).message);
+    }
+    return {};
+  }
+  try {
+    const j = JSON.parse(plain) as BrokerCreds;
     return typeof j === "object" && j ? j : {};
   } catch {
     return {};
   }
+}
+let warnedKey = false;
+
+/** serialise + encrypt credentials for storage (throws SecretKeyError without HALO_DATA_KEY) */
+export function sealCreds(creds: Record<string, unknown>): string {
+  return sealSecret(JSON.stringify(creds));
 }
 
 const SECRET_KEYS = [
@@ -91,5 +109,5 @@ export function mergeCreds(existingJson: string, patch: Record<string, unknown>)
     if (v === "" || v === undefined || v === null) delete out[k];
     else out[k] = v;
   }
-  return JSON.stringify(out);
+  return sealCreds(out);
 }

@@ -7,6 +7,7 @@
 //  IMPORTANT: e-mail failure must NEVER fail a payment verification.
 // ══════════════════════════════════════════════════════════════════════════
 
+import { tryOpen } from "@/lib/secret-box";
 import { db } from "@/lib/db";
 
 interface MailInput {
@@ -30,7 +31,7 @@ async function smtpConfig() {
       port: s.smtpPort,
       secure: s.smtpSecure,
       user: s.smtpUser,
-      pass: s.smtpPass,
+      pass: tryOpen(s.smtpPass) ?? "",
       from: s.smtpFrom || s.smtpUser,
     };
   } catch {

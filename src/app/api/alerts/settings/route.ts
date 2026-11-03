@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getAlertSettings, parseEvents, vapidPublicKey } from "@/lib/alerts";
+import { getAlertSettings, parseEvents, sealAlertSecret, vapidPublicKey } from "@/lib/alerts";
 import { guardTrading } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -53,14 +53,14 @@ export async function PUT(req: Request) {
     const events = body.events as Record<string, boolean> | undefined;
     const data = {
       telegramEnabled: Boolean(body.telegramEnabled),
-      telegramBotToken: body.telegramBotToken !== undefined ? keep(body.telegramBotToken, s.telegramBotToken) : s.telegramBotToken,
+      telegramBotToken: sealAlertSecret(body.telegramBotToken !== undefined ? keep(body.telegramBotToken, s.telegramBotToken) : s.telegramBotToken),
       telegramChatId: body.telegramChatId !== undefined ? String(body.telegramChatId ?? "") : s.telegramChatId,
       emailEnabled: Boolean(body.emailEnabled),
       smtpHost: body.smtpHost !== undefined ? String(body.smtpHost ?? "") : s.smtpHost,
       smtpPort: body.smtpPort !== undefined ? Math.min(65535, Math.max(1, Number(body.smtpPort) || 587)) : s.smtpPort,
       smtpSecure: body.smtpSecure !== undefined ? Boolean(body.smtpSecure) : s.smtpSecure,
       smtpUser: body.smtpUser !== undefined ? String(body.smtpUser ?? "") : s.smtpUser,
-      smtpPass: body.smtpPass !== undefined ? keep(body.smtpPass, s.smtpPass) : s.smtpPass,
+      smtpPass: sealAlertSecret(body.smtpPass !== undefined ? keep(body.smtpPass, s.smtpPass) : s.smtpPass),
       smtpFrom: body.smtpFrom !== undefined ? String(body.smtpFrom ?? "") : s.smtpFrom,
       smtpTo: body.smtpTo !== undefined ? String(body.smtpTo ?? "") : s.smtpTo,
       pushEnabled: body.pushEnabled !== undefined ? Boolean(body.pushEnabled) : s.pushEnabled,

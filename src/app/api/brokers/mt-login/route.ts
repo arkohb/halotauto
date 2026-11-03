@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { testBrokerAccount } from "@/lib/brokers/service";
+import { sealCreds } from "@/lib/brokers";
+import { dataKey } from "@/lib/secret-box";
 import { friendlyMetaApiError, mgmtReachable, platformKeyStatus, provisionMtAccount } from "@/lib/brokers/metaapi-core";
 import { sendAlert } from "@/lib/alerts";
 import { guardTrading } from "@/lib/api-guard";
@@ -54,6 +56,13 @@ export async function GET() {
 export async function POST(req: Request) {
   const deny = await guardTrading();
   if (deny) return deny;
+  // credentials are stored encrypted: refuse BEFORE creating a cloud MT
+  // account we could not save (no orphaned MetaApi accounts)
+  try {
+    if (!dataKey()) throw new Error("not configured");
+  } catch {
+    return NextResponse.json({ ok: false, error: "Server encryption key HALO_DATA_KEY is not configured (or invalid) — the operator must set it before broker logins can be saved." }, { status: 503 });
+  }
   try {
     const b = (await req.json()) as Body;
     // zero-manual-api: the deployment's own platform key, or an Advanced override
@@ -126,7 +135,7 @@ export async function POST(req: Request) {
     const label =
       b.label?.trim() ||
       (login && server ? `${server} · ${login}` : `MetaApi · ${accountId.slice(-6)}`);
-    const credsJson = JSON.stringify(
+    const credsJson = sealCreds(
       directId && !login
         ? { ...(token ? { token } : {}), accountId, region }
         : { ...(token ? { token } : {}), accountId, region, login, server, platform }

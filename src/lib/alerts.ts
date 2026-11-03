@@ -4,6 +4,7 @@
 //  enabled channels and is logged to AlertLog for the in-app history.
 // ════════════════════════════════════════════════════════════════════════
 
+import { seal, tryOpen } from "@/lib/secret-box";
 import { db } from "@/lib/db";
 import type { AlertSettings } from "@prisma/client";
 import nodemailer from "nodemailer";
@@ -45,10 +46,26 @@ export function parseEvents(json: string): EventsCfg {
   }
 }
 
+/** alert settings with the stored secrets decrypted (server-side only) */
 export async function getAlertSettings(): Promise<AlertSettings> {
   const rows = await db.alertSettings.findMany({ take: 1 });
-  if (rows[0]) return rows[0];
-  return db.alertSettings.create({ data: { id: "main" } });
+  const row = rows[0] ?? (await db.alertSettings.create({ data: { id: "main" } }));
+  return openAlertSecrets(row);
+}
+
+/** decrypt the secret fields; an undecryptable value reads as "" (channel disabled, never garbage) */
+export function openAlertSecrets<T extends { telegramBotToken: string; smtpPass: string; vapidPrivateKey: string }>(row: T): T {
+  return {
+    ...row,
+    telegramBotToken: tryOpen(row.telegramBotToken) ?? "",
+    smtpPass: tryOpen(row.smtpPass) ?? "",
+    vapidPrivateKey: tryOpen(row.vapidPrivateKey) ?? "",
+  };
+}
+
+/** encrypt a secret field for storage ("" stays "") */
+export function sealAlertSecret(v: string): string {
+  return v ? seal(v) : "";
 }
 
 // ─── in-memory dedupe: same title within 20s sends once ────────────────
@@ -135,7 +152,7 @@ async function ensureVapid(s: AlertSettings): Promise<{ pub: string; priv: strin
   const keys = webpush.generateVAPIDKeys();
   await db.alertSettings.update({
     where: { id: s.id },
-    data: { vapidPublicKey: keys.publicKey, vapidPrivateKey: keys.privateKey },
+    data: { vapidPublicKey: keys.publicKey, vapidPrivateKey: sealAlertSecret(keys.privateKey) },
   });
   return { pub: keys.publicKey, priv: keys.privateKey };
 }
