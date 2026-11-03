@@ -539,6 +539,7 @@ export async function mtMarketOrder(
     stopLoss?: number;
     takeProfit?: number;
     comment?: string;
+    clientId?: string;
   },
   token?: string
 ): Promise<MtOrderResult> {
@@ -547,7 +548,7 @@ export async function mtMarketOrder(
     symbol: order.symbol,
     volume: order.volume,
     comment: (order.comment ?? "HALO3EL").slice(0, 26),
-    clientId: `halo3el-${Date.now()}`.slice(0, 30),
+    clientId: (order.clientId || `halo3el-${Date.now()}`).slice(0, 30),
   };
   if (order.stopLoss && isFinite(order.stopLoss) && order.stopLoss > 0) body.stopLoss = order.stopLoss;
   if (order.takeProfit && isFinite(order.takeProfit) && order.takeProfit > 0) body.takeProfit = order.takeProfit;

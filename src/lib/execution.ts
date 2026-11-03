@@ -17,6 +17,12 @@ import { gateOrder } from "./edge/gate";
 import type { SignalGrade } from "./edge/quality";
 import { getEdgeSync } from "./edge/settings";
 import { verifyOrderPrice } from "./price-guard";
+import { beginIntent, ensureReconciled, markOpen, markRejected, markSubmitting, markUncertain } from "./exec-lock";
+
+/** errors after which the broker MAY have executed the order (no reliable answer) */
+export function isUncertainBrokerError(msg: string): boolean {
+  return /time ?out|timed out|abort|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|fetch failed|network|HTTP 5\d\d|502|503|504/i.test(msg);
+}
 
 /** EDGE info per opened trade id — read by the bot to speak the grade. */
 const gExec = globalThis as unknown as { __haloEdgeExec?: Map<string, { grade: SignalGrade | null; sizeMult: number }> };
@@ -213,10 +219,34 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     }
   };
 
+  // ── PERSISTENT EXECUTION LOCK — one new order at a time, survives restarts ──
+  await ensureReconciled();
+  const intent = await beginIntent({
+    source: job.source,
+    symbol: job.symbol,
+    tf: job.tf,
+    dir: fire.dir,
+    entry: fire.entry,
+    sl: fire.sl,
+    tp: fire.tp,
+    live: job.exec.executionMode === "live",
+    brokerAccountId: job.exec.executionMode === "live" ? job.exec.brokerAccountId : "",
+  });
+  if (!intent) {
+    void sendAlert({
+      kind: "status",
+      title: "HALO 3EL · ORDER REFUSED — EXECUTION LOCK HELD",
+      body: `${job.symbol} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} was NOT executed: another order is open or awaiting reconciliation.`,
+    });
+    return null;
+  }
+
   // ── PAPER ──
   if (job.exec.executionMode === "paper") {
     try {
-      const tr = await db.trade.create({ data: { ...base, execMode: "PAPER", status: "OPEN" } });
+      await markSubmitting(intent.id);
+      const tr = await db.trade.create({ data: { ...base, execMode: "PAPER", status: "OPEN", brokerOrderId: intent.clientOrderId } });
+      await markOpen(intent.id, tr.id);
       announce(tr.id);
       engageTradeLock({
         source: job.source,
@@ -230,7 +260,8 @@ export async function executeFire(job: FireJob): Promise<string | null> {
         openedAt: Date.now(),
       });
       return tr.id;
-    } catch {
+    } catch (e) {
+      await markRejected(intent.id, `paper trade not recorded: ${(e as Error).message}`).catch(() => {});
       return null;
     }
   }
@@ -251,12 +282,16 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     } catch {
       // ignore
     }
+    await markRejected(intent.id, "no active broker");
     return null;
   }
 
   const adapter = getAdapter(broker.kind);
   const creds = parseCreds(broker.credsJson);
-  const res = await adapter.marketOrder(creds, {
+  await markSubmitting(intent.id);
+  let res: Awaited<ReturnType<typeof adapter.marketOrder>>;
+  try {
+    res = await adapter.marketOrder(creds, {
     symbol: job.symbol,
     side: fire.dir,
     entry: fire.entry,
@@ -269,9 +304,21 @@ export async function executeFire(job: FireJob): Promise<string | null> {
         ? { mode: "percent", percent: job.exec.sizePercent, size: 0 }
         : { mode: "fixed", size: job.exec.sizeFixed, percent: 0 },
     comment: `HALO3EL ${job.source}`,
+    clientOrderId: intent.clientOrderId,
   });
+  } catch (e) {
+    // no answer from the broker — the order may or may not exist: keep the lock
+    await markUncertain(intent.id, `broker call failed: ${(e as Error).message}`);
+    return null;
+  }
+
+  if (!res.ok && isUncertainBrokerError(res.error ?? "")) {
+    await markUncertain(intent.id, `no reliable broker answer: ${res.error ?? ""}`);
+    return null;
+  }
 
   if (!res.ok) {
+    await markRejected(intent.id, res.error ?? "broker rejected the order");
     void sendAlert({
       kind: "broker",
       title: `HALO 3EL · ${broker.label} ORDER REJECTED`,
@@ -298,6 +345,7 @@ export async function executeFire(job: FireJob): Promise<string | null> {
         note: res.error ? `fill ok; note: ${res.error}`.slice(0, 250) : "",
       },
     });
+    await markOpen(intent.id, tr.id, (res.brokerOrderId ?? "").slice(0, 120));
     announce(tr.id);
     engageTradeLock({
       source: job.source,
@@ -311,7 +359,9 @@ export async function executeFire(job: FireJob): Promise<string | null> {
       openedAt: Date.now(),
     });
     return tr.id;
-  } catch {
+  } catch (e) {
+    // the broker filled but the record failed — the position exists: keep the lock
+    await markUncertain(intent.id, `filled at the broker but not recorded: ${(e as Error).message}`).catch(() => {});
     return null;
   }
 }

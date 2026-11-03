@@ -24,6 +24,7 @@ import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant }
 import { getEdgeSync, liveTradeManager } from "./edge/settings";
 import { getOverlay, overlayCfg, overlayManager } from "./edge/autopilot";
 import { applyManageLive } from "./edge/trade-manager";
+import { ensureReconciled } from "./exec-lock";
 import type { TradeManagerCfg } from "./halo/types";
 
 /**
@@ -251,6 +252,9 @@ export async function ensureBoot(): Promise<void> {
   if (bot.booting) return bot.booting;
   bot.booting = (async () => {
     await loadPersisted();
+    // restore the persistent execution lock (an order open or in doubt
+    // before a restart keeps every engine paused until it is resolved)
+    await ensureReconciled();
     await warmEngine();
     bot.bootstrapped = true;
     // ── AUTO-ATTACH ────────────────────────────────────────────────

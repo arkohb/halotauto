@@ -38,6 +38,8 @@ export interface OrderRequest {
   riskPips: number;
   sizing: OrderSizing;
   comment: string;
+  /** unique id for this order attempt (execution lock) — sent to brokers that accept one */
+  clientOrderId?: string;
 }
 
 export interface OrderResult {

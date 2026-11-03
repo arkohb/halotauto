@@ -123,6 +123,9 @@ export function maybeReleaseLock(
   if (!lock) return;
   if (lock.source !== source || lock.symbol !== symbol || lock.tf !== tf) return;
   g.__haloTradeLock = null;
+  // persistent execution lock: the trade closed — release it (dynamic import
+  // avoids a circular module dependency)
+  void import("./exec-lock").then((m) => m.releaseForTrade(lock.tradeDbId, `closed: ${result} ${pips.toFixed(1)} pips`)).catch(() => {});
   const now = Date.now();
   const how = result === "win" ? `take profit hit, plus ${pips.toFixed(1)} pips` : `stop loss hit, minus ${pips.toFixed(1)} pips`;
   publishBotEvent({

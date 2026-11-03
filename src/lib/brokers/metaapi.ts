@@ -246,6 +246,7 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
       stopLoss: sp.digits ? roundTo(req.sl, sp.digits) : req.sl,
       takeProfit: sp.digits ? roundTo(req.tp, sp.digits) : req.tp,
       comment: req.comment,
+      clientId: req.clientOrderId,
     }, a.token);
     const oid = res.orderId ?? res.numericOrderId;
     if (oid) return { ok: true, brokerOrderId: String(oid), volume };

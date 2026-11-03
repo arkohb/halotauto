@@ -121,7 +121,7 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
         units: String(units),
         timeInForce: "FOK",
         positionFill: "DEFAULT",
-        clientExtensions: { comment: req.comment.slice(0, 20) },
+        clientExtensions: { comment: req.comment.slice(0, 20), ...(req.clientOrderId ? { id: req.clientOrderId.slice(0, 128) } : {}) },
         stopLossOnFill: { price: String(roundPx(req.sl)), timeInForce: "GTC" },
         takeProfitOnFill: { price: String(roundPx(req.tp)), timeInForce: "GTC" },
       },
