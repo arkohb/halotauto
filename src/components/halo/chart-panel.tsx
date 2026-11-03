@@ -793,7 +793,7 @@ export default function ChartPanel(props: ChartProps) {
           ))}
         </div>
         <span className="pointer-events-auto hidden rounded-md border border-[#0F2E58] bg-[#021229]/95 px-1.5 py-[5px] text-[9px] uppercase tracking-wider text-[#E9B94E] backdrop-blur md:inline">
-          {liveStat.active && liveStat.kind ? (liveStat.kind === "deriv" ? "DERIV LIVE" : "BINANCE LIVE") : source}
+          {liveStat.active && liveStat.kind ? (liveStat.kind === "deriv" ? "DERIV LIVE" : liveStat.kind === "oanda" ? "OANDA LIVE" : "BINANCE LIVE") : source}
         </span>
         {tvNote && mode === "tv" && (
           <span className="rounded border px-1.5 py-0.5 text-[9px] tracking-wider" style={{ borderColor: "rgba(233,185,78,0.5)", color: C.gold }}>

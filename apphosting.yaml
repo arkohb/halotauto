@@ -38,6 +38,8 @@ env:
   #   firebase apphosting:secrets:set HALO_CRON_SECRET
   #   firebase apphosting:secrets:set ANTHROPIC_API_KEY
   #   firebase apphosting:secrets:set METAAPI_TOKEN
+  #   firebase apphosting:secrets:set OANDA_PRACTICE_TOKEN
+  #   firebase apphosting:secrets:set OANDA_PRACTICE_ACCOUNT
   #   firebase apphosting:secrets:set HALO_DATA_KEY
   - variable: DATABASE_URL
     secret: DATABASE_URL
@@ -52,6 +54,13 @@ env:
   # MetaApi platform token — MT4/MT5 connectivity (never stored in source)
   - variable: METAAPI_TOKEN
     secret: METAAPI_TOKEN
+    availability: [RUNTIME]
+  # OANDA practice account — live forex/metals price feed only (no trading)
+  - variable: OANDA_PRACTICE_TOKEN
+    secret: OANDA_PRACTICE_TOKEN
+    availability: [RUNTIME]
+  - variable: OANDA_PRACTICE_ACCOUNT
+    secret: OANDA_PRACTICE_ACCOUNT
     availability: [RUNTIME]
   # Encryption key for stored credentials (broker logins, alert tokens, webhook secret)
   - variable: HALO_DATA_KEY

@@ -1,11 +1,12 @@
 // ════════════════════════════════════════════════════════════════════════
 //  MARKET DATA · multi-source candle fetcher with simulator fallback
-//  FOREX/METALS: Yahoo Finance chart API (real OHLC) → simulator fallback
+//  FOREX/METALS: OANDA practice (when configured) → Yahoo Finance → simulator
 //  CRYPTO      : Binance → Bybit → OKX → Coinbase → built-in simulator
 // ════════════════════════════════════════════════════════════════════════
 
 import { Candle } from "./halo/types";
 import { decimalsOf, getSymbolMeta, isSimOnlyGroup, simStyleOf, tfSec, YAHOO_INDEX_MAP, type SymbolMeta } from "./market-symbols";
+import { fetchOandaCandles, oandaConfig, oandaInstrument } from "./oanda-feed";
 
 export { getSymbolMeta, SYMBOLS, tfSec, TIMEFRAMES, decimalsOf } from "./market-symbols";
 export type { SymbolMeta, Timeframe } from "./market-symbols";
@@ -219,6 +220,16 @@ async function fetchFromSources(sym: string, tf: string, limit: number): Promise
   // forex / metals / stock indices / energy: real OHLC from Yahoo Finance's
   // chart API (majors, crosses, exotics, XAU/XAG, ^DJI, CL=F …) — falls
   // through to the simulator when blocked.
+  // OANDA practice comes first for forex + metals: the same BID prices
+  // TradingView charts as OANDA:XAUUSD (spot), instead of Yahoo's futures.
+  if (oandaConfig() && oandaInstrument(sym)) {
+    try {
+      const candles = await fetchOandaCandles(sym, tf, limit);
+      if (candles.length > 0) return { candles, source: "oanda" };
+    } catch {
+      // fall through to Yahoo
+    }
+  }
   if (getSymbolMeta(sym).group !== "CRYPTO") {
     return await fYahoo(sym, tf, limit);
   }

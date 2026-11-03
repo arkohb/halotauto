@@ -18,6 +18,10 @@
 //      trade stream moves the forming candle on EVERY trade, exactly like
 //      the BINANCE: chart on TradingView. Same venue as the REST candles,
 //      so history and live bars always agree.
+//    • FOREX / METALS with OANDA configured on the server → OANDA practice
+//      ticks relayed by /api/market/stream (SSE) — the same BID prices
+//      TradingView charts as OANDA:XAUUSD. Tried first; when the server has
+//      no OANDA feed the sub falls back to Deriv.
 //    • Anything not covered → no stream; the polling feed keeps driving.
 //
 //  ⚠ Presentation layer only — no orders, no EA behaviour. Nothing here
@@ -35,7 +39,7 @@ export interface LiveBar {
   close: number;
 }
 
-export type LiveFeedKind = "deriv" | "binance";
+export type LiveFeedKind = "deriv" | "binance" | "oanda";
 
 export interface LiveStatus {
   /** true when a real stream is confirmed flowing for this symbol+tf */
@@ -143,6 +147,7 @@ const g = globalThis as unknown as {
   __haloLiveFeedDeriv?: DerivConn;
   __haloLiveFeedBins?: Map<string, BinanceConn>;
   __haloLiveFeedSubs?: Map<string, LiveSub>;
+  __haloLiveFeedOanda?: Map<string, EventSource>;
 };
 
 function deriv(): DerivConn {
@@ -578,6 +583,91 @@ function binanceScheduleReconnect(conn: BinanceConn, sub: LiveSub): void {
   }, wait);
 }
 
+// ───────────────────────── OANDA (server relay) ─────────────────────────
+
+function oandaStatus(sub: LiveSub, active: boolean, note?: string): void {
+  sub.active = active;
+  sub.note = note;
+  for (const h of sub.cbs) {
+    try {
+      h.onStatus?.({ active, kind: active ? "oanda" : null, note });
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function oandaOpen(sub: LiveSub): void {
+  const conns = (g.__haloLiveFeedOanda ??= new Map<string, EventSource>());
+  let got = false;
+  let es: EventSource;
+  try {
+    es = new EventSource(`/api/market/stream?symbol=${encodeURIComponent(sub.symbol)}&tf=${encodeURIComponent(sub.tf)}`);
+  } catch {
+    oandaFallback(sub);
+    return;
+  }
+  conns.set(sub.key, es);
+  es.onmessage = (ev) => {
+    let bar: LiveBar;
+    try {
+      bar = JSON.parse(String(ev.data));
+    } catch {
+      return;
+    }
+    if (!isFinite(bar.time) || !isFinite(bar.close)) return;
+    if (!got || !sub.active) {
+      got = true;
+      oandaStatus(sub, true);
+    }
+    sub.updates++;
+    for (const h of sub.cbs) {
+      try {
+        h.onUpdate?.({ ...bar });
+      } catch {
+        // ignore
+      }
+    }
+  };
+  es.onerror = () => {
+    if (es.readyState !== EventSource.CLOSED) {
+      // browser is retrying on its own (dropped connection)
+      if (sub.active) oandaStatus(sub, false, "reconnecting…");
+      return;
+    }
+    conns.delete(sub.key);
+    if (sub.cbs.size === 0) return;
+    if (!got) {
+      // server has no OANDA feed for this market → use Deriv instead
+      oandaFallback(sub);
+    } else {
+      oandaStatus(sub, false, "reconnecting…");
+      setTimeout(() => {
+        if (sub.cbs.size > 0 && sub.kind === "oanda" && !conns.has(sub.key)) oandaOpen(sub);
+      }, 3000);
+    }
+  };
+}
+
+function oandaFallback(sub: LiveSub): void {
+  if (DERIV_GRANULARITIES.has(sub.sec)) {
+    sub.kind = "deriv";
+    derivSubscribe(sub);
+  } else {
+    sub.kind = null;
+    sub.note = "no live stream for this timeframe";
+  }
+}
+
+function oandaClose(sub: LiveSub): void {
+  const conns = g.__haloLiveFeedOanda;
+  const es = conns?.get(sub.key);
+  if (es) {
+    es.close();
+    conns!.delete(sub.key);
+  }
+}
+
 // ───────────────────────── public API ─────────────────────────
 
 /**
@@ -593,6 +683,7 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
     const meta = getSymbolMeta(symbol);
     sub = makeSub({ key, symbol, tf, sec });
     if (meta.group === "CRYPTO" && binanceInterval(tf)) sub.kind = "binance";
+    else if ((meta.group === "FOREX" || meta.group === "METALS") && typeof EventSource !== "undefined") sub.kind = "oanda";
     else if (DERIV_GRANULARITIES.has(sec)) sub.kind = "deriv";
     else sub.note = "no live stream for this timeframe";
     subs.set(key, sub);
@@ -623,6 +714,8 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
           handlers.onStatus?.({ active: true, kind: "binance" });
         }
       }
+    } else if (sub.kind === "oanda") {
+      oandaOpen(sub);
     } else if (sub.kind === "deriv") {
       derivSubscribe(sub);
     }
@@ -661,6 +754,8 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
           bins!.delete(key);
         }, BINANCE_GRACE_CLOSE_MS);
       }
+    } else if (sub.kind === "oanda") {
+      oandaClose(sub);
     } else if (sub.kind === "deriv") {
       derivUnsubscribe(sub);
     }
