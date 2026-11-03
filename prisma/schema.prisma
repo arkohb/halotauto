@@ -236,6 +236,8 @@ model Session {
   createdAt DateTime  @default(now())
   expiresAt DateTime
   revokedAt DateTime?
+  // the activated device this signed-in browser is bound to (licensed use)
+  activationId String?
 }
 
 // Purchasable one-time plan (Starter / Pro / Elite / Ultimate). Editable by
@@ -298,6 +300,12 @@ model LicenseActivation {
   activatedAt     DateTime  @default(now())
   lastValidatedAt DateTime?
   revokedAt       DateTime?
+  // device slot 1..deviceLimit while active (null when inactive). The unique
+  // index makes the device limit a database rule: two concurrent activations
+  // can never take the same slot.
+  slot            Int?
+
+  @@unique([licenseId, slot])
 }
 
 // One-time payment transaction. VERIFIED only via provider webhook/verified
@@ -499,4 +507,48 @@ model TvAlertEvent {
   receivedAt DateTime @default(now())
 
   @@index([receivedAt])
+}
+
+// Persistent one-trade-at-a-time execution lock (survives restarts).
+// One row per order attempt; state transitions are logged in
+// ExecutionEvent. The lock itself is the single ExecutionLock row
+// (id "global"): acquiring it is an atomic "set intentId where null".
+model ExecutionIntent {
+  id              String   @id @default(cuid())
+  source          String // BOT | SCAN | SWEEP | TV
+  symbol          String
+  timeframe       String
+  direction       Int
+  entry           Float
+  sl              Float
+  tp              Float
+  execMode        String // PAPER | LIVE
+  brokerKind      String   @default("")
+  brokerAccountId String   @default("")
+  clientOrderId   String   @unique // sent to the broker; identifies the order on reconciliation
+  state           String // PENDING | SUBMITTING | OPEN | REJECTED | UNCERTAIN | CLOSED | ABANDONED
+  tradeId         String   @default("")
+  brokerOrderId   String   @default("")
+  detail          String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([state])
+}
+
+model ExecutionEvent {
+  id       String   @id @default(cuid())
+  intentId String
+  fromState String
+  toState  String
+  detail   String   @default("")
+  at       DateTime @default(now())
+
+  @@index([intentId])
+}
+
+model ExecutionLock {
+  id        String   @id // "global"
+  intentId  String?
+  updatedAt DateTime @updatedAt
 }
