@@ -158,3 +158,22 @@ The clone was deleted after the test.
 | Dry run | §8 — secrets removed, app builds, tests pass |
 
 **Waiting for:** your explicit authorisation of §9, after the old MetaApi token is revoked and the admin password changed.
+
+## 11. Final execution checklist (prepared in Phase 5 — not executed)
+
+Run only after you say "authorise the history rewrite". Old credentials are not reproduced here.
+
+| # | Step | Check |
+|---|---|---|
+| 1 | You revoked the old MetaApi token and changed the Super Admin password | confirmed by you |
+| 2 | All Phase 5 work committed; `git status` shows nothing | clean tree |
+| 3 | `git bundle create ~/HALO-backups/HALO-pre-rewrite-<date>.bundle --all` → `git bundle verify` | "is okay" |
+| 4 | `cp -R .git ~/HALO-backups/HALO-pre-rewrite-git-<date>` | copy exists |
+| 5 | `python3 ~/Library/Python/3.9/bin/git-filter-repo --force --invert-paths --path .env --path db/custom.db --path tool-results/ --replace-text ~/halo-replacements.txt` (JWT regex rule, §3.4) | completes |
+| 6 | `git reflog expire --expire=now --all && git gc --prune=now --aggressive` | done |
+| 7 | Verify: no JWT in any object; no commit touches `.env`, `db/custom.db`, `tool-results/`; same 3 branches | all zero / 3 |
+| 8 | `npm install && npx tsc --noEmit && next build` + engine, EDGE, journal, price-guard, secret-box tests | all pass |
+| 9 | Add `tool-results/` to `.gitignore`, commit | done |
+| 10 | Keep the bundle offline for your retention period, then delete it | your decision |
+
+Recovery at any point: `git clone ~/HALO-backups/HALO-pre-rewrite-<date>.bundle <new folder>` (rehearsed: all branches and commits restored exactly).

@@ -38,6 +38,7 @@ env:
   #   firebase apphosting:secrets:set HALO_CRON_SECRET
   #   firebase apphosting:secrets:set ANTHROPIC_API_KEY
   #   firebase apphosting:secrets:set METAAPI_TOKEN
+  #   firebase apphosting:secrets:set HALO_DATA_KEY
   - variable: DATABASE_URL
     secret: DATABASE_URL
     availability: [BUILD, RUNTIME]
@@ -51,4 +52,8 @@ env:
   # MetaApi platform token — MT4/MT5 connectivity (never stored in source)
   - variable: METAAPI_TOKEN
     secret: METAAPI_TOKEN
+    availability: [RUNTIME]
+  # Encryption key for stored credentials (broker logins, alert tokens, webhook secret)
+  - variable: HALO_DATA_KEY
+    secret: HALO_DATA_KEY
     availability: [RUNTIME]

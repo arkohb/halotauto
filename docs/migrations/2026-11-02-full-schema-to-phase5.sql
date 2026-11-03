@@ -1,0 +1,131 @@
+-- AlterTable
+ALTER TABLE "LicenseActivation" ADD COLUMN "slot" INTEGER;
+
+-- AlterTable
+ALTER TABLE "Session" ADD COLUMN "activationId" TEXT;
+
+-- CreateTable
+CREATE TABLE "EdgeSettings" (
+    "id" TEXT NOT NULL PRIMARY KEY DEFAULT 'main',
+    "json" TEXT NOT NULL DEFAULT '{}',
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "AutopilotProfile" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "symbol" TEXT NOT NULL,
+    "timeframe" TEXT NOT NULL,
+    "paramsJson" TEXT NOT NULL,
+    "inSampleJson" TEXT NOT NULL,
+    "oosJson" TEXT NOT NULL,
+    "baseJson" TEXT NOT NULL,
+    "combos" INTEGER NOT NULL,
+    "bars" INTEGER NOT NULL,
+    "live" BOOLEAN NOT NULL DEFAULT false,
+    "passed" BOOLEAN NOT NULL DEFAULT false,
+    "verdict" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "TvAlertEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "action" TEXT NOT NULL,
+    "symbol" TEXT NOT NULL,
+    "alertTs" DATETIME NOT NULL,
+    "receivedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
+CREATE TABLE "ExecutionIntent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "source" TEXT NOT NULL,
+    "symbol" TEXT NOT NULL,
+    "timeframe" TEXT NOT NULL,
+    "direction" INTEGER NOT NULL,
+    "entry" REAL NOT NULL,
+    "sl" REAL NOT NULL,
+    "tp" REAL NOT NULL,
+    "execMode" TEXT NOT NULL,
+    "brokerKind" TEXT NOT NULL DEFAULT '',
+    "brokerAccountId" TEXT NOT NULL DEFAULT '',
+    "clientOrderId" TEXT NOT NULL,
+    "state" TEXT NOT NULL,
+    "tradeId" TEXT NOT NULL DEFAULT '',
+    "brokerOrderId" TEXT NOT NULL DEFAULT '',
+    "detail" TEXT NOT NULL DEFAULT '',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- CreateTable
+CREATE TABLE "ExecutionEvent" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "intentId" TEXT NOT NULL,
+    "fromState" TEXT NOT NULL,
+    "toState" TEXT NOT NULL,
+    "detail" TEXT NOT NULL DEFAULT '',
+    "at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CreateTable
+CREATE TABLE "ExecutionLock" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "intentId" TEXT,
+    "updatedAt" DATETIME NOT NULL
+);
+
+-- RedefineTables
+PRAGMA defer_foreign_keys=ON;
+PRAGMA foreign_keys=OFF;
+CREATE TABLE "new_Trade" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "mode" TEXT NOT NULL,
+    "execMode" TEXT NOT NULL DEFAULT 'PAPER',
+    "brokerKind" TEXT NOT NULL DEFAULT '',
+    "brokerOrderId" TEXT NOT NULL DEFAULT '',
+    "symbol" TEXT NOT NULL,
+    "timeframe" TEXT NOT NULL,
+    "direction" INTEGER NOT NULL,
+    "entry" REAL NOT NULL,
+    "sl" REAL NOT NULL,
+    "tp" REAL NOT NULL,
+    "riskPips" REAL NOT NULL,
+    "rewardPips" REAL NOT NULL,
+    "status" TEXT NOT NULL,
+    "resultPips" REAL,
+    "levelTop" REAL NOT NULL,
+    "levelBot" REAL NOT NULL,
+    "slMode" TEXT NOT NULL,
+    "note" TEXT NOT NULL DEFAULT '',
+    "grade" INTEGER,
+    "gradeLetter" TEXT NOT NULL DEFAULT '',
+    "sizeMult" REAL NOT NULL DEFAULT 1,
+    "partialPips" REAL,
+    "openedAt" DATETIME NOT NULL,
+    "closedAt" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO "new_Trade" ("brokerKind", "brokerOrderId", "closedAt", "createdAt", "direction", "entry", "execMode", "id", "levelBot", "levelTop", "mode", "note", "openedAt", "resultPips", "rewardPips", "riskPips", "sl", "slMode", "status", "symbol", "timeframe", "tp") SELECT "brokerKind", "brokerOrderId", "closedAt", "createdAt", "direction", "entry", "execMode", "id", "levelBot", "levelTop", "mode", "note", "openedAt", "resultPips", "rewardPips", "riskPips", "sl", "slMode", "status", "symbol", "timeframe", "tp" FROM "Trade";
+DROP TABLE "Trade";
+ALTER TABLE "new_Trade" RENAME TO "Trade";
+PRAGMA foreign_keys=ON;
+PRAGMA defer_foreign_keys=OFF;
+
+-- CreateIndex
+CREATE INDEX "TvAlertEvent_receivedAt_idx" ON "TvAlertEvent"("receivedAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ExecutionIntent_clientOrderId_key" ON "ExecutionIntent"("clientOrderId");
+
+-- CreateIndex
+CREATE INDEX "ExecutionIntent_state_idx" ON "ExecutionIntent"("state");
+
+-- CreateIndex
+CREATE INDEX "ExecutionEvent_intentId_idx" ON "ExecutionEvent"("intentId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LicenseActivation_licenseId_slot_key" ON "LicenseActivation"("licenseId", "slot");
+

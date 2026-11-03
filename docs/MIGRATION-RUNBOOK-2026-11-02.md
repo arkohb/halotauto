@@ -1,83 +1,92 @@
-# Database migration runbook — EDGE + TradingView alert events
+# Database migration runbook (through Phase 5)
 
-**Status:** reviewed and rehearsed on a copy of your real database. **Not applied** to your real database.
+**Status:** reviewed and rehearsed on a consistent copy of your real database. **Not applied** to your real database — waiting for your authorisation.
 
-## 1. What changes (exact diff: your `db/custom.db` → current schema)
+## 1. Which database
 
-Generated with `prisma migrate diff` from a read-only copy of `db/custom.db`. Full SQL: [`docs/migrations/2026-11-02-edge-and-tv-alert-events.sql`](migrations/2026-11-02-edge-and-tv-alert-events.sql).
+`db/custom.db` is the only database file in the project and holds your data (8 users, 22 trades, 4 licences at the time of review). Your `.env` currently points `DATABASE_URL` at a path that does not exist (Prisma P1003, a leftover from the original build platform). Fix it first (step 1).
 
-| Change | Type | Effect on existing data |
+## 2. What changes
+
+Full SQL, reviewed: [`docs/migrations/2026-11-02-full-schema-to-phase5.sql`](migrations/2026-11-02-full-schema-to-phase5.sql) (no secrets inside).
+
+| Change | Phase | Effect on existing data |
 |---|---|---|
-| `CREATE TABLE "EdgeSettings"` | addition | none |
-| `CREATE TABLE "AutopilotProfile"` | addition | none |
-| `CREATE TABLE "TvAlertEvent"` + index | addition | none |
-| `Trade`: add `grade` (NULL), `gradeLetter` (`''`), `sizeMult` (`1`), `partialPips` (NULL) | addition | existing trades get the defaults shown |
-| `Trade` table rebuild (`new_Trade` → copy all rows → `DROP TABLE "Trade"` → rename) | **how SQLite adds columns here** | rows copied before the old table is dropped; nothing removed |
+| New tables `EdgeSettings`, `AutopilotProfile` | EDGE | none |
+| New table `TvAlertEvent` (+ index) | 3 — webhook replay protection | none |
+| New tables `ExecutionIntent`, `ExecutionEvent`, `ExecutionLock` (+ indexes) | 5 — persistent execution lock | none |
+| `Trade` + `grade`, `gradeLetter`, `sizeMult`, `partialPips` | EDGE | defaults; table rebuilt (rows copied, then old table dropped) |
+| `LicenseActivation` + `slot` and unique index `(licenseId, slot)` | 5 — device limits | existing rows get an empty slot; slots are filled automatically on the next activation |
+| `Session` + `activationId` | 5 — device binding | empty on existing sessions; browsers re-link automatically |
 
-No column or table that holds data is removed. The only `DROP` is the old `Trade` table **after** its rows have been copied into the new one.
+Nothing that holds data is removed. The only `DROP` is the old `Trade` table after its rows are copied.
 
-## 2. Rehearsal result (copy of your database)
+**Why not `npm run db:push`:** Prisma stops on the new unique index with a generic "might be data loss" warning (it can't know the column is new and empty). The safe flag-free command correctly refuses, and we never use `--accept-data-loss`. So the reviewed SQL is applied directly instead.
+
+## 3. Rehearsal (2 Nov 2026, copy of `db/custom.db`)
 
 | Check | Result |
 |---|---|
-| Existing tables compared (row count + content of every original column) | 24 / 24 identical |
-| `Trade` rows | 22 → 22 |
-| New tables created | `EdgeSettings`, `AutopilotProfile`, `TvAlertEvent` |
-| New `Trade` columns and defaults | `grade=NULL`, `gradeLetter=''`, `sizeMult=1`, `partialPips=NULL` |
-| `PRAGMA integrity_check` | ok |
-| Foreign-key check | 0 violations |
-| Schema matches after migration | yes (`migrate diff --exit-code` = 0) |
+| Existing tables: row counts + content of every original column | 24 / 24 identical |
+| Schema matches the code afterwards | yes (`migrate diff --exit-code` = 0) |
+| `PRAGMA integrity_check` / foreign keys | ok / 0 violations |
+| Credential encryption (5 plaintext values) | encrypted and verified 5/5 |
+| Plaintext credential fields left in the file | 0 (also after `VACUUM`) |
 
-## 3. Two problems found and fixed first
-
-1. **`npm run db:push` ran `prisma db push --accept-data-loss`** — that flag silently accepts destructive changes. It is now plain `prisma db push`, which stops and asks if a change would lose data. New helper: `npm run db:diff` previews the SQL.
-2. **Your `.env` `DATABASE_URL` points to a database that does not exist** (Prisma error P1003 — most likely a path left over from the original build platform). The app's real data is in `db/custom.db`. Set (in `.env`, not committed):
-   `DATABASE_URL="file:../db/custom.db"`  (the path is relative to the `prisma/` folder)
-
-## 4. Steps (run them yourself, in order)
+## 4. Steps (run them yourself, app stopped)
 
 ```bash
-# 1. stop the app (Ctrl+C in the terminal running it)
+# 1. in .env (not committed) set:  DATABASE_URL="file:../db/custom.db"
+#    then confirm the planned SQL matches the reviewed file (no output from diff = identical)
+npm run db:diff > /tmp/halo-plan.sql; diff <(grep -v '^--' /tmp/halo-plan.sql) <(grep -v '^--' docs/migrations/2026-11-02-full-schema-to-phase5.sql)
 ```
 
 ```bash
-# 2. fix DATABASE_URL in .env as shown in §3, then confirm Prisma sees the database (no error = OK)
-npm run db:diff
+# 2. consistent backup (db/*.db is git-ignored) and check it
+sqlite3 db/custom.db ".backup 'db/backup-pre-phase5.db'" && sqlite3 db/backup-pre-phase5.db "pragma integrity_check;"
 ```
 
 ```bash
-# 3. consistent backup (db/*.db files are git-ignored)
-sqlite3 db/custom.db ".backup 'db/backup-2026-11-02.db'" && sqlite3 db/backup-2026-11-02.db "pragma integrity_check;"
+# 3. counts before
+for t in User Trade License LicenseActivation JournalTrade BrokerAccount Payment; do echo "$t $(sqlite3 db/custom.db "select count(*) from \"$t\";")"; done
 ```
 
 ```bash
-# 4. record row counts before
-for t in Trade User License JournalTrade BrokerAccount BotConfig; do echo "$t $(sqlite3 db/custom.db "select count(*) from \"$t\";")"; done
+# 4. apply the reviewed SQL
+sqlite3 db/custom.db < docs/migrations/2026-11-02-full-schema-to-phase5.sql
 ```
 
 ```bash
-# 5. apply — if Prisma ever asks you to accept data loss, answer NO and stop
-npm run db:push
-```
-
-```bash
-# 6. verify: new tables exist, counts unchanged, schema in sync
-sqlite3 db/custom.db ".tables" | tr -s ' ' '\n' | grep -E "TvAlertEvent|EdgeSettings|AutopilotProfile"
-for t in Trade User License JournalTrade BrokerAccount BotConfig; do echo "$t $(sqlite3 db/custom.db "select count(*) from \"$t\";")"; done
+# 5. verify: counts unchanged, integrity ok, schema in sync (exit 0)
+for t in User Trade License LicenseActivation JournalTrade BrokerAccount Payment; do echo "$t $(sqlite3 db/custom.db "select count(*) from \"$t\";")"; done
 sqlite3 db/custom.db "pragma integrity_check;"
+npx prisma migrate diff --from-schema-datasource prisma/schema.prisma --to-schema-datamodel prisma/schema.prisma --exit-code && echo "in sync"
 ```
 
-Expected: the three table names print, the counts match step 4, and the integrity check says `ok`.
+```bash
+# 6. credential encryption key: generate once, put it in .env as HALO_DATA_KEY="…" (never commit it;
+#    keep a copy in your password manager — without it the encrypted credentials cannot be read)
+openssl rand -base64 32
+```
+
+```bash
+# 7. encrypt stored credentials: dry run, then apply, then purge freed pages
+npx tsx scripts/encrypt-credentials.ts
+npx tsx scripts/encrypt-credentials.ts --apply
+sqlite3 db/custom.db "VACUUM;"
+```
+
+Then start the app. Signed-in customers re-link their browser automatically. Super Admins are unaffected.
 
 ## 5. Rollback
 
 ```bash
-# stop the app first, then restore the backup over the live file
-cp db/backup-2026-11-02.db db/custom.db
+# app stopped: restore the backup over the live file
+cp db/backup-pre-phase5.db db/custom.db
 ```
 
-The previous code still works with the restored database because the change only **adds** tables and columns.
+Previous code versions work with the restored file. Old backups made **before** step 7 still contain plaintext credentials. Delete them once you're satisfied, and rotate those credentials anyway (they're also in git history).
 
 ## 6. Production (Postgres)
 
-The hosted build runs `prisma db push` against Postgres (`build:apphosting`). Before the first production deploy: take a provider snapshot, run the same diff against production (`prisma migrate diff --from-url <prod> --to-schema-datamodel prisma/schema.prisma --script`), review it, then deploy. Moving to versioned Prisma migrations (`prisma migrate`) is recommended before launch (Phase 5).
+Same order: provider snapshot, then `prisma migrate diff` against production, review, apply, set `HALO_DATA_KEY` in Secret Manager, run `scripts/encrypt-credentials.ts --apply` once. Moving to versioned `prisma migrate` migrations is recommended before launch.
