@@ -120,13 +120,54 @@ export function verifyPaystackSignature(rawBody: string, signature: string | nul
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-export function verifyFlutterwaveSignature(rawBody: string, signature: string | null): boolean {
-  const secret = process.env.FLUTTERWAVE_SECRET_KEY;
-  if (!secret || !signature) return false;
-  const expected = crypto.createHash("sha256").update(secret + rawBody, "utf8").digest("hex");
-  const a = Buffer.from(expected);
-  const b = Buffer.from(signature);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+/**
+ * Flutterwave (v3) webhooks carry the "secret hash" you set in the
+ * Flutterwave dashboard — verbatim — in the `verif-hash` header
+ * (developer.flutterwave.com/docs/webhooks). It is NOT the API secret key
+ * and NOT an HMAC: compare it in constant time with FLUTTERWAVE_WEBHOOK_HASH.
+ * The payload itself is never trusted for amounts — see verifyFlutterwaveTransaction.
+ */
+export function verifyFlutterwaveSignature(_rawBody: string, signature: string | null): boolean {
+  const expected = process.env.FLUTTERWAVE_WEBHOOK_HASH;
+  if (!expected || !signature) return false;
+  const a = crypto.createHash("sha256").update(expected, "utf8").digest();
+  const b = crypto.createHash("sha256").update(signature, "utf8").digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+/** Flutterwave API base (overridable for test stubs only) */
+export function flutterwaveApiBase(): string {
+  return (process.env.FLUTTERWAVE_API_BASE || "https://api.flutterwave.com").replace(/\/$/, "");
+}
+
+export interface FlwTransaction {
+  status?: string;
+  amount?: number;
+  currency?: string;
+  tx_ref?: string;
+  id?: number;
+}
+
+/**
+ * Independently re-query a transaction by its Flutterwave id
+ * (GET /v3/transactions/{id}/verify — the documented verification call).
+ * Returns null when the call fails or the transaction is unknown.
+ */
+export async function verifyFlutterwaveTransaction(id: number | string): Promise<FlwTransaction | null> {
+  const key = process.env.FLUTTERWAVE_SECRET_KEY;
+  if (!key || id === undefined || id === null || id === "") return null;
+  try {
+    const res = await fetch(`${flutterwaveApiBase()}/v3/transactions/${encodeURIComponent(String(id))}/verify`, {
+      headers: { Authorization: `Bearer ${key}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+    const j = (await res.json()) as { status?: string; data?: FlwTransaction | null };
+    if (!res.ok || j.status !== "success" || !j.data) return null;
+    return j.data;
+  } catch {
+    return null;
+  }
 }
 
 // ── Successful-payment processing (webhook + API-verify + manual share this) ──
@@ -242,14 +283,16 @@ export async function verifyWithProvider(reference: string): Promise<ProcessResu
     return { ok: false, error: `Provider reports status "${j.data?.status ?? "unknown"}" — payment not verified yet.` };
   }
   if (provider === "FLUTTERWAVE") {
-    const res = await fetch(`https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`, {
-      headers: { Authorization: `Bearer ${process.env.FLUTTERWAVE_SECRET_KEY}` },
-    });
-    const j = (await res.json()) as { data?: { status?: string; amount?: number; currency?: string; id?: number } };
-    if (j.data?.status === "successful") {
-      return processVerifiedPayment({ reference, provider: "FLUTTERWAVE", expectedAmountCents: j.data.amount != null ? Math.round(j.data.amount * 100) : null, expectedCurrency: j.data.currency ?? null, providerRef: String(j.data.id ?? "") });
+    // documented verification is by Flutterwave transaction id (stored as
+    // providerRef once a webhook arrived); without it we cannot verify
+    if (!payment.providerRef) return { ok: false, error: "No Flutterwave transaction id recorded yet — wait for the webhook, then verify." };
+    const tx = await verifyFlutterwaveTransaction(payment.providerRef);
+    if (!tx) return { ok: false, error: "Flutterwave could not confirm this transaction." };
+    if (tx.tx_ref !== reference) return { ok: false, error: "Flutterwave transaction does not belong to this order." };
+    if (tx.status === "successful") {
+      return processVerifiedPayment({ reference, provider: "FLUTTERWAVE", expectedAmountCents: tx.amount != null ? Math.round(Number(tx.amount) * 100) : null, expectedCurrency: tx.currency ?? null, providerRef: String(tx.id ?? "") });
     }
-    return { ok: false, error: `Provider reports status "${j.data?.status ?? "unknown"}" — payment not verified yet.` };
+    return { ok: false, error: `Provider reports status "${tx.status ?? "unknown"}" — payment not verified yet.` };
   }
   return { ok: false, error: "No online payment provider is configured. Use manual verification by an administrator." };
 }

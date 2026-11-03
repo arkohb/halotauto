@@ -8,7 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { PAYMENT_STATUSES, ROLES } from "@/lib/commerce/constants";
+import { LICENSE_STATUSES, PAYMENT_STATUSES, ROLES } from "@/lib/commerce/constants";
 import { requireAdmin } from "@/lib/commerce/auth";
 import { canManuallyVerify, processVerifiedPayment } from "@/lib/commerce/payments";
 import { logAudit } from "@/lib/commerce/audit";
@@ -97,13 +97,19 @@ export async function POST(req: NextRequest) {
         if (actor.role !== ROLES.SUPER_ADMIN) return NextResponse.json({ ok: false, error: "Only a Super Administrator can record refunds." }, { status: 403 });
         await db.payment.update({ where: { id: payment.id }, data: { status: PAYMENT_STATUSES.REFUNDED, adminNote: adminNote ?? "" } });
         await logAudit({ action: "PAYMENT_MARKED_REFUNDED", actorId: actor.id, actorEmail: actor.email, actorRole: actor.role, targetType: "payment", targetId: payment.id, meta: { reference: payment.reference } });
-        return NextResponse.json({ ok: true });
+        // a refunded payment must not leave an active licence behind
+        const revoked = await db.license.updateMany({ where: { paymentId: payment.id, status: { not: LICENSE_STATUSES.REVOKED } }, data: { status: LICENSE_STATUSES.REVOKED } });
+        if (revoked.count) await logAudit({ action: "LICENSE_REVOKED_ON_REFUND", actorId: actor.id, actorEmail: actor.email, actorRole: actor.role, targetType: "payment", targetId: payment.id, meta: { licenses: revoked.count } });
+        return NextResponse.json({ ok: true, licensesRevoked: revoked.count });
       }
       case "mark-disputed": {
         if (actor.role !== ROLES.SUPER_ADMIN) return NextResponse.json({ ok: false, error: "Only a Super Administrator can flag disputes." }, { status: 403 });
         await db.payment.update({ where: { id: payment.id }, data: { status: PAYMENT_STATUSES.DISPUTED, adminNote: adminNote ?? "" } });
         await logAudit({ action: "PAYMENT_MARKED_DISPUTED", actorId: actor.id, actorEmail: actor.email, actorRole: actor.role, targetType: "payment", targetId: payment.id, meta: { reference: payment.reference } });
-        return NextResponse.json({ ok: true });
+        // disputed → the licence (activated or not) is suspended until the dispute is settled
+        const suspended = await db.license.updateMany({ where: { paymentId: payment.id, status: { in: [LICENSE_STATUSES.ACTIVE, LICENSE_STATUSES.UNACTIVATED] } }, data: { status: LICENSE_STATUSES.SUSPENDED } });
+        if (suspended.count) await logAudit({ action: "LICENSE_SUSPENDED_ON_DISPUTE", actorId: actor.id, actorEmail: actor.email, actorRole: actor.role, targetType: "payment", targetId: payment.id, meta: { licenses: suspended.count } });
+        return NextResponse.json({ ok: true, licensesSuspended: suspended.count });
       }
       default:
         return NextResponse.json({ ok: false, error: "Unknown action." }, { status: 400 });
