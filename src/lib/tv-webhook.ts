@@ -346,6 +346,7 @@ export async function processTvAlert(
     symbol: alert.symbol,
     tf: tfForGuard(alert.tf),
     entry,
+    sl: alert.sl,
     dir,
     live,
     broker: live ? await resolveBroker(exec.brokerAccountId) : null,

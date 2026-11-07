@@ -38,6 +38,8 @@ interface LockParticipant {
   key: string;
   /** burn every fresh armed level on this runtime's engines; returns count cleared */
   clearLevels: (time: number) => number;
+  /** close this runtime's running trade at market (book + broker); true if one was closed */
+  forceClose?: () => Promise<boolean>;
 }
 
 const g = globalThis as unknown as {
@@ -53,6 +55,20 @@ function participants(): Map<string, LockParticipant> {
 /** Bot / scanner / sweep register their board-wipe hook at module load. */
 export function registerLockParticipant(p: LockParticipant): void {
   participants().set(p.key, p);
+}
+
+/** close the running trade wherever it lives (prop-firm limit hit); returns how many closed */
+export async function forceCloseRunningTrades(): Promise<number> {
+  let n = 0;
+  for (const p of participants().values()) {
+    if (!p.forceClose) continue;
+    try {
+      if (await p.forceClose()) n++;
+    } catch {
+      // keep closing the others
+    }
+  }
+  return n;
 }
 
 export function getTradeLock(): TradeLockState | null {

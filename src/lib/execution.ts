@@ -138,6 +138,7 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     symbol: job.symbol,
     tf: job.tf,
     entry: fire.entry,
+    sl: fire.sl,
     dir: fire.dir,
     live: isLive,
     broker: isLive ? await resolveBroker(job.exec.brokerAccountId) : null,
@@ -342,7 +343,7 @@ export async function executeFire(job: FireJob): Promise<string | null> {
         brokerKind: broker.kind,
         brokerOrderId: (res.brokerOrderId ?? "").slice(0, 120),
         status: "OPEN",
-        note: res.error ? `fill ok; note: ${res.error}`.slice(0, 250) : "",
+        note: [res.error ? `fill ok; note: ${res.error}` : "", fillSlipNote(job.symbol, fire.entry, res.fillPrice)].filter(Boolean).join(" | ").slice(0, 250),
       },
     });
     await markOpen(intent.id, tr.id, (res.brokerOrderId ?? "").slice(0, 120));
@@ -364,6 +365,22 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     await markUncertain(intent.id, `filled at the broker but not recorded: ${(e as Error).message}`).catch(() => {});
     return null;
   }
+}
+
+/** post-fill slippage vs the order price — recorded on the trade and alerted
+ *  when it exceeds the EDGE slippage limit (the fill already happened) */
+function fillSlipNote(symbol: string, entry: number, fill: number | undefined): string {
+  if (!fill || !Number.isFinite(fill)) return "";
+  const pips = Math.abs(fill - entry) / ((getSymbolMeta(symbol).mintick || 0.01) * 10);
+  const limit = getEdgeSync().spread;
+  if (limit.enabled && limit.maxSlippagePips > 0 && pips > limit.maxSlippagePips) {
+    void sendAlert({
+      kind: "broker",
+      title: `HALO · FILL SLIPPAGE ${pips.toFixed(1)} PIPS · ${symbol}`,
+      body: `Filled at ${fill} vs order price ${entry} — over the ${limit.maxSlippagePips} pip slippage limit. The position is open; review it in the platform.`,
+    });
+  }
+  return `fill ${fill} (slippage ${pips.toFixed(1)} pips)`;
 }
 
 /** Close the live broker position backing a trade (engine says SL/TP hit). */

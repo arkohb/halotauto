@@ -107,6 +107,16 @@ registerLockParticipant({
     for (const row of rt().rows.values()) n += row.engine.clearArmedLevels(time);
     return n;
   },
+  forceClose: async () => {
+    let closed = false;
+    for (const row of rt().rows.values()) {
+      if (!row.openTradeDbId || !row.engine.snapshot().trade) continue;
+      const px = row.lastPrice || row.engine.snapshot().trade!.entry;
+      await handleEvents(row, row.engine.forceClose(px, Date.now()));
+      closed = true;
+    }
+    return closed;
+  },
 });
 
 async function loadSweepConfig(): Promise<{ enabled: boolean; autoTrade: boolean }> {

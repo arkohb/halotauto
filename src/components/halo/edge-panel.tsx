@@ -1,8 +1,9 @@
 "use client";
 
 // ════════════════════════════════════════════════════════════════════════
-//  HALO EDGE · command view for the five EDGE layers
+//  HALO EDGE · command view for the EDGE layers
 //    Signal Quality · Smart Trade Manager · Capital Guardian ·
+//    Entry filters · Prop-firm rules · Spread guard ·
 //    Adaptive Autopilot · EDGE vs baseline
 //  Talks only to /api/edge/*; owns no trading state. Settings are saved as
 //  a patch so each card edits just its own block.
@@ -10,10 +11,11 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Area, AreaChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Gauge, Loader2, Play, Rocket, Scale, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
+import { CalendarClock, Gauge, Landmark, Loader2, Play, Rocket, Ruler, Scale, ShieldCheck, Sparkles, Wand2 } from "lucide-react";
 import { PanelCard, Pill, StatCell, StateFrame } from "@/components/halo/panel";
 import { A, C } from "@/lib/halo/ui-helpers";
-import type { EdgeSettings } from "@/lib/edge/settings";
+import type { EdgeSettings, PropPreset, SessionKey } from "@/lib/edge/settings";
+import type { PropState } from "@/lib/edge/prop";
 import type { GuardianVerdict, MonteCarloResult } from "@/lib/edge/guardian";
 import type { SimSummary } from "@/lib/edge/simulate";
 import type { AutopilotJob, AutopilotParams } from "@/lib/edge/autopilot";
@@ -71,6 +73,24 @@ function Num({ label, value, onChange, step = 0.1, min = 0, max = 1000, suffix }
         />
         {suffix && <span className="w-6 text-[10px]" style={{ color: C.label }}>{suffix}</span>}
       </span>
+    </label>
+  );
+}
+
+function Pick<T extends string>({ label, value, options, onChange }: { label: string; value: T; options: Array<[T, string]>; onChange: (v: T) => void }) {
+  return (
+    <label className="flex items-center justify-between gap-3 py-1">
+      <span className="text-[11px]" style={{ color: C.txt2 }}>{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className="rounded-md border px-2 py-1 text-[11.5px] outline-none"
+        style={{ borderColor: C.line2, background: C.deep, color: C.txt }}
+      >
+        {options.map(([v, l]) => (
+          <option key={v} value={v}>{l}</option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -152,6 +172,9 @@ export function EdgePanel({ symbol, tf, notify }: { symbol: string; tf: string; 
       <QualityCard s={settings} save={save} saving={saving} />
       <ManagerCard s={settings} save={save} saving={saving} />
       <GuardianCard s={settings} save={save} saving={saving} />
+      <FiltersCard s={settings} save={save} saving={saving} />
+      <PropCard key={JSON.stringify(settings.prop)} s={settings} save={save} saving={saving} notify={notify} />
+      <SpreadCard s={settings} save={save} saving={saving} />
       <AutopilotCard s={settings} save={save} symbol={symbol} tf={tf} notify={notify} />
       <div className="xl:col-span-2">
         <CompareCard symbol={symbol} tf={tf} notify={notify} />
@@ -371,6 +394,130 @@ function GuardianCard({ s, save, saving }: CardProps) {
           </>
         )}
       </div>
+    </PanelCard>
+  );
+}
+
+/* ───────────────────────── Entry filters ───────────────────────── */
+const SESSION_LABEL: Record<SessionKey, string> = { asia: "Asia · 00–09 UTC", london: "London · 07–16 UTC", newYork: "New York · 12–21 UTC" };
+
+function FiltersCard({ s, save, saving }: CardProps) {
+  const [f, setF] = useState(s.filters);
+  const on = f.newsEnabled || f.sessionEnabled;
+  return (
+    <PanelCard title="NEWS & SESSION FILTERS" icon={CalendarClock} accent="teal" right={<Pill tone={on ? "ok" : "muted"}>{on ? "FILTERING" : "OFF"}</Pill>} bodyClassName="p-3 space-y-3">
+      <p className="text-[10.5px] leading-relaxed" style={{ color: C.label }}>
+        Stops NEW trades around scheduled news for the instrument&apos;s currencies (ForexFactory calendar) and outside the sessions you pick. Open trades are never touched. If the calendar can&apos;t be read, trading continues and the alert says the blackout was inactive.
+      </p>
+      <div className="divide-y" style={{ borderColor: C.divider }}>
+        <Toggle label="News blackout" hint="every source: bot · scanners · TradingView" on={f.newsEnabled} onChange={(v) => setF({ ...f, newsEnabled: v })} />
+        <Pick label="Events" value={f.newsImpact} options={[["high", "High impact"], ["med_high", "Medium + high"]]} onChange={(v) => setF({ ...f, newsImpact: v })} />
+        <Num label="Stop before" value={f.newsBeforeMin} step={5} max={720} suffix="min" onChange={(v) => setF({ ...f, newsBeforeMin: v })} />
+        <Num label="Resume after" value={f.newsAfterMin} step={5} max={720} suffix="min" onChange={(v) => setF({ ...f, newsAfterMin: v })} />
+        <Toggle label="Trade only in sessions" on={f.sessionEnabled} onChange={(v) => setF({ ...f, sessionEnabled: v })} />
+        {(Object.keys(SESSION_LABEL) as SessionKey[]).map((k) => (
+          <Toggle key={k} label={SESSION_LABEL[k]} on={f.sessions[k]} onChange={(v) => setF({ ...f, sessions: { ...f.sessions, [k]: v } })} />
+        ))}
+      </div>
+      <p className="text-[10px]" style={{ color: C.dim }}>Session hours are fixed UTC (no daylight-saving shift). Deriv synthetics have no news and are never blacked out.</p>
+      <Btn busy={saving} onClick={() => void save({ filters: f }, "News & session filters saved")}>Save</Btn>
+    </PanelCard>
+  );
+}
+
+/* ───────────────────────── Prop-firm rules ───────────────────────── */
+interface PropRes {
+  status: { enabled: boolean; live: boolean; state: PropState | null; dailyFloor: number | null; totalFloor: number | null; error: string | null; lastCheck: number | null };
+  presets: Record<string, { label: string }>;
+}
+const fM = (v: number | null | undefined): string => (v === null || v === undefined || !isFinite(v) ? "—" : v.toLocaleString("en-US", { maximumFractionDigits: 2 }));
+
+function PropCard({ s, save, saving, notify }: CardProps & { notify: Notify }) {
+  const [p, setP] = useState(s.prop);
+  const [st, setSt] = useState<PropRes | null>(null);
+  const [resetting, setResetting] = useState(false);
+  const refresh = useCallback(() => {
+    api<PropRes>("/api/edge/prop").then(setSt).catch(() => setSt(null));
+  }, []);
+  useEffect(refresh, [refresh, s.prop]);
+  const ps = st?.status;
+  const state = ps?.state ?? null;
+  const breached = !!state && (state.breachTotal || !!state.breachDay);
+  const reset = async () => {
+    setResetting(true);
+    try {
+      await api("/api/edge/prop", { action: "reset" });
+      notify("Prop rules", "Breach cleared — the day is re-anchored to the current balance");
+      refresh();
+    } catch (e) {
+      notify("Prop rules · reset failed", (e as Error).message, true);
+    } finally {
+      setResetting(false);
+    }
+  };
+  const tone = !p.enabled ? "muted" : breached ? "err" : ps?.live ? "ok" : "warn";
+  const label = !p.enabled ? "OFF" : breached ? "LIMIT HIT" : ps?.live ? "WATCHING" : "LIVE ONLY";
+  return (
+    <PanelCard title="PROP-FIRM RULES" icon={Landmark} accent="gold" right={<Pill tone={tone} pulse={p.enabled && breached}>{label}</Pill>} bodyClassName="p-3 space-y-3">
+      <p className="text-[10.5px] leading-relaxed" style={{ color: C.label }}>
+        Watches the live account&apos;s balance and equity every 15 s. At a daily or total loss limit (minus the buffer) HALO stops new trades and, if chosen, closes every open position. Paper mode has no real balance, so these rules act on live accounts only.
+      </p>
+      {p.enabled && state?.breachNote && breached && (
+        <div className="rounded-lg border px-2.5 py-1.5 text-[11px]" style={{ borderColor: A.red(0.4), background: A.red(0.08), color: C.red }}>{state.breachNote}</div>
+      )}
+      {p.enabled && ps?.error && <div className="text-[10.5px]" style={{ color: C.warn }}>{ps.error}</div>}
+      {p.enabled && state && (
+        <div className="grid grid-cols-3 gap-2">
+          <StatCell label="EQUITY" value={fM(state.lastEquity)} sub={`balance ${fM(state.lastBalance)}`} />
+          <StatCell label="DAILY FLOOR" value={fM(ps?.dailyFloor)} color={C.warn} sub={`day ${state.dayKey}`} />
+          <StatCell label="TOTAL FLOOR" value={fM(ps?.totalFloor)} color={C.red} sub={`initial ${fM(state.initialBalance)}`} />
+        </div>
+      )}
+      <div className="divide-y" style={{ borderColor: C.divider }}>
+        <Toggle label="Enforce prop-firm rules" on={p.enabled} onChange={(v) => setP({ ...p, enabled: v })} />
+        <Pick<PropPreset>
+          label="Preset"
+          value={p.preset}
+          options={[["custom", "Custom"], ["ftmo", "FTMO"], ["fundednext", "FundedNext"], ["the5ers", "The5ers"], ["fundingpips", "FundingPips"]]}
+          onChange={(v) => setP({ ...p, preset: v })}
+        />
+        <Num label="Initial balance (0 = first seen)" value={p.initialBalance} step={1000} max={100000000} onChange={(v) => setP({ ...p, initialBalance: v })} />
+        <Num label="Daily loss limit" value={p.dailyLossPct} step={0.5} max={50} suffix="%" onChange={(v) => setP({ ...p, dailyLossPct: v, preset: "custom" })} />
+        <Pick label="Daily % of" value={p.dailyBase} options={[["initial", "Initial balance"], ["dayStart", "Start of day"]]} onChange={(v) => setP({ ...p, dailyBase: v, preset: "custom" })} />
+        <Pick label="Start of day uses" value={p.dayRef} options={[["balance", "Balance"], ["equity", "Higher of balance/equity"]]} onChange={(v) => setP({ ...p, dayRef: v, preset: "custom" })} />
+        <Num label="Max total loss" value={p.maxLossPct} step={0.5} max={90} suffix="%" onChange={(v) => setP({ ...p, maxLossPct: v, preset: "custom" })} />
+        <Pick label="Total limit" value={p.maxLossMode} options={[["static", "Static (from initial)"], ["trailing", "Trailing (from peak)"]]} onChange={(v) => setP({ ...p, maxLossMode: v, preset: "custom" })} />
+        <Num label="Day resets at" value={p.resetHourUtc} step={1} max={23} suffix="UTC" onChange={(v) => setP({ ...p, resetHourUtc: v })} />
+        <Num label="Safety buffer" value={p.bufferPct} step={0.1} max={10} suffix="%" onChange={(v) => setP({ ...p, bufferPct: v })} />
+        <Toggle label="Close all positions at the limit" on={p.closeAtLimit} onChange={(v) => setP({ ...p, closeAtLimit: v })} />
+      </div>
+      <p className="text-[10px]" style={{ color: C.dim }}>Presets use the firms&apos; published 2-step evaluation rules. Firms change them, so always check your own account terms. A daily breach clears at the next prop-firm day; a total breach needs a Super Admin reset.</p>
+      <div className="flex flex-wrap gap-2">
+        <Btn busy={saving} onClick={() => void save({ prop: p }, "Prop-firm rules saved")}>Save</Btn>
+        {breached && (
+          <Btn tone="ghost" busy={resetting} onClick={() => void reset()}>Reset breach (Super Admin)</Btn>
+        )}
+      </div>
+    </PanelCard>
+  );
+}
+
+/* ───────────────────────── Spread & slippage guard ───────────────────────── */
+function SpreadCard({ s, save, saving }: CardProps) {
+  const [g, setG] = useState(s.spread);
+  return (
+    <PanelCard title="SPREAD & SLIPPAGE GUARD" icon={Ruler} accent="green" right={<Pill tone={g.enabled ? "ok" : "muted"}>{g.enabled ? "GUARDING" : "OFF"}</Pill>} bodyClassName="p-3 space-y-3">
+      <p className="text-[10.5px] leading-relaxed" style={{ color: C.label }}>
+        Before a LIVE order, HALO reads the broker&apos;s bid/ask and refuses the trade when the spread is too wide or the price has already run too far from the order price. Fills that slip past the limit are recorded and alerted. Paper trades have no broker quote, so this guard applies to live orders.
+      </p>
+      <div className="divide-y" style={{ borderColor: C.divider }}>
+        <Toggle label="Guard live orders" on={g.enabled} onChange={(v) => setG({ ...g, enabled: v })} />
+        <Num label="Max spread" value={g.maxSpreadPips} step={0.5} max={10000} suffix="pips" onChange={(v) => setG({ ...g, maxSpreadPips: v })} />
+        <Num label="Max spread vs stop" value={g.maxSpreadSlPct} step={5} max={100} suffix="%" onChange={(v) => setG({ ...g, maxSpreadSlPct: v })} />
+        <Num label="Max slippage" value={g.maxSlippagePips} step={0.5} max={10000} suffix="pips" onChange={(v) => setG({ ...g, maxSlippagePips: v })} />
+      </div>
+      <p className="text-[10px]" style={{ color: C.dim }}>Set any limit to 0 to switch it off. &quot;Spread vs stop&quot; works on every market (e.g. 25% = spread may be at most a quarter of the stop distance).</p>
+      <Btn busy={saving} onClick={() => void save({ spread: g }, "Spread & slippage guard saved")}>Save</Btn>
     </PanelCard>
   );
 }

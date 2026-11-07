@@ -2,6 +2,8 @@
 //  HALO EDGE · order gate
 //  Called by executeFire() for EVERY new order (bot · scanner · sweep ·
 //  Pine) before the paper book or a broker sees it:
+//    0. entry filters        — session filter + news blackout (optional)
+//       prop-firm rules      — daily / total loss limits (optional, live)
 //    1. Signal Quality Score — grade the fire from recent candles
 //    2. quality gate         — skip below the minimum score
 //    3. Capital Guardian     — daily loss / trade cap / streak pause
@@ -14,6 +16,8 @@ import { tfSec } from "@/lib/market-symbols";
 import { getOverlay } from "./autopilot";
 import { guardianCheck, loadGuardianHistory, type GuardianStatus } from "./guardian";
 import { buildQualitySeries, gradeFire, indexAt, type SignalGrade } from "./quality";
+import { checkEntryFilters } from "./filters";
+import { propGate } from "./prop";
 import { loadEdge } from "./settings";
 
 export interface GateResult {
@@ -40,6 +44,12 @@ export async function gradeLiveFire(symbol: string, tf: string, fire: FireEvent)
 
 export async function gateOrder(symbol: string, tf: string, fire: FireEvent): Promise<GateResult> {
   const edge = await loadEdge();
+
+  const filt = await checkEntryFilters(symbol, edge.filters);
+  if (!filt.allow) return { allow: false, reason: filt.reason, grade: null, sizeMult: 0, guardian: null };
+  const prop = await propGate();
+  if (!prop.allow) return { allow: false, reason: prop.reason, grade: null, sizeMult: 0, guardian: null };
+
   const grade = await gradeLiveFire(symbol, tf, fire);
   let size = 1;
 

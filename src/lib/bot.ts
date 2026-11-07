@@ -26,6 +26,7 @@ import { getOverlay, overlayCfg, overlayManager } from "./edge/autopilot";
 import { applyManageLive } from "./edge/trade-manager";
 import { ensureReconciled } from "./exec-lock";
 import { settleOrphanTradesOnce } from "@/lib/orphan-trades";
+import { ensurePropMonitor } from "@/lib/edge/prop";
 import type { TradeManagerCfg } from "./halo/types";
 
 /**
@@ -65,6 +66,12 @@ registerBotProbe(() => {
 registerLockParticipant({
   key: "bot",
   clearLevels: (time) => getBot().engine.clearArmedLevels(time),
+  forceClose: async () => {
+    const bot = getBot();
+    if (!bot.openTradeDbId || !bot.engine.snapshot().trade) return false;
+    await closeOpenTrade();
+    return true;
+  },
 });
 
 export interface BotRuntime {
@@ -262,6 +269,7 @@ export async function ensureBoot(): Promise<void> {
     // paper trades nothing manages any more (pre-lock / test fires) are
     // settled from real candles or voided, so the book never shows ghosts
     await settleOrphanTradesOnce();
+    ensurePropMonitor(); // prop-firm loss limits (idles while off / paper)
     await warmEngine();
     bot.bootstrapped = true;
     // ── AUTO-ATTACH ────────────────────────────────────────────────

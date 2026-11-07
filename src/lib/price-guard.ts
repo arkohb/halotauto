@@ -14,6 +14,9 @@
 //  bid/ask from the execution broker must be within maxDeviationAtr × ATR
 //  of the order price. Until a Super Admin sets that threshold, live orders
 //  are refused (mandatory prerequisite for live trading).
+//  EDGE spread guard (optional, live only): the same quote must also show
+//  a spread no wider than the limits, and — when set — a broker price no
+//  further than maxSlippagePips from the order price.
 // ════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
@@ -21,7 +24,8 @@ import { getAdapter, parseCreds } from "@/lib/brokers";
 import type { ActiveBroker } from "@/lib/execution";
 import type { Candle } from "@/lib/halo/types";
 import { getKlines } from "@/lib/market";
-import { tfSec } from "@/lib/market-symbols";
+import { getSymbolMeta, tfSec } from "@/lib/market-symbols";
+import { loadEdge, type SpreadSettings } from "@/lib/edge/settings";
 
 export const PRICE_GUARD_SETTING_KEY = "price_guard.max_deviation_atr";
 /** a broker quote older than this is not "fresh" */
@@ -77,6 +81,37 @@ export function evaluateDeviation(input: {
   return { ok: true, deviationAtr: dev };
 }
 
+/** pure: EDGE spread + slippage guard on a fresh broker quote */
+export function evaluateSpread(input: {
+  entry: number;
+  sl?: number;
+  dir: -1 | 1;
+  quote: { bid?: number; ask?: number } | null;
+  pip: number;
+  limits: SpreadSettings;
+}): { ok: true; spreadPips: number } | { ok: false; reason: string } {
+  const L = input.limits;
+  const q = input.quote;
+  if (!q || !(Number(q.bid) > 0) || !(Number(q.ask) > 0)) return { ok: false, reason: "spread guard: no bid/ask from the execution broker" };
+  const spread = Math.max(0, q.ask! - q.bid!);
+  const spreadPips = spread / input.pip;
+  if (L.maxSpreadPips > 0 && spreadPips > L.maxSpreadPips) {
+    return { ok: false, reason: `spread guard: spread ${spreadPips.toFixed(1)} pips is wider than the ${L.maxSpreadPips} pip limit` };
+  }
+  const slDist = input.sl !== undefined ? Math.abs(input.entry - input.sl) : 0;
+  if (L.maxSpreadSlPct > 0 && slDist > 0 && (spread / slDist) * 100 > L.maxSpreadSlPct) {
+    return { ok: false, reason: `spread guard: spread is ${((spread / slDist) * 100).toFixed(0)}% of the stop distance (limit ${L.maxSpreadSlPct}%)` };
+  }
+  if (L.maxSlippagePips > 0) {
+    const side = input.dir === 1 ? q.ask! : q.bid!;
+    const slip = Math.abs(side - input.entry) / input.pip;
+    if (slip > L.maxSlippagePips) {
+      return { ok: false, reason: `slippage guard: broker price ${side} is ${slip.toFixed(1)} pips from the order price ${input.entry} (limit ${L.maxSlippagePips} pips)` };
+    }
+  }
+  return { ok: true, spreadPips };
+}
+
 function atrOf(c: Candle[], len = 14): number | null {
   if (c.length < len + 1) return null;
   let a = 0;
@@ -104,6 +139,7 @@ export async function verifyOrderPrice(job: {
   symbol: string;
   tf: string;
   entry: number;
+  sl?: number;
   dir: -1 | 1;
   live: boolean;
   broker: ActiveBroker | null;
@@ -131,5 +167,11 @@ export async function verifyOrderPrice(job: {
     quote = null;
   }
   const dev = evaluateDeviation({ entry: job.entry, dir: job.dir, quote, atr: feed.atr, maxDeviationAtr: await getMaxDeviationAtr(), now: Date.now() });
-  return dev.ok ? { ok: true } : dev;
+  if (!dev.ok) return dev;
+  const spread = (await loadEdge()).spread;
+  if (spread.enabled) {
+    const sp = evaluateSpread({ entry: job.entry, sl: job.sl, dir: job.dir, quote, pip: (getSymbolMeta(job.symbol).mintick || 0.01) * 10, limits: spread });
+    if (!sp.ok) return sp;
+  }
+  return { ok: true };
 }
