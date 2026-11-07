@@ -38,7 +38,7 @@ The levels below mean exactly what the brief defines: IMPLEMENTED (source exists
 | Backtest | IMPLEMENTED | `verify-backtest` exists; no regression suite in the baseline |
 | Paper trading | TESTED (manual) | Seen end-to-end in this session |
 | One-trade lock (DB, survives restart) | **TESTED** | `exec-lock-concurrency-test` (21/21): 50 simultaneous orders → 1 winner; 8 separate processes × 10 → 1 winner; uncertain orders keep the lock; restart recovery for PENDING, UNCERTAIN and SUBMITTING; "not executed" resolution creates no trade; full event audit trail |
-| Uncertain-order handling | IMPLEMENTED | Never auto-retried. Reconciliation is by **symbol + direction position check, not by broker order reference**. Resolution is API only (`/api/admin/execution-lock`); **no dashboard** |
+| Uncertain-order handling | **TESTED** (simulated EA) | Never resent. Reconciled **by HALO's order id** at restart, every 60 s, and on a Super Admin re-check: MetaApi (positions + history orders by `clientId`), OANDA (`orders/@<id>`), HALO Bridge EA (id stamped as the MT5 comment). Other brokers only recover a HALO-tagged position. Filled-and-closed releases the lock without inventing a result; "absent" is trusted only after 60 s. Every attempt is logged. Admin API lists uncertain orders with their trail; **no dashboard page yet**. Not yet run against a real broker |
 | Price guard (simulated, stale, invalid, deviation) | TESTED | `price-guard-selftest`. Covers `executeFire` (bot, scanners, sweep, Pine) and the webhook. The deviation threshold is unset, so **every live order is refused** |
 | Spread / slippage guard | TESTED (unit) | `edge-filters-prop-test`. Not yet run against a broker quote. One % of stop limit covers all markets; **no per-instrument limits** |
 | HALO EDGE (quality, manager, Guardian, autopilot) | TESTED (unit) | `edge-selftest` |
@@ -88,7 +88,8 @@ Verified directly in this session:
 |---|---|
 | CRITICAL (launch) | No execution path verified on a real demo broker (EA uncompiled; MetaApi unfunded) |
 | CRITICAL (launch) | Market data is Yahoo (unlicensed) unless OANDA is configured; futures vs spot mismatch with brokers |
-| HIGH | Uncertain orders are reconciled by symbol/direction, not by broker order reference, which is ambiguous if a position was opened manually |
+| ~~HIGH~~ fixed | Uncertain orders are now reconciled by broker order reference (see §2) |
+| ~~HIGH~~ fixed | MetaApi order comment + client id was 34–36 chars against MetaApi's documented 26-char limit (orders at risk of rejection or a truncated id). The id is now 15 chars and the comment is trimmed to fit |
 | HIGH | No Super Admin 2FA |
 | HIGH | No rate limits on AI, backtest and autopilot routes (cost and abuse) |
 | HIGH | Engines run inside the web process: a restart or HMR can leave timers on old code, as seen this session; needs a dedicated worker in production |
@@ -108,7 +109,7 @@ Verified directly in this session:
 
 1. **Execution safety (no approval needed):**
    - ~~An automated concurrency and duplicate test for the lock against a throwaway DB.~~ Done: `exec-lock-concurrency-test`, 21/21.
-   - Store and query the broker order reference during reconciliation.
+   - ~~Store and query the broker order reference during reconciliation.~~ Done (MetaApi, OANDA, HALO Bridge EA; others tag-checked).
    - An admin page for uncertain orders and the price-guard threshold.
 2. **Capital protection:** verify Capital Guardian and the prop rules on a demo account.
 3. **Security:** Super Admin 2FA, and rate limits on AI, backtest, autopilot and scanner routes.
@@ -137,7 +138,7 @@ Verified directly in this session:
 | pine-longscript-test | 20/20 |
 | deriv-catalog-test | 68/68 |
 | **pine-compiler-test** | **41/42**: the built-in EA template uses `timenow` (see §2). The test file also had a top-level `await` that the runner can't load; changed to a static import (test file only) |
-| **exec-lock-concurrency-test** (new) | **21/21** on a throwaway DB (`db/custom.db` verified unchanged by checksum) |
+| **exec-lock-concurrency-test** (new) | **33/33** on a throwaway DB (`db/custom.db` verified unchanged by checksum), including reconciliation by order reference through a simulated EA |
 | adapter-stub-test | **not run**: needs the local MetaApi stub, which requires the Bun runtime (not installed) |
 
 ## 9. Actions needing the user (credentials or approval)

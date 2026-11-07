@@ -8,6 +8,7 @@ import {
   AccountInfo,
   BrokerAdapter,
   BrokerCreds,
+  OrderLookup,
   OrderRequest,
   OrderResult,
   PendingOrderInfo,
@@ -333,6 +334,28 @@ async function getQuote(creds: BrokerCreds, symbol: string): Promise<QuoteResult
   }
 }
 
+/** uncertain-order reconciliation: OANDA addresses an order by "@<client id>" */
+async function findByClientOrderId(creds: BrokerCreds, clientOrderId: string): Promise<OrderLookup> {
+  const acc = `${base(creds)}/v3/accounts/${encodeURIComponent(String(creds.accountId))}`;
+  try {
+    const j = (await jfetch(`${acc}/orders/@${encodeURIComponent(clientOrderId)}`, { headers: headers(creds) })) as {
+      order?: { state?: string; tradeOpenedID?: string };
+    };
+    const o = j.order;
+    if (!o) return { status: "unknown", detail: "OANDA returned no order body" };
+    if (o.state !== "FILLED") return { status: "absent", detail: `order ${o.state ?? "found"} — not executed` };
+    if (!o.tradeOpenedID) return { status: "closed", detail: "order filled but opened no new trade (it reduced or closed one)" };
+    const t = (await jfetch(`${acc}/trades/${encodeURIComponent(o.tradeOpenedID)}`, { headers: headers(creds) })) as { trade?: { state?: string } };
+    return t.trade?.state === "OPEN"
+      ? { status: "open", positionId: o.tradeOpenedID, detail: `trade ${o.tradeOpenedID} is open` }
+      : { status: "closed", positionId: o.tradeOpenedID, detail: `trade ${o.tradeOpenedID} already ${t.trade?.state ?? "closed"}` };
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (/HTTP 404/.test(msg) && /ORDER_DOESNT_EXIST|does not exist/i.test(msg)) return { status: "absent", detail: "OANDA has no order with this client id" };
+    return { status: "unknown", detail: `OANDA lookup failed: ${msg.slice(0, 160)}` };
+  }
+}
+
 export const oandaAdapter: BrokerAdapter = {
   kind: "oanda",
   mapSymbol: (creds, symbol) => mapWith(creds, symbol, DEFAULT_MAP),
@@ -345,4 +368,5 @@ export const oandaAdapter: BrokerAdapter = {
   cancelOrder,
   modifyPosition,
   getQuote,
+  findByClientOrderId,
 };

@@ -496,6 +496,18 @@ export async function mtPositions(accountId: string, region: string, token?: str
   return Array.isArray(j) ? j : [];
 }
 
+/** history orders in a time window (each carries the clientId it was sent with) */
+export async function mtHistoryOrders(accountId: string, region: string, startIso: string, endIso: string, token?: string): Promise<Record<string, unknown>[]> {
+  const j = await clientCall<Record<string, unknown>[] | { historyOrders?: Record<string, unknown>[] }>(
+    accountId,
+    region,
+    `/history-orders/time/${encodeURIComponent(startIso)}/${encodeURIComponent(endIso)}`,
+    { timeoutMs: 20000 },
+    token
+  );
+  return Array.isArray(j) ? j : (j.historyOrders ?? []);
+}
+
 export async function mtSymbolSpec(
   accountId: string,
   region: string,

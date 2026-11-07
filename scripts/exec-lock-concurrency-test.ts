@@ -1,5 +1,7 @@
 // Persistent execution lock — concurrency, duplicate and restart test.
 //   npx tsx scripts/exec-lock-concurrency-test.ts
+// Also covers uncertain-order reconciliation BY ORDER REFERENCE, through the
+// HALO Bridge EA adapter answered by a simulated EA (no MT5, no broker).
 // Runs against a THROWAWAY SQLite file (never db/custom.db): the schema is
 // created with `prisma db push` on an empty file in the OS temp folder.
 // No broker, no network. Proves the lock is atomic within one process AND
@@ -52,6 +54,7 @@ async function main(): Promise<void> {
     await db.executionIntent.deleteMany();
     await db.executionLock.deleteMany();
     await db.trade.deleteMany();
+    await db.brokerAccount.deleteMany();
   };
 
   // 1 · 50 simultaneous orders in one process
@@ -120,7 +123,73 @@ async function main(): Promise<void> {
   const w = (globalThis as { __haloExecWatch?: ReturnType<typeof setInterval> }).__haloExecWatch;
   if (w) clearInterval(w);
 
-  // 9 · separate processes racing on the same database file
+  // 9 · uncertain-order reconciliation by order reference (simulated HALO Bridge EA)
+  await reset();
+  const { eaPoll } = await import("../src/lib/brokers/mt5-ea");
+  const KEY = "lock-test-pairing-key-0123456789";
+  const acct = await db.brokerAccount.create({ data: { kind: "mt5ea", label: "test EA", credsJson: JSON.stringify({ eaKey: KEY }), status: "ok", active: true } });
+  let answer: { status: string; orderId?: string } | null = { status: "open", orderId: "777" };
+  const seenLookups: string[] = [];
+  let eaRunning = true;
+  void (async () => {
+    let pending: Array<Record<string, unknown>> = [];
+    while (eaRunning) {
+      const lines = eaPoll(KEY, { login: "1", mode: "demo", balance: 1000, equity: 1000 }, pending as never) ?? [];
+      pending = [];
+      for (const line of lines) {
+        const f = line.split("\t");
+        if (f[1] === "lookup") {
+          seenLookups.push(f[10]);
+          if (answer) pending.push({ id: f[0], ok: true, status: answer.status, orderId: answer.orderId, detail: "simulated" });
+        }
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  })();
+  await new Promise((r) => setTimeout(r, 200));
+  const live = (n: number) => ({ ...intent(n), live: true, brokerKind: "mt5ea", brokerAccountId: acct.id });
+  const uncertain = async (n: number) => {
+    const x = await lock.beginIntent(live(n));
+    await lock.markSubmitting(x!.id);
+    await lock.markUncertain(x!.id, "test: no broker answer");
+    return x!;
+  };
+
+  const o = await uncertain(10);
+  ok(o.clientOrderId.length <= 15, `client order id fits broker limits (${o.clientOrderId.length} chars, MetaApi comment + id ≤ 26)`);
+  ok((await lock.reconcileByReference(o.id, "test")) === "open", "broker says OPEN by order id → recovered");
+  const oi = await db.executionIntent.findUnique({ where: { id: o.id } });
+  ok(oi?.state === "OPEN" && (await db.trade.count({ where: { brokerOrderId: "777", slMode: "recovered" } })) === 1, "intent OPEN + trade booked with the broker's position id");
+  ok(seenLookups.at(-1) === o.clientOrderId, "the EA was asked about exactly this order id");
+  const ww = (globalThis as { __haloExecWatch?: ReturnType<typeof setInterval> }).__haloExecWatch;
+  if (ww) clearInterval(ww);
+  await db.executionLock.updateMany({ data: { intentId: null } });
+
+  answer = { status: "closed", orderId: "778" };
+  const c = await uncertain(11);
+  const tradesBefore = await db.trade.count();
+  ok((await lock.reconcileByReference(c.id, "test")) === "closed", "broker says filled-and-closed → CLOSED");
+  ok((await lock.lockHolder()) === null && (await db.trade.count()) === tradesBefore, "…lock released and NO result invented (broker history has it)");
+
+  answer = { status: "absent" };
+  const a2 = await uncertain(12);
+  ok((await lock.reconcileByReference(a2.id, "test")) === "unknown", "'absent' within 60 s of sending is not trusted yet");
+  ok((await db.executionIntent.findUnique({ where: { id: a2.id } }))?.state === "UNCERTAIN" && (await lock.lockHolder())?.intentId === a2.id, "…order stays UNCERTAIN and locked");
+  await db.executionIntent.update({ where: { id: a2.id }, data: { createdAt: new Date(Date.now() - 120_000) } });
+  ok((await lock.reconcileByReference(a2.id, "test")) === "absent", "'absent' after 60 s → broker confirms no execution");
+  ok((await db.executionIntent.findUnique({ where: { id: a2.id } }))?.state === "REJECTED" && (await lock.lockHolder()) === null, "…REJECTED and lock released");
+
+  answer = null; // EA stops answering
+  const u2 = await uncertain(13);
+  eaRunning = false;
+  await new Promise((r) => setTimeout(r, 7000)); // EA counted offline after 6 s
+  ok((await lock.reconcileByReference(u2.id, "test")) === "unknown", "EA offline → unknown, never guessed");
+  const attempts = await db.executionEvent.count({ where: { intentId: u2.id, detail: { startsWith: "reconcile attempt" } } });
+  ok(attempts === 1 && (await lock.lockHolder())?.intentId === u2.id, "every attempt is recorded and the order stays locked");
+  const uw = (globalThis as { __haloUncertainWatch?: ReturnType<typeof setInterval> }).__haloUncertainWatch;
+  if (uw) clearInterval(uw);
+
+  // 10 · separate processes racing on the same database file
   await reset();
   const counts = await Promise.all(Array.from({ length: 8 }, () => runWorker(10)));
   const total = counts.reduce((x, y) => x + Math.max(0, y), 0);

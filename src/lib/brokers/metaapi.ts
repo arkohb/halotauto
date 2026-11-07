@@ -14,6 +14,7 @@ import {
   AccountInfo,
   BrokerAdapter,
   BrokerCreds,
+  OrderLookup,
   OrderRequest,
   OrderResult,
   PendingOrderInfo,
@@ -30,6 +31,7 @@ import {
   mtClosePosition,
   mtClosePositionPartially,
   mtCurrentPrice,
+  mtHistoryOrders,
   mtMarketOrder,
   mtModifyPosition,
   mtOrders,
@@ -245,7 +247,8 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
       volume,
       stopLoss: sp.digits ? roundTo(req.sl, sp.digits) : req.sl,
       takeProfit: sp.digits ? roundTo(req.tp, sp.digits) : req.tp,
-      comment: req.comment,
+      // MetaApi stores clientId inside the MT comment: comment + clientId must fit 26 chars
+      comment: req.comment.slice(0, Math.max(0, 26 - (req.clientOrderId ?? "").length)),
       clientId: req.clientOrderId,
     }, a.token);
     const oid = res.orderId ?? res.numericOrderId;
@@ -257,6 +260,25 @@ async function marketOrder(creds: BrokerCreds, req: OrderRequest): Promise<Order
     };
   } catch (e) {
     return { ok: false, error: friendlyMetaApiError(e) };
+  }
+}
+
+/** uncertain-order reconciliation: open positions, then history orders, by clientId */
+async function findByClientOrderId(creds: BrokerCreds, clientOrderId: string, _symbol: string, since: number): Promise<OrderLookup> {
+  try {
+    const a = acct(creds);
+    const open = (await mtPositions(a.id, a.region, a.token)).find((p) => String(p.clientId ?? "") === clientOrderId);
+    if (open) return { status: "open", positionId: String(open.id ?? ""), detail: `position ${String(open.id ?? "")} carries this order id` };
+    const hist = await mtHistoryOrders(a.id, a.region, new Date(since - 10 * 60_000).toISOString(), new Date().toISOString(), a.token);
+    const ord = hist.find((o) => String(o.clientId ?? "") === clientOrderId);
+    if (ord) {
+      const state = String(ord.state ?? "");
+      if (/FILLED/i.test(state)) return { status: "closed", positionId: String(ord.positionId ?? ""), detail: `order filled (${state}) and its position is no longer open` };
+      return { status: "absent", detail: `order found but not executed (${state || "no fill"})` };
+    }
+    return { status: "absent", detail: "no open position and no history order with this order id" };
+  } catch (e) {
+    return { status: "unknown", detail: `MetaApi lookup failed: ${(e as Error).message}` };
   }
 }
 
@@ -417,4 +439,5 @@ export const metaapiAdapter: BrokerAdapter = {
   partialClose,
   volumeSpec,
   getQuote,
+  findByClientOrderId,
 };

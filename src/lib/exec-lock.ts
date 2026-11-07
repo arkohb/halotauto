@@ -22,7 +22,7 @@
 import crypto from "node:crypto";
 import { db } from "@/lib/db";
 import { getAdapter, parseCreds } from "@/lib/brokers";
-import type { BrokerKind } from "@/lib/brokers/types";
+import type { BrokerKind, OrderLookup } from "@/lib/brokers/types";
 import { sendAlert } from "@/lib/alerts";
 import { getKlines } from "@/lib/market";
 import { getSymbolMeta, tfSec } from "@/lib/market-symbols";
@@ -58,7 +58,8 @@ export interface IntentInput {
 /** Create an intent and take the lock. null → another order holds it (refuse). */
 export async function beginIntent(i: IntentInput): Promise<{ id: string; clientOrderId: string } | null> {
   await db.executionLock.upsert({ where: { id: LOCK_ID }, create: { id: LOCK_ID, intentId: null }, update: {} });
-  const clientOrderId = `h3-${crypto.randomBytes(10).toString("hex")}`;
+  // 15 chars: brokers cap it (MetaApi: comment + clientId ≤ 26), 48 random bits keep it unique
+  const clientOrderId = `h3-${crypto.randomBytes(6).toString("hex")}`;
   const intent = await db.executionIntent.create({
     data: {
       source: i.source,
@@ -99,6 +100,7 @@ export async function markRejected(id: string, detail: string): Promise<void> {
 /** no reliable answer from the broker — keep the lock, reconcile later */
 export async function markUncertain(id: string, detail: string): Promise<void> {
   await transition(id, "UNCERTAIN", detail);
+  ensureUncertainWatch();
   void sendAlert({
     kind: "broker",
     title: "HALO · ORDER OUTCOME UNCERTAIN — NEW ORDERS PAUSED",
@@ -172,31 +174,98 @@ async function reconcile(): Promise<void> {
       await releaseLock(intent.id);
       return;
     }
-    const pos = await brokerPositionExists(intent);
-    if (pos === true) {
-      const t = await db.trade.create({
-        data: {
-          mode: intent.source, execMode: "LIVE", brokerKind: intent.brokerKind, brokerOrderId: intent.clientOrderId,
-          symbol: intent.symbol, timeframe: intent.timeframe, direction: intent.direction, entry: intent.entry, sl: intent.sl, tp: intent.tp,
-          riskPips: 0, rewardPips: 0, status: "OPEN", levelTop: 0, levelBot: 0, slMode: "recovered", note: "recovered after restart: broker confirmed the position",
-          openedAt: intent.createdAt,
-        },
-      });
-      await transition(intent.id, "OPEN", "restart: broker shows the position", { tradeId: t.id });
-      return watchOpen(intent.id);
-    }
-    // no position seen, or broker unreachable: absence is not proof that the
-    // order failed — keep the lock and ask for a decision
-    await transition(intent.id, "UNCERTAIN", pos === false ? "restart: no broker position found — needs manual reconciliation" : "restart: broker unreachable — needs reconciliation");
-    void sendAlert({
-      kind: "broker",
-      title: "HALO · ORDER NEEDS RECONCILIATION — NEW ORDERS PAUSED",
-      body: `${intent.source} ${intent.direction === -1 ? "SELL" : "BUY"} ${intent.symbol} was being sent when HALO stopped. Check the broker, then resolve it in Admin → execution lock.`,
-    });
+    await reconcileByReference(intent.id, "restart");
     return;
   }
 
   if (intent.state === "OPEN") return watchOpen(intent.id);
+}
+
+/** what the broker knows about this intent's order — by HALO's client order id
+ *  when the adapter supports it; otherwise only a HALO-tagged position on the
+ *  same symbol + direction counts (an untagged position is never claimed) */
+async function lookupIntent(intent: { brokerAccountId: string; symbol: string; direction: number; clientOrderId: string; createdAt: Date }): Promise<OrderLookup> {
+  const row = await db.brokerAccount.findUnique({ where: { id: intent.brokerAccountId } });
+  if (!row) return { status: "unknown", detail: "the broker account is no longer configured" };
+  const adapter = getAdapter(row.kind as BrokerKind);
+  const creds = parseCreds(row.credsJson);
+  if (adapter.findByClientOrderId) {
+    const r = await adapter.findByClientOrderId(creds, intent.clientOrderId, intent.symbol, intent.createdAt.getTime()).catch(
+      (e: Error): OrderLookup => ({ status: "unknown", detail: e.message })
+    );
+    // brokers can take a moment to show a fresh order: "absent" is only trusted after 60 s
+    if (r.status === "absent" && Date.now() - intent.createdAt.getTime() < 60_000) return { status: "unknown", detail: `too soon to trust "${r.detail}"` };
+    return r;
+  }
+  try {
+    const positions = (await adapter.getPositions(creds, intent.symbol)).filter((p) => p.side === intent.direction);
+    if (positions.some((p) => p.ea)) return { status: "open", detail: "a HALO-tagged position matches symbol and direction (this broker has no order-id lookup)" };
+    if (positions.length) return { status: "unknown", detail: "a position on this symbol/direction exists but is not tagged as HALO's — check the broker manually" };
+    return { status: "unknown", detail: "no matching position — this broker cannot prove whether the order was filled and closed; check its history" };
+  } catch (e) {
+    return { status: "unknown", detail: `broker unreachable: ${(e as Error).message}` };
+  }
+}
+
+/** one reconciliation attempt for a SUBMITTING / UNCERTAIN live order; every attempt is recorded */
+export async function reconcileByReference(intentId: string, why: string): Promise<OrderLookup["status"] | "skipped"> {
+  const intent = await db.executionIntent.findUnique({ where: { id: intentId } });
+  if (!intent || (intent.state !== "UNCERTAIN" && intent.state !== "SUBMITTING") || intent.execMode !== "LIVE") return "skipped";
+  const r = await lookupIntent(intent);
+  const note = `${why}: ${r.status} — ${r.detail}`.slice(0, 250);
+  if (r.status === "open") {
+    const t = await db.trade.create({
+      data: {
+        mode: intent.source, execMode: "LIVE", brokerKind: intent.brokerKind, brokerOrderId: (r.positionId || intent.clientOrderId).slice(0, 120),
+        symbol: intent.symbol, timeframe: intent.timeframe, direction: intent.direction, entry: intent.entry, sl: intent.sl, tp: intent.tp,
+        riskPips: 0, rewardPips: 0, status: "OPEN", levelTop: 0, levelBot: 0, slMode: "recovered", note: `recovered: ${note}`.slice(0, 250),
+        openedAt: intent.createdAt,
+      },
+    });
+    await transition(intent.id, "OPEN", note, { tradeId: t.id, brokerOrderId: (r.positionId ?? "").slice(0, 120) });
+    void watchOpen(intent.id);
+    return "open";
+  }
+  if (r.status === "closed") {
+    // executed and already gone: no result is invented — the broker history has it
+    await transition(intent.id, "CLOSED", note);
+    await releaseLock(intent.id);
+    void sendAlert({
+      kind: "broker",
+      title: "HALO · UNCERTAIN ORDER WAS FILLED AND IS ALREADY CLOSED",
+      body: `${intent.source} ${intent.direction === -1 ? "SELL" : "BUY"} ${intent.symbol} (order ${intent.clientOrderId}) executed at the broker and has closed. New orders resume; check the broker history for its result.`,
+    });
+    return "closed";
+  }
+  if (r.status === "absent") {
+    await transition(intent.id, "REJECTED", `broker confirms no execution — ${note}`);
+    await releaseLock(intent.id);
+    return "absent";
+  }
+  await db.executionEvent.create({ data: { intentId: intent.id, fromState: intent.state, toState: intent.state, detail: `reconcile attempt — ${note}`.slice(0, 250) } });
+  if (intent.state === "SUBMITTING") await transition(intent.id, "UNCERTAIN", note);
+  ensureUncertainWatch();
+  return "unknown";
+}
+
+const gUnc = globalThis as unknown as { __haloUncertainWatch?: ReturnType<typeof setInterval> };
+const UNCERTAIN_RECHECK_MS = 60_000;
+
+/** re-ask the broker about every uncertain live order once a minute until resolved */
+function ensureUncertainWatch(): void {
+  if (gUnc.__haloUncertainWatch) return;
+  gUnc.__haloUncertainWatch = setInterval(() => {
+    void (async () => {
+      const pending = await db.executionIntent.findMany({ where: { state: "UNCERTAIN", execMode: "LIVE" }, select: { id: true } });
+      if (pending.length === 0) {
+        clearInterval(gUnc.__haloUncertainWatch);
+        gUnc.__haloUncertainWatch = undefined;
+        return;
+      }
+      for (const p of pending) await reconcileByReference(p.id, "scheduled re-check").catch(() => {});
+    })().catch(() => {});
+  }, UNCERTAIN_RECHECK_MS);
+  (gUnc.__haloUncertainWatch as unknown as { unref?: () => void }).unref?.();
 }
 
 /** restore the in-memory lock for an OPEN trade and watch it until it closes */

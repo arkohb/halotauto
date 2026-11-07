@@ -52,6 +52,15 @@ export interface OrderResult {
   raw?: unknown;
 }
 
+/** what the broker knows about an order sent with HALO's client order id */
+export interface OrderLookup {
+  /** open: executed, position still open · closed: executed, already closed ·
+   *  absent: the broker has no such order (definitive) · unknown: could not tell */
+  status: "open" | "closed" | "absent" | "unknown";
+  positionId?: string;
+  detail: string;
+}
+
 export interface QuoteResult {
   ok: boolean;
   bid?: number;
@@ -144,6 +153,9 @@ export interface BrokerAdapter {
   ): Promise<OrderResult>;
   /** close `volume` (native units) of an OPEN position — MT4/MT5 (MetaApi) only */
   partialClose?(creds: BrokerCreds, positionId: string, volume: number): Promise<OrderResult>;
+  /** look an order up by HALO's client order id (uncertain-order reconciliation);
+   *  adapters whose broker does not carry the id omit this */
+  findByClientOrderId?(creds: BrokerCreds, clientOrderId: string, symbol: string, since: number): Promise<OrderLookup>;
   /** fresh bid/ask for `symbol` (internal id) — used by the live-quote price guard */
   getQuote?(creds: BrokerCreds, symbol: string): Promise<QuoteResult>;
   /** broker volume limits for partial-close rounding */

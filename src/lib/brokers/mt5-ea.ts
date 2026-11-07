@@ -18,6 +18,7 @@
 
 import { createHash } from "node:crypto";
 import type {
+  OrderLookup,
   AccountInfo,
   BrokerAdapter,
   BrokerCreds,
@@ -58,6 +59,9 @@ export interface EaResult {
   ask?: number;
   time?: number;
   positions?: Array<Record<string, unknown>>;
+  /** lookup: open | closed | absent */
+  status?: string;
+  detail?: string;
 }
 
 interface Cmd {
@@ -305,6 +309,18 @@ async function modifyPosition(creds: BrokerCreds, positionId: string, patch: { s
   }
 }
 
+/** uncertain-order reconciliation: the EA stamps HALO's order id as the MT5 comment */
+async function findByClientOrderId(creds: BrokerCreds, clientOrderId: string, symbol: string): Promise<OrderLookup> {
+  try {
+    const r = await call(creds, "lookup", { symbol: sym(creds, symbol), ticket: clientOrderId }, 10_000);
+    if (!r.ok) return { status: "unknown", detail: r.error ?? "EA lookup failed" };
+    const st = r.status === "open" || r.status === "closed" || r.status === "absent" ? r.status : "unknown";
+    return { status: st, positionId: r.orderId, detail: `EA: ${r.detail ?? st}` };
+  } catch (e) {
+    return { status: "unknown", detail: (e as Error).message };
+  }
+}
+
 export const mt5EaAdapter: BrokerAdapter = {
   kind: "mt5ea",
   mapSymbol: sym,
@@ -315,4 +331,5 @@ export const mt5EaAdapter: BrokerAdapter = {
   getPositions,
   getQuote,
   modifyPosition,
+  findByClientOrderId,
 };

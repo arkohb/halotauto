@@ -3,7 +3,9 @@
 //|                                                                  |
 //|  Polls HALO every PollMs over HTTPS/HTTP (WebRequest), executes  |
 //|  the commands it receives (open / close / modify / positions /   |
-//|  quote / ping) in THIS terminal and reports the results back.    |
+//|  quote / ping / lookup) in THIS terminal and reports the results |
+//|  back. Every order carries HALO's order id as its MT5 comment so  |
+//|  HALO can reconcile an unconfirmed order by reference.           |
 //|                                                                  |
 //|  Setup:                                                          |
 //|   1. Copy this file to MQL5/Experts (File → Open Data Folder),   |
@@ -18,7 +20,7 @@
 //|  positions carrying this EA's magic number.                      |
 //+------------------------------------------------------------------+
 #property copyright "HALO 3EL Autotrader"
-#property version   "1.00"
+#property version   "1.10"
 
 #include <Trade\Trade.mqh>
 
@@ -152,7 +154,9 @@ string DoOpen(string id, string symIn, int side, double sl, double tp, string mo
    sl = sl > 0 ? NormalizeDouble(sl, dg) : 0;
    tp = tp > 0 ? NormalizeDouble(tp, dg) : 0;
    g_trade.SetTypeFillingBySymbol(sym);
-   string cm = StringSubstr(comment == "" ? "HALO 3EL" : comment, 0, 28);
+   // HALO's order id as the MT5 comment: the position and its deals carry it,
+   // so an unconfirmed order can be looked up by reference ("lookup")
+   string cm = StringSubstr(id, 0, 31);
 
    bool sent = side == 1 ? g_trade.Buy(lots, sym, 0, sl, tp, cm) : g_trade.Sell(lots, sym, 0, sl, tp, cm);
    uint rc = g_trade.ResultRetcode();
@@ -249,6 +253,33 @@ string DoQuote(string id, string symIn)
           ",\"time\":" + IntegerToString(nowMs) + "}");
   }
 
+// is `c` this order id? (some brokers append to comments, so match the prefix)
+bool CommentIs(string c, string id) { return(StringLen(id) > 0 && StringFind(c, id) == 0); }
+
+string DoLookup(string id, string orderId)
+  {
+   for(int i = 0; i < PositionsTotal(); i++)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t != 0 && CommentIs(PositionGetString(POSITION_COMMENT), orderId))
+         return("{\"id\":" + J(id) + ",\"ok\":true,\"status\":\"open\",\"orderId\":" + J(IntegerToString((long)t)) + ",\"detail\":" + J("position is open") + "}");
+     }
+   if(HistorySelect(TimeCurrent() - 14 * 86400, TimeCurrent() + 86400))
+     {
+      for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+        {
+         ulong d = HistoryDealGetTicket(i);
+         if(d == 0 || HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_IN) continue;
+         if(CommentIs(HistoryDealGetString(d, DEAL_COMMENT), orderId))
+            return("{\"id\":" + J(id) + ",\"ok\":true,\"status\":\"closed\",\"orderId\":" + J(IntegerToString((long)HistoryDealGetInteger(d, DEAL_POSITION_ID))) + ",\"detail\":" + J("filled; position already closed") + "}");
+        }
+     }
+   for(int i = 0; i < ArraySize(g_doneIds); i++)
+      if(g_doneIds[i] == orderId && StringFind(g_doneJson[i], "\"ok\":false") >= 0)
+         return("{\"id\":" + J(id) + ",\"ok\":true,\"status\":\"absent\",\"detail\":" + J("the EA tried it and MT5 rejected it") + "}");
+   return("{\"id\":" + J(id) + ",\"ok\":true,\"status\":\"absent\",\"detail\":" + J("no position or deal with this order id in the last 14 days") + "}");
+  }
+
 void Execute(string line)
   {
    string f[];
@@ -261,6 +292,7 @@ void Execute(string line)
    else if(action == "modify")    json = DoModify(id, f[10], f[4], f[5]);
    else if(action == "positions") json = DoPositions(id, f[2]);
    else if(action == "quote")     json = DoQuote(id, f[2]);
+   else if(action == "lookup")    json = DoLookup(id, f[10]);
    else if(action == "ping")      json = "{\"id\":" + J(id) + ",\"ok\":true}";
    else                           json = Fail(id, "unknown action " + action);
    PushResult(json);
