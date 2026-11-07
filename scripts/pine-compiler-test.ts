@@ -7,6 +7,7 @@
 //   3EL Pine EA template itself compiles and runs
 // ════════════════════════════════════════════════════════════════════════
 
+import { PINE_EA_TEMPLATE } from "../src/lib/pine-ea";
 import { compilePine } from "../src/lib/pine/compile";
 import { PineRuntime } from "../src/lib/pine/runtime";
 import type { Candle } from "../src/lib/halo/types";
@@ -231,7 +232,6 @@ console.log("\n═══ ⑤ manual signal capture ═══");
 
 console.log("\n═══ ⑦ the built-in 3EL Pine EA template compiles & runs ═══");
 {
-  const { PINE_EA_TEMPLATE } = await import("../src/lib/pine-ea");
   const src = PINE_EA_TEMPLATE.replace("__HALO_SECRET__", "TESTSECRET");
   const c = compilePine(src);
   ok(
