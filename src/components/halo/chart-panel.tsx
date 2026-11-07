@@ -98,7 +98,7 @@ function sideColor(side: number, alpha: string): string {
 type ChartMode = "tv" | "3el";
 const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator view
 const VENUE_KEY = "halo3el.chartvenue.v1"; // broker filter for the pair picker
-const LEVELS_KEY = "halo3el.chartlevels.v1"; // "all" (default) | "current"
+const LEVELS_KEY = "halo3el.chartlevels.v2"; // "current" (default) | "all"
 
 export default function ChartPanel(props: ChartProps) {
   const {
@@ -109,9 +109,10 @@ export default function ChartPanel(props: ChartProps) {
   const [tvNote, setTvNote] = useState<string | null>(null);
   // broker filter for the pair picker — null = ALL brokers (sectioned list)
   const [venue, setVenue] = useState<Venue | null>(null);
-  // ALL LEVELS shows every level the engine still holds (armed, fired,
-  // burned) plus past fires and TP/SL hits; CURRENT shows the live signal only
-  const [allLevels, setAllLevels] = useState(true);
+  // CURRENT (default) keeps the chart clean: armed levels + the trade that is
+  // running now. ALL LEVELS adds every level the engine still holds (fired,
+  // burned), past fires, TP/SL hits and replayed signal positions.
+  const [allLevels, setAllLevels] = useState(false);
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -157,7 +158,7 @@ export default function ChartPanel(props: ChartProps) {
         if (m === "3el" || m === "tv" || m === "halo") setMode(m === "halo" ? "3el" : m);
         const v = localStorage.getItem(VENUE_KEY);
         if (v === "deriv" || v === "mt5" || v === "binance") setVenue(v);
-        if (localStorage.getItem(LEVELS_KEY) === "current") setAllLevels(false);
+        if (localStorage.getItem(LEVELS_KEY) === "all") setAllLevels(true);
       } catch {
         // ignore
       }
@@ -390,6 +391,9 @@ export default function ChartPanel(props: ChartProps) {
     for (const pl of overlayRef.current.priceLines) cs.removePriceLine(pl);
     overlayRef.current = { series: [], priceLines: [] };
 
+    // CURRENT: only a BOOKED running trade is drawn — a replayed / untraded
+    // signal position appears only under ALL LEVELS
+    const shownTrade = allLevels ? trade : trade && trade.traded !== false ? trade : null;
     const firstT = candles.length > 0 ? candles[0].time : 0;
     const lastT = candles.length > 0 ? candles[candles.length - 1].time : Date.now();
 
@@ -406,9 +410,9 @@ export default function ChartPanel(props: ChartProps) {
     // creation and can never move.
     const freshAll = drawings.filter((d) => d.state === "fresh");
     let firedForTrade: LevelSnapshot | null = null;
-    if (trade) {
+    if (shownTrade) {
       firedForTrade =
-        drawings.find((d) => d.state === "fired" && d.endTime === trade.entryTime) ??
+        drawings.find((d) => d.state === "fired" && d.endTime === shownTrade.entryTime) ??
         [...drawings].reverse().find((d) => d.state === "fired") ??
         null;
     }
@@ -510,7 +514,7 @@ export default function ChartPanel(props: ChartProps) {
     // current (forming) bar and advances as each new candle opens —
     // covering that candle fully (capAtLastBar) — but never stretches
     // into the empty future space right of the last bar.
-    const t = trade;
+    const t = shownTrade;
     if (t) {
       const liveT = Math.max(win.last, t.entryTime);
       const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129"; // SELL profits below entry
@@ -623,8 +627,8 @@ export default function ChartPanel(props: ChartProps) {
           });
         }
       }
-    } else if (trade) {
-      const f = log.find((e) => e.kind === "fire" && e.time === trade.entryTime);
+    } else if (shownTrade) {
+      const f = log.find((e) => e.kind === "fire" && e.time === shownTrade.entryTime);
       if (f && inWin(f.time)) {
         markers.push({
           time: (f.time / 1000) as UTCTimestamp,
