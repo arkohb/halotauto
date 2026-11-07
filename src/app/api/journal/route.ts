@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { db } from "@/lib/db";
+import { syncHaloTrades } from "@/lib/journal/halo-sync";
 import { requireUser } from "@/lib/commerce/auth";
 import { parseFilters } from "@/lib/journal/filters";
 import { toRec } from "@/lib/journal/records";
@@ -18,6 +19,7 @@ export async function GET(req: Request) {
   const g = await requireUser();
   if (!g.ok) return NextResponse.json({ ok: false, error: g.error }, { status: g.status });
   const userId = g.user!.id;
+  await syncHaloTrades(userId).catch(() => 0); // HALO bot book → journal
   const url = new URL(req.url);
 
   const page = Math.max(1, parseInt(url.searchParams.get("page") ?? "1", 10) || 1);

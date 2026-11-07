@@ -7,6 +7,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { syncHaloTrades } from "@/lib/journal/halo-sync";
 import { requireUser } from "@/lib/commerce/auth";
 import { parseFilters, periodRange } from "@/lib/journal/filters";
 import { toRec } from "@/lib/journal/records";
@@ -39,6 +40,7 @@ export async function GET(req: Request) {
   const g = await requireUser();
   if (!g.ok) return NextResponse.json({ ok: false, error: g.error }, { status: g.status });
   const userId = g.user!.id;
+  await syncHaloTrades(userId).catch(() => 0); // HALO bot book → journal
   const url = new URL(req.url);
   const kindRaw = (url.searchParams.get("kind") ?? "monthly").toLowerCase();
   const kind: ReportKind = (KINDS as readonly string[]).includes(kindRaw) ? (kindRaw as ReportKind) : "monthly";

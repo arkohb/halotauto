@@ -15,6 +15,7 @@
 
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { syncHaloTrades } from "@/lib/journal/halo-sync";
 import { requireUser } from "@/lib/commerce/auth";
 import { parseFilters } from "@/lib/journal/filters";
 import { toRec } from "@/lib/journal/records";
@@ -100,6 +101,7 @@ export async function GET(req: Request) {
   const g = await requireUser();
   if (!g.ok) return NextResponse.json({ ok: false, error: g.error }, { status: g.status });
   const userId = g.user!.id;
+  await syncHaloTrades(userId).catch(() => 0); // HALO bot book → journal
   const url = new URL(req.url);
   const q = (url.searchParams.get("q") ?? "").trim().slice(0, 300);
   if (!q) return NextResponse.json({ ok: false, error: "Ask a question about your journal." }, { status: 400 });

@@ -5,6 +5,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
+import { syncHaloTrades } from "@/lib/journal/halo-sync";
 import { requireUser } from "@/lib/commerce/auth";
 import { parseFilters } from "@/lib/journal/filters";
 import { toRec } from "@/lib/journal/records";
@@ -16,6 +17,7 @@ export async function GET(req: Request) {
   const g = await requireUser();
   if (!g.ok) return new Response(JSON.stringify({ ok: false, error: g.error }), { status: g.status });
   const userId = g.user!.id;
+  await syncHaloTrades(userId).catch(() => 0); // HALO bot book → journal
   const url = new URL(req.url);
   const f = parseFilters(url);
   try {
