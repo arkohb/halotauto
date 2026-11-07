@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   const take = Math.min(200, Math.max(1, parseInt(url.searchParams.get("limit") ?? "60", 10) || 60));
   try {
     const trades = await db.trade.findMany({
-      where: { mode: { in: ["BOT", "TV", "SCAN", "MANUAL"] } },
+      where: { mode: { in: ["BOT", "TV", "SCAN", "SWEEP", "MANUAL"] } },
       orderBy: { openedAt: "desc" },
       take,
     });

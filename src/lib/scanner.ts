@@ -242,7 +242,8 @@ async function handleEvents(row: ScannerRow, events: EngineEvent[]): Promise<voi
       const exec = await loadExecSettings();
       const live = exec.executionMode === "live";
       let traded = false;
-      if (row.autoTrade) {
+      // simulated-only feed: the price guard refuses it by design — signal only
+      if (row.autoTrade && row.source !== "simulator") {
         const tradeId = await executeFire({
           source: "SCAN",
           symbol: row.symbol,

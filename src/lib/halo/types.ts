@@ -118,6 +118,8 @@ export interface TradeSnapshot {
   levelBot: number;
   trigger: number; // the dotted wick line the trade fired at (= entry)
   slModeLabel: string;
+  /** a real trade is booked for this position (false = replayed / untraded signal) */
+  traded?: boolean;
   // ── EDGE · Smart Trade Manager state (absent / untouched when the manager is off) ──
   origSl?: number; // the stop the trade fired with (R anchor)
   beDone?: boolean; // stop already moved to break-even
@@ -190,6 +192,9 @@ export interface LogEntry {
   pips: number; // pips at close for win/loss · S/R gap in pips for "skip"
   entry: number;
   message?: string; // full human-readable reason (skip entries)
+  /** fire / win / loss: a real trade was booked for it (false = the engine's
+   *  history replay or a paused / refused signal — nothing was traded) */
+  traded?: boolean;
 }
 
 export interface FireEvent {
@@ -288,5 +293,10 @@ export interface EngineSnapshot {
   drawings: LevelSnapshot[]; // all recent levels for chart rendering
   log: LogEntry[];
   trade: TradeSnapshot | null;
+  /** bot state only: a position the engine holds WITHOUT a booked trade
+   *  (start-up history replay, paused or refused signal). `trade` is null
+   *  then, so nothing in the app treats it as a running trade; the chart
+   *  draws it as a SIGNAL. */
+  signalTrade?: TradeSnapshot | null;
   stats: Stats;
 }

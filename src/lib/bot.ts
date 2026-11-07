@@ -12,7 +12,7 @@
 import { db } from "@/lib/db";
 import { HaloEngine } from "./halo/engine";
 import { Candle, DEFAULT_CONFIG, EngineEvent, HaloConfig } from "./halo/types";
-import { getKlines, getSymbolMeta, tfSec } from "./market";
+import { getKlines, getSymbolMeta, markPrioritySymbol, tfSec } from "./market";
 import { closeBrokerPosition, clampExec, edgeInfoFor, executeFire, gradeSpeech, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
 import { sendAlert } from "./alerts";
 import { registerBotProbe } from "./strategy-select";
@@ -25,6 +25,7 @@ import { getEdgeSync, liveTradeManager } from "./edge/settings";
 import { getOverlay, overlayCfg, overlayManager } from "./edge/autopilot";
 import { applyManageLive } from "./edge/trade-manager";
 import { ensureReconciled } from "./exec-lock";
+import { settleOrphanTradesOnce } from "@/lib/orphan-trades";
 import type { TradeManagerCfg } from "./halo/types";
 
 /**
@@ -222,6 +223,7 @@ async function warmEngine(): Promise<void> {
   bot.openTradeDbId = null;
   bot.lastConfirmedTime = 0;
   try {
+    markPrioritySymbol(bot.symbol); // the bot's own market is fetched ahead of scanner traffic
     const { candles, source } = await getKlines(bot.symbol, bot.tf, 600, { deep: true });
     bot.feedSource = source;
     bot.feedNote =
@@ -240,6 +242,8 @@ async function warmEngine(): Promise<void> {
     if (live && live.time + secMs > now) {
       bot.lastPrice = live.close;
       liveTrial(live);
+    } else if (live) {
+      bot.lastPrice = live.close; // market closed (weekend): last traded close
     }
   } catch (e) {
     bot.feedNote = "Warm-up error: " + (e as Error).message;
@@ -255,6 +259,9 @@ export async function ensureBoot(): Promise<void> {
     // restore the persistent execution lock (an order open or in doubt
     // before a restart keeps every engine paused until it is resolved)
     await ensureReconciled();
+    // paper trades nothing manages any more (pre-lock / test fires) are
+    // settled from real candles or voided, so the book never shows ghosts
+    await settleOrphanTradesOnce();
     await warmEngine();
     bot.bootstrapped = true;
     // ── AUTO-ATTACH ────────────────────────────────────────────────
@@ -567,6 +574,7 @@ export async function tickBot(force = false): Promise<void> {
   const frozen = !isLockHolder("BOT", bot.symbol, bot.tf);
   try {
     const prevSource = bot.feedSource;
+    markPrioritySymbol(bot.symbol);
     const { candles, source, stale } = await getKlines(bot.symbol, bot.tf, 4, { fresh: true });
     bot.feedSource = source;
     bot.feedNote =
@@ -779,6 +787,42 @@ export interface ExecSummary {
   broker: { id: string; label: string; kind: string; status: string; statusMsg: string } | null;
 }
 
+/** mark which engine fires / results were really traded (booked as a Trade) —
+ *  the start-up history replay and paused signals produce fires that never
+ *  became trades, and the chart must not present them as taken */
+async function annotateTraded(
+  snap: ReturnType<HaloEngine["snapshot"]>,
+  symbol: string,
+  tf: string,
+  openTradeDbId: string | null
+): Promise<ReturnType<HaloEngine["snapshot"]>> {
+  const fires = snap.log.filter((e) => e.kind === "fire");
+  let booked = new Set<number>();
+  if (fires.length > 0) {
+    try {
+      const rows = await db.trade.findMany({
+        where: { mode: "BOT", symbol, timeframe: tf, openedAt: { in: fires.map((f) => new Date(f.time)) } },
+        select: { openedAt: true },
+      });
+      booked = new Set(rows.map((r) => r.openedAt.getTime()));
+    } catch {
+      // unknown → treat as untraded (never over-claim)
+    }
+  }
+  let lastFireTraded = false;
+  const log = snap.log.map((e) => {
+    if (e.kind === "fire") {
+      lastFireTraded = booked.has(e.time);
+      return { ...e, traded: lastFireTraded };
+    }
+    if (e.kind === "win" || e.kind === "loss") return { ...e, traded: lastFireTraded };
+    return e;
+  });
+  // only a BOOKED position is reported as the running trade
+  if (snap.trade && !openTradeDbId) return { ...snap, log, trade: null, signalTrade: { ...snap.trade, traded: false } };
+  return { ...snap, log, trade: snap.trade ? { ...snap.trade, traded: true } : null, signalTrade: null };
+}
+
 export async function botState(): Promise<{
   enabled: boolean;
   autoAttach: boolean;
@@ -826,7 +870,7 @@ export async function botState(): Promise<{
       realizedPips: bot.realizedPips,
     },
     config: bot.cfg,
-    engine: bot.engine.snapshot(),
+    engine: await annotateTraded(bot.engine.snapshot(), bot.symbol, bot.tf, bot.openTradeDbId),
     exec: {
       executionMode: exec.executionMode,
       sizingMode: exec.sizingMode,

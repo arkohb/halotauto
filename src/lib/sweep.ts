@@ -269,7 +269,11 @@ async function handleEvents(row: SweepRow, events: EngineEvent[]): Promise<void>
         continue;
       }
       let traded = false;
-      if (R.autoTrade) {
+      // simulated-only feed (e.g. Deriv synthetics while Deriv is unreachable):
+      // the price guard refuses these orders by design (Decision B), so the
+      // sweep reports a signal instead of booking a rejected trade every time
+      const simulated = row.source === "simulator";
+      if (R.autoTrade && !simulated) {
         const exec = await loadExecSettings();
         const live = exec.executionMode === "live";
         const tradeId = await executeFire({
@@ -300,14 +304,14 @@ async function handleEvents(row: SweepRow, events: EngineEvent[]): Promise<void>
           tf: row.tf,
           time: e.time,
           title: `SWEEP SIGNAL · ${e.dir === -1 ? "SELL" : "BUY"} ${symLabel} @ ${px(e.entry)}`,
-          spoken: `The all-pairs sweep found a ${e.dir === -1 ? "sell" : "buy"} break and return on ${symLabel} at ${px(e.entry)}. Signal only — no trade was opened.`,
+          spoken: `The all-pairs sweep found a ${e.dir === -1 ? "sell" : "buy"} break and return on ${symLabel} at ${px(e.entry)}. Signal only — no trade was opened${simulated ? " (simulated prices, no live feed for this market)" : ""}.`,
         });
       }
       void sendAlert({
         kind: "scanner",
         title: `SWEEP ${e.dir === -1 ? "SELL" : "BUY"} · ${symLabel} ${row.tf.toUpperCase()}`,
         body: `${e.message}\nSymbol: ${row.symbol} · TF ${row.tf}\n${
-          traded ? "AUTO-TRADED via the all-pairs sweep" : R.autoTrade ? "auto-trade ON but execution rejected" : "signal only — sweep auto-trade OFF"
+          traded ? "AUTO-TRADED via the all-pairs sweep" : simulated ? "signal only — simulated prices, no live feed for this market" : R.autoTrade ? "auto-trade ON but execution rejected" : "signal only — sweep auto-trade OFF"
         }\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips`,
       });
     } else if (e.type === "manage") {

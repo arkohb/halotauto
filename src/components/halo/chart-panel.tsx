@@ -122,6 +122,9 @@ export default function ChartPanel(props: ChartProps) {
 
   // derived (visual-only) state
   const freshLevels = useMemo(() => drawings.filter((d) => d.state === "fresh"), [drawings]);
+  // the position tool also draws a replayed / untraded SIGNAL position (labelled
+  // as such); every "open position" readout uses the booked trade only
+  const bookedTrade = trade && trade.traded !== false ? trade : null;
   const liveCandle = candles.length > 0 ? candles[candles.length - 1] : undefined;
   const forming = useMemo(() => c3FormCheck(liveCandle, freshLevels, atr, cfg), [liveCandle, freshLevels, atr, cfg]);
   const bestForm = bestC3Form(forming);
@@ -537,7 +540,7 @@ export default function ChartPanel(props: ChartProps) {
           lineWidth: 2,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: true,
-          title: `ENTRY ${fmtPx(t.entry, mintick)}`,
+          title: `${t.traded === false ? "SIGNAL ENTRY" : "ENTRY"} ${fmtPx(t.entry, mintick)}`,
         })
       );
       overlayRef.current.priceLines.push(
@@ -596,13 +599,16 @@ export default function ChartPanel(props: ChartProps) {
     if (allLevels) {
       for (const e of log) {
         if (!inWin(e.time)) continue;
+        // traded = a real trade was booked; otherwise it is a SIGNAL only
+        // (start-up history replay, paused or refused) — shown greyed
+        const sig = e.traded === false;
         if (e.kind === "fire") {
           markers.push({
             time: (e.time / 1000) as UTCTimestamp,
             position: e.dir === -1 ? "aboveBar" : "belowBar",
             shape: e.dir === -1 ? "arrowDown" : "arrowUp",
-            text: e.dir === -1 ? "C3 SELL" : "C3 BUY",
-            color: C.gold,
+            text: `${e.dir === -1 ? "C3 SELL" : "C3 BUY"}${sig ? " · SIGNAL" : ""}`,
+            color: sig ? C.muted : C.gold,
             size: 2,
           });
         } else if (e.kind === "win" || e.kind === "loss") {
@@ -611,8 +617,8 @@ export default function ChartPanel(props: ChartProps) {
             time: (e.time / 1000) as UTCTimestamp,
             position: e.dir === -1 ? "belowBar" : "aboveBar",
             shape: "square",
-            text: `${hitTp ? "TP +" : "SL −"}${Math.abs(e.pips).toFixed(0)}p`,
-            color: hitTp ? C.green : C.red,
+            text: `${hitTp ? "TP +" : "SL −"}${Math.abs(e.pips).toFixed(0)}p${sig ? " · SIGNAL" : ""}`,
+            color: sig ? C.muted : hitTp ? C.green : C.red,
             size: 1.5,
           });
         }
@@ -895,7 +901,7 @@ export default function ChartPanel(props: ChartProps) {
           <IndicatorRail
             side="right"
             levels={freshLevels}
-            trade={trade}
+            trade={bookedTrade}
             live={liveStat.active && liveBar ? liveBar : liveCandle}
             price={liveStat.active && liveBar ? liveBar.close : price}
             atr={atr}
@@ -909,7 +915,7 @@ export default function ChartPanel(props: ChartProps) {
             levels={freshLevels}
             history={allLevels ? drawings.filter((d) => d.state !== "fresh") : []}
             log={allLevels ? log : []}
-            trade={trade}
+            trade={bookedTrade}
             mintick={mintick}
             symbol={symbol}
             tf={tf}
@@ -940,13 +946,13 @@ export default function ChartPanel(props: ChartProps) {
             {statusLine && (
               <div className="mt-0.5 text-[10px] font-bold tracking-wide text-[#EAF3FF]">{statusLine}</div>
             )}
-            {trade ? (
+            {bookedTrade ? (
               <div className="mt-0.5 flex flex-wrap gap-x-3 text-[9px] tracking-wide">
-                <span style={{ color: trade.dir === -1 ? C.red : C.green }}>
-                  {trade.dir === -1 ? "SELL" : "BUY"} @ {fmtPx(trade.entry, mintick)}
+                <span style={{ color: bookedTrade.dir === -1 ? C.red : C.green }}>
+                  {bookedTrade.dir === -1 ? "SELL" : "BUY"} @ {fmtPx(bookedTrade.entry, mintick)}
                 </span>
-                <span style={{ color: C.red }}>SL {fmtPx(trade.sl, mintick)}</span>
-                <span style={{ color: C.green }}>TP {fmtPx(trade.tp, mintick)}</span>
+                <span style={{ color: C.red }}>SL {fmtPx(bookedTrade.sl, mintick)}</span>
+                <span style={{ color: C.green }}>TP {fmtPx(bookedTrade.tp, mintick)}</span>
               </div>
             ) : (
               <div className="mt-0.5 text-[9px] tracking-wide text-[#8AA2C2]">
@@ -975,7 +981,7 @@ export default function ChartPanel(props: ChartProps) {
           <IndicatorRail
             side="left"
             levels={freshLevels}
-            trade={trade}
+            trade={bookedTrade}
             live={liveStat.active && liveBar ? liveBar : liveCandle}
             price={liveStat.active && liveBar ? liveBar.close : price}
             atr={atr}

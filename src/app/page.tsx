@@ -413,7 +413,7 @@ export default function Page() {
                       candles={candles}
                       drawings={state.engine.drawings}
                       log={state.engine.log}
-                      trade={state.engine.trade}
+                      trade={state.engine.trade ?? state.engine.signalTrade ?? null}
                       mintick={state.mintick}
                       symbol={state.symbol}
                       tf={state.tf}
@@ -504,7 +504,7 @@ export default function Page() {
                     candles={candles}
                     drawings={state.engine.drawings}
                     log={state.engine.log}
-                    trade={state.engine.trade}
+                    trade={state.engine.trade ?? state.engine.signalTrade ?? null}
                     mintick={state.mintick}
                     symbol={state.symbol}
                     tf={state.tf}

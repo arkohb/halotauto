@@ -388,14 +388,15 @@ export function TvSignalOverlay({ candles, levels, history = [], log = [], trade
               <span
                 key={`m${i}`}
                 className="absolute text-[8px] font-extrabold tracking-wider"
-                style={{ left: x - 5, top: e.dir === -1 ? y - 16 : y + 3, color: GOLD, whiteSpace: "nowrap" }}
+                style={{ left: x - 5, top: e.dir === -1 ? y - 16 : y + 3, color: e.traded === false ? "rgba(140,152,174,0.8)" : GOLD, whiteSpace: "nowrap" }}
               >
                 {e.dir === -1 ? "▼ C3 SELL" : "▲ C3 BUY"}
+                {e.traded === false ? " · SIGNAL" : ""}
               </span>
             );
           }
           const tp = e.kind === "win";
-          const col = `rgba(${tp ? GREEN : RED},0.95)`;
+          const col = e.traded === false ? "rgba(140,152,174,0.8)" : `rgba(${tp ? GREEN : RED},0.95)`;
           return (
             <span
               key={`m${i}`}
@@ -403,7 +404,7 @@ export function TvSignalOverlay({ candles, levels, history = [], log = [], trade
               style={{ left: x - 14, top: 22, borderColor: col, color: col, background: "rgba(7,13,27,0.85)", whiteSpace: "nowrap" }}
             >
               {tp ? "TP +" : "SL −"}
-              {Math.abs(e.pips).toFixed(0)}p
+              {Math.abs(e.pips).toFixed(0)}p{e.traded === false ? " · SIGNAL" : ""}
             </span>
           );
         });
