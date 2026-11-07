@@ -151,7 +151,48 @@ function aggregate(src: Candle[], mult: number): Candle[] {
   return out;
 }
 
-async function fYahoo(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
+// Yahoo throttles bursts: the scanners refresh dozens of pairs × timeframes
+// at once, and unbounded parallel requests time out (12 s) and drop symbols
+// to the simulator. A small gate keeps at most YAHOO_MAX requests in flight;
+// the timeout only starts once a request actually leaves.
+const YAHOO_MAX = 4;
+const PRIORITY_MS = 5 * 60_000;
+interface YahooGate {
+  active: number;
+  queue: Array<() => void>;
+  hot: Map<string, number>;
+}
+const gYq = globalThis as unknown as { __haloYahooGateV2?: YahooGate };
+const yGate: YahooGate = (gYq.__haloYahooGateV2 ??= { active: 0, queue: [], hot: new Map<string, number>() });
+
+/** symbols a trader is looking at (chart) or the bot trades jump the queue */
+export function markPrioritySymbol(sym: string): void {
+  yGate.hot.set(sym, Date.now());
+}
+
+async function yahooSlot<T>(fn: () => Promise<T>, hot = false): Promise<T> {
+  if (yGate.active >= YAHOO_MAX) {
+    await new Promise<void>((r) => (hot ? yGate.queue.unshift(r) : yGate.queue.push(r)));
+  }
+  yGate.active++;
+  try {
+    return await fn();
+  } finally {
+    yGate.active--;
+    yGate.queue.shift()?.();
+  }
+}
+
+/** short history range for small refreshes (native intervals only — aggregated
+ *  3m/2h/4h bars must keep the same range or their grouping would shift) */
+const SHORT_RANGE: Record<string, string> = { "1m": "5d", "5m": "5d", "15m": "5d", "30m": "5d", "1h": "5d", "1d": "1mo" };
+
+function fYahoo(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
+  const hot = Date.now() - (yGate.hot.get(sym) ?? 0) < PRIORITY_MS;
+  return yahooSlot(() => fYahooNow(sym, tf, limit), hot);
+}
+
+async function fYahooNow(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
   const ticker = yahooTicker(sym);
   // (interval, range, aggregate-mult) — Yahoo has no native 3m/2h/4h FX bars
   const plan: Record<string, [string, string, number]> = {
@@ -165,10 +206,11 @@ async function fYahoo(sym: string, tf: string, limit: number): Promise<{ candles
     "4h": ["1h", "1y", 4],
     "1d": ["1d", "2y", 1],
   };
-  const [iv, range, mult] = plan[tf] ?? ["5m", "1mo", 1];
+  const [iv, fullRange, mult] = plan[tf] ?? ["5m", "1mo", 1];
+  const range = limit <= 20 && mult === 1 && SHORT_RANGE[tf] ? SHORT_RANGE[tf] : fullRange;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${iv}&range=${range}&includePrePost=false`;
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 12000);
+  const t = setTimeout(() => ctrl.abort(), 20000);
   try {
     const r = await fetch(url, {
       signal: ctrl.signal,

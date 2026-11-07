@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getKlines, getSymbolMeta, SYMBOLS, TIMEFRAMES } from "@/lib/market";
+import { getKlines, getSymbolMeta, markPrioritySymbol, SYMBOLS, TIMEFRAMES } from "@/lib/market";
 import { guardLicensed } from "@/lib/api-guard";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,7 @@ export async function GET(req: Request) {
   const limit = Math.min(720, Math.max(20, parseInt(url.searchParams.get("limit") ?? "240", 10) || 240));
 
   try {
+    markPrioritySymbol(symbol); // the chart a trader is watching never waits behind the scanners
     const { candles, source, stale } = await getKlines(symbol, tf, limit, { fresh: true });
     const meta = getSymbolMeta(symbol);
     return NextResponse.json({
