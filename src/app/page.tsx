@@ -167,6 +167,46 @@ export default function Page() {
     };
   }, [symbol, tf, candleNonce]);
 
+  // ── LIVE-TRADE CHART FOLLOW · the main chart belongs to the running trade ──
+  // When any executor fires (Scanner Bot row, sweep, Market Scanner, TV
+  // webhook or the EA) the global trade lock carries the trade's pair and
+  // timeframe. The chart and the bot follow it with one /api/bot/config call,
+  // so ENTRY/SL/TP and the live marker draw on the trade's own candles. (The
+  // bot engine boots flat while another executor holds the trade.) A NEW fire
+  // while the app is open brings the chart up and announces it once.
+  const prevLockKeyRef = useRef<string | null>(null); // null = no state seen yet
+  const followBusyRef = useRef(false);
+  useEffect(() => {
+    if (!state) return;
+    const lock = state.scanLock ?? null;
+    const key = lock ? `${lock.source}:${lock.symbol}:${lock.tf}:${lock.openedAt}` : "";
+    const prev = prevLockKeyRef.current;
+    prevLockKeyRef.current = key;
+    if (!lock) return;
+    if ((lock.symbol !== state.symbol || lock.tf !== state.tf) && !followBusyRef.current) {
+      followBusyRef.current = true;
+      void (async () => {
+        try {
+          const r = await fetch("/api/bot/config", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ symbol: lock.symbol, tf: lock.tf }),
+          });
+          const j = (await r.json()) as { ok: boolean; state?: BotStateRes };
+          if (j.ok && j.state) setState(j.state);
+        } catch {
+          // transient — the next state poll re-runs this effect and retries
+        } finally {
+          followBusyRef.current = false;
+        }
+      })();
+    }
+    if (prev !== null && prev !== key && view !== "terminal") {
+      gotoView("terminal");
+      notify("LIVE TRADE ON CHART", `${lock.dir === -1 ? "SELL" : "BUY"} ${lock.symbol} ${lock.tf} @ ${lock.entry} — the chart is following the running trade.`);
+    }
+  }, [state, view, gotoView, notify]);
+
   // refresh history when a trade closes
   useEffect(() => {
     if (!state) return;
