@@ -320,15 +320,23 @@ export default function ChartPanel(props: ChartProps) {
     let pending: LiveBar | null = null;
     let raf = 0;
     const draw = (bar: LiveBar) => {
-      lastLiveRef.current = bar;
-      if (mode === "3el") {
-        candleRef.current?.update({
-          time: (bar.time / 1000) as UTCTimestamp,
-          open: bar.open,
-          high: bar.high,
-          low: bar.low,
-          close: bar.close,
-        });
+      // a tick for a bar OLDER than the newest one in the series is stale
+      // (a polled setData already moved the window on) — lightweight-charts
+      // throws "Cannot update oldest data" on it, so skip the candle draw
+      const stale = seriesWinRef.current != null && bar.time < seriesWinRef.current.last;
+      if (!stale) lastLiveRef.current = bar;
+      if (mode === "3el" && !stale) {
+        try {
+          candleRef.current?.update({
+            time: (bar.time / 1000) as UTCTimestamp,
+            open: bar.open,
+            high: bar.high,
+            low: bar.low,
+            close: bar.close,
+          });
+        } catch {
+          // series replaced mid-frame — the next tick redraws
+        }
       }
       // a brand-new bar extends the series window (bar rollover)
       setSeriesWin((w) => (w && bar.time > w.last ? { first: w.first, last: bar.time } : w));
