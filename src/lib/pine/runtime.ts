@@ -310,6 +310,7 @@ export class PineRuntime {
 
   private states = new Map<string, unknown>(); // per call-site helper state
   private varBoxes = new Map<string, Box>(); // `var` boxes by node key
+  private declBoxes = new Map<string, Box>(); // plain-decl series boxes by node key — give x[1] real history
   // wall-clock budget — one confirmed bar of a huge script must never hang
   // the server or the preview; checked every 1024 executed statements
   private deadline = 0;
@@ -452,7 +453,16 @@ export class PineRuntime {
           return box.at(bar);
         }
         const v = this.evalExpr(st.init, scopes);
-        const box = new Box(false, v);
+        // PERSISTENT series box keyed by declaration node — the same box is
+        // rewritten every bar, so `x[1]` reads the previous bar's real value
+        // (core Pine semantics: every variable is a series). Without this the
+        // box was recreated per bar and anyVar[1] was always na.
+        const dkey = `d${st.id}:${st.name}`;
+        let box = this.declBoxes.get(dkey);
+        if (!box) {
+          box = new Box(false, v);
+          this.declBoxes.set(dkey, box);
+        }
         box.write(bar, v);
         scopes[scopes.length - 1].set(st.name, box);
         this.maybeCaptureBool(st.name, box);
@@ -487,7 +497,9 @@ export class PineRuntime {
         st.names.forEach((nm, i) => {
           let box: Box;
           if (st.isDecl) {
-            box = new Box(false, v[i]);
+            const tkey = `t${st.id}:${nm}`;
+            box = this.declBoxes.get(tkey) ?? new Box(false, v[i]);
+            this.declBoxes.set(tkey, box);
             scopes[scopes.length - 1].set(nm, box);
           } else {
             const found = this.lookup(nm, scopes);
@@ -1072,8 +1084,7 @@ function taCall(rt: PineRuntime, name: string, pos: PValue[], named: Record<stri
         const half = Math.max(1, Math.round(len / 2));
         const sq = Math.max(1, Math.round(Math.sqrt(len)));
         const wFull = win(st, Math.round(len));
-        const stHalf = rt.setState(`${key}:hmaHalf`, () => ({ buf: [] as (number | null)[] })) as { buf: (number | null)[] };
-        const wHalf = win(stHalf, half);
+        const wHalf = win(st, half);
         if (!wFull || !wHalf) return null;
         const wmaOf = (w: number[]) => {
           const d = w.length;
@@ -1081,6 +1092,9 @@ function taCall(rt: PineRuntime, name: string, pos: PValue[], named: Record<stri
           for (let i = 0; i < d; i++) { const wt = d - i; n1 += w[i] * wt; dn += wt; }
           return n1 / dn;
         };
+        // HMA = WMA( 2·WMA(src, n/2) − WMA(src, n), √n ) — both inner WMAs read
+        // the SAME pushed src window (the old code read a never-pushed buffer
+        // and returned na forever).
         const diff = 2 * wmaOf(wHalf) - wmaOf(wFull);
         const stD = rt.setState(`${key}:hmaDiff`, () => ({ buf: [] as (number | null)[] })) as { buf: (number | null)[] };
         stD.buf.push(diff);
@@ -1310,7 +1324,13 @@ function taCall(rt: PineRuntime, name: string, pos: PValue[], named: Record<stri
       else if (prevSt === st.lb) st.dir = c < lb ? -1 : 1;
       else st.dir = c > (prevSt ?? c) ? 1 : -1;
       st.st = st.dir === 1 ? lb : ub;
-      return [st.st, st.dir];
+      // Pine v5 sign convention: direction is −1 when the line is BELOW price
+      // (uptrend) and +1 when it is ABOVE (downtrend). Our internal dir uses
+      // the opposite sign (1 = line below), so flip at the boundary — scripts
+      // like `[sup, dir] = ta.supertrend(...)` + `crossover(dir * -1, 0)`
+      // otherwise read flips INVERTED and trade with the stop on the wrong
+      // side of the entry (instant same-price stop-out on every trade).
+      return [st.st, -st.dir as 1 | -1];
     }
     case "sar": {
       const st = rt.setState(`${key}:sar`, () => ({ dir: 1, af: 0, ep: null as number | null, sar: null as number | null })) as { dir: 1 | -1; af: number; ep: number | null; sar: number | null };
@@ -1326,13 +1346,16 @@ function taCall(rt: PineRuntime, name: string, pos: PValue[], named: Record<stri
       }
       let sar = st.sar + st.af * ((st.ep ?? h) - st.sar);
       if (st.dir === 1) {
+        // Wilder clamp uses the PREVIOUS bar's extreme only — clamping with
+        // today's low makes sar ≤ today's low, so the `l < sar` flip below
+        // could never trigger (SAR silently never reversed).
         const prevLow = rt.bLow.hist(bar, 1);
-        sar = Math.min(sar, l, isNum(prevLow) ? prevLow : l);
+        sar = Math.min(sar, isNum(prevLow) ? prevLow : l);
         if (h > (st.ep ?? h)) { st.ep = h; st.af = Math.min(mx, st.af + inc); }
         if (l < sar) { st.dir = -1; sar = st.ep ?? h; st.ep = l; st.af = inc; }
       } else {
         const prevHigh = rt.bHigh.hist(bar, 1);
-        sar = Math.max(sar, h, isNum(prevHigh) ? prevHigh : h);
+        sar = Math.max(sar, isNum(prevHigh) ? prevHigh : h);
         if (l < (st.ep ?? l)) { st.ep = l; st.af = Math.min(mx, st.af + inc); }
         if (h > sar) { st.dir = 1; sar = st.ep ?? l; st.ep = h; st.af = inc; }
       }
