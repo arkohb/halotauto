@@ -26,6 +26,9 @@ function LoginForm() {
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // two-factor step: set when the password was right and a code is required
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     // Already signed in? Route to the right home.
@@ -46,9 +49,14 @@ function LoginForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ identifier, password, remember }),
       });
-      const j = (await r.json()) as { ok: boolean; error?: string; redirect?: string };
+      const j = (await r.json()) as { ok: boolean; error?: string; redirect?: string; twoFactorRequired?: boolean; challenge?: string };
       if (!j.ok) {
         setError(j.error ?? "Sign-in failed.");
+        return;
+      }
+      if (j.twoFactorRequired && j.challenge) {
+        setChallenge(j.challenge);
+        setPassword("");
         return;
       }
       router.replace(next || j.redirect || "/account");
@@ -58,6 +66,85 @@ function LoginForm() {
       setBusy(false);
     }
   }, [identifier, password, remember, next, router]);
+
+  const verifyCode = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/2fa/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ challenge, code }),
+      });
+      const j = (await r.json()) as { ok: boolean; error?: string; redirect?: string; restart?: boolean; usedRecoveryCode?: boolean; recoveryRemaining?: number };
+      if (!j.ok) {
+        setError(j.error ?? "Verification failed.");
+        if (j.restart) {
+          setChallenge(null);
+          setCode("");
+        }
+        return;
+      }
+      if (j.usedRecoveryCode) window.alert(`Recovery code used — ${j.recoveryRemaining ?? 0} left. Make new ones in Account → Two-factor sign-in.`);
+      router.replace(next || j.redirect || "/account");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [challenge, code, next, router]);
+
+  if (challenge) {
+    return (
+      <GlassCard className="w-full max-w-[400px] p-7">
+        <div className="mb-5 flex items-center gap-3">
+          <HaloMark size={38} />
+          <Wordmark size={13} />
+        </div>
+        <h1 className="text-[20px] font-extrabold tracking-tight" style={{ color: C.txt }}>Two-factor sign-in</h1>
+        <p className="mb-5 text-[11.5px] leading-relaxed" style={{ color: C.muted }}>
+          Enter the 6-digit code from your authenticator app, or one of your recovery codes.
+        </p>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy) void verifyCode();
+          }}
+        >
+          <FieldLabel>CODE</FieldLabel>
+          <input
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder="123456 or XXXXX-XXXXX"
+            autoComplete="one-time-code"
+            inputMode="text"
+            autoFocus
+            className="mb-4 w-full rounded-lg px-3 py-2.5 text-center text-[16px] tracking-[0.3em] outline-none transition-colors focus:border-[#2ECCFF]"
+            style={inputStyle}
+          />
+          <div className="space-y-3">
+            <ErrorBox error={error} />
+            <GoldButton type="submit" disabled={busy || code.replace(/[\s-]/g, "").length < 6} className="flex w-full items-center justify-center gap-2">
+              {busy ? <Loader2 size={14} className="animate-spin" /> : null}
+              {busy ? "VERIFYING…" : "Verify"}
+            </GoldButton>
+            <button
+              type="button"
+              onClick={() => {
+                setChallenge(null);
+                setCode("");
+                setError(null);
+              }}
+              className="w-full text-[11px] font-semibold hover:underline"
+              style={{ color: C.cyan }}
+            >
+              Back to password
+            </button>
+          </div>
+        </form>
+      </GlassCard>
+    );
+  }
 
   return (
     <GlassCard className="w-full max-w-[400px] p-7">

@@ -12,6 +12,9 @@
 //    bun scripts/admin-credentials.ts                       → generates a strong password, prints ONCE
 //    bun scripts/admin-credentials.ts --password 'S3cret!'  → sets the given password (not printed)
 //    ADMIN_EMAIL / ADMIN_PASSWORD env vars also honoured.
+//    … --reset-2fa --email you@x → BREAK-GLASS: turn off two-factor sign-in
+//                                   for that account only (password untouched).
+//                                   Needs server access; recorded in the audit log.
 // ══════════════════════════════════════════════════════════════════════════
 
 import crypto from "crypto";
@@ -41,6 +44,20 @@ async function main() {
   };
 
   const email = (argOf("--email") || process.env.ADMIN_EMAIL || "bismark@halotrader.com").trim().toLowerCase();
+
+  if (args.includes("--reset-2fa")) {
+    // lost phone AND recovery codes: only someone with server access can do this
+    const u = await db.user.findUnique({ where: { email } });
+    if (!u) {
+      console.error(`✗ no account ${email}`);
+      process.exit(1);
+    }
+    const r = await db.systemSetting.deleteMany({ where: { key: `2fa:${u.id}` } });
+    await db.session.updateMany({ where: { userId: u.id, revokedAt: null }, data: { revokedAt: new Date() } });
+    await db.auditLog.create({ data: { action: "2FA_RESET_BREAK_GLASS", actorEmail: "server-script", actorRole: "SERVER", targetType: "user", targetId: u.id, outcome: "success", metaJson: JSON.stringify({ email }) } });
+    console.log(r.count ? `✔ two-factor sign-in turned OFF for ${email}; all its sessions signed out. Set it up again from Account.` : `• ${email} had no two-factor set up — nothing changed.`);
+    return;
+  }
   let password = argOf("--password") || process.env.ADMIN_PASSWORD || "";
   const generated = !password;
   if (generated) password = generatePassword();

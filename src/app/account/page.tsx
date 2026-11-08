@@ -16,6 +16,7 @@ import {
   CommerceBackdrop, CreatorLine, ErrorBox, FieldLabel, GlassCard, GoldButton,
   HaloMark, inputStyle, TrustRow, Wordmark,
 } from "@/components/commerce/brand";
+import { TwoFactorCard } from "@/components/commerce/two-factor-card";
 
 interface AccountRes {
   ok: boolean;
@@ -290,6 +291,9 @@ export default function AccountPage() {
                 </div>
               )}
             </div>
+
+            {/* two-factor sign-in (administrator accounts) */}
+            <TwoFactorCard />
 
             {/* notifications + support */}
             <div className="grid gap-4 sm:grid-cols-2">

@@ -2,6 +2,9 @@
 //  /api/auth/login · credential sign-in (rate-limited, audited)
 //  Supports e-mail or username. Enforces account status gates. Sets an
 //  HttpOnly session cookie (30 days with "remember me").
+//  Accounts with two-factor sign-in get NO session here: a short-lived
+//  challenge is returned and /api/auth/2fa/verify creates the session only
+//  after a valid authenticator or recovery code.
 // ══════════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
@@ -10,6 +13,7 @@ import { USER_STATUSES, USER_STATUS_LABEL, clientIp, rateLimit } from "@/lib/com
 import { SESSION_COOKIE, createSession, toSafeUser, verifyPassword } from "@/lib/commerce/auth";
 import { logAudit } from "@/lib/commerce/audit";
 import { isAdminRole } from "@/lib/commerce/auth";
+import { createChallenge, twoFactorEnabled } from "@/lib/commerce/two-factor";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +52,11 @@ export async function POST(req: NextRequest) {
     }
     if (user.status === USER_STATUSES.BLOCKED || user.status === USER_STATUSES.REJECTED) {
       return NextResponse.json({ ok: false, error: "This account no longer has access. Contact support if you believe this is an error." }, { status: 403 });
+    }
+
+    if (await twoFactorEnabled(user.id)) {
+      await logAudit({ action: "LOGIN_PASSWORD_OK_2FA_PENDING", actorId: user.id, actorEmail: user.email, actorRole: user.role, targetType: "user", targetId: user.id, meta: { ip } });
+      return NextResponse.json({ ok: true, twoFactorRequired: true, challenge: createChallenge(user.id, body.remember !== false) });
     }
 
     const token = await createSession(user.id, req.headers.get("user-agent") ?? "");

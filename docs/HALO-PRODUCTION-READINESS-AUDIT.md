@@ -52,7 +52,7 @@ The levels below mean exactly what the brief defines: IMPLEMENTED (source exists
 | HALO Bridge EA | TESTED (simulated EA, 17 checks) | **Never compiled or run in MT5** |
 | Journal (incl. bot trades in pips) | TESTED (API, manual) | 19 HALO trades synced. One bad +2,933-pip test record (awaiting decision) |
 | Auth, sessions, licence, device slots | IMPLEMENTED + TESTED in Phases 1–5 | See `PHASE*-REPORT` docs |
-| **Super Admin 2FA** | **ABSENT** | Only a UI OTP component exists |
+| **Super Admin 2FA** | **TESTED** (unit + HTTP end-to-end on a throwaway DB) | TOTP (RFC 6238 vectors pass) + 10 single-use hashed recovery codes; encrypted secret; login returns a challenge (5 tries, 5 min), session only after a valid code; replay blocked; enabling signs out other sessions; password re-entry for setup/disable; rate-limited; audit-logged; break-glass reset via `scripts/admin-credentials.ts --reset-2fa`. **Opt-in, currently OFF for every account** |
 | Rate limiting | PARTIAL | Auth, licence and checkout routes only. **AI, backtest, autopilot and scanner routes have none** |
 | Credential encryption (AES-256-GCM) | TESTED | `secret-box-selftest`; real DB migrated 5/5 |
 | Webhook replay protection | TESTED (Phase 3) | |
@@ -75,7 +75,7 @@ Verified directly in this session:
 
 - **Brokers:** every broker execution path, the EA in MT5, and OANDA, IG and Binance orders.
 - **Payments:** both sandboxes.
-- **Admin:** 2FA.
+- **Admin:** 2FA is built but not yet turned on for the Super Admin account.
 - **Platform:** rate limits on expensive routes; monitoring; automated backups and restore tests; Postgres; hosting.
 - **Market data:** a licensed source.
 - **Legal:** terms, privacy policy and risk disclosure.
@@ -90,7 +90,7 @@ Verified directly in this session:
 | CRITICAL (launch) | Market data is Yahoo (unlicensed) unless OANDA is configured; futures vs spot mismatch with brokers |
 | ~~HIGH~~ fixed | Uncertain orders are now reconciled by broker order reference (see §2) |
 | ~~HIGH~~ fixed | MetaApi order comment + client id was 34–36 chars against MetaApi's documented 26-char limit (orders at risk of rejection or a truncated id). The id is now 15 chars and the comment is trimmed to fit |
-| HIGH | No Super Admin 2FA |
+| ~~HIGH~~ built | Super Admin 2FA exists (opt-in). It stays a risk until the owner turns it on |
 | HIGH | No rate limits on AI, backtest and autopilot routes (cost and abuse) |
 | HIGH | Engines run inside the web process: a restart or HMR can leave timers on old code, as seen this session; needs a dedicated worker in production |
 | HIGH | No monitoring or alerting for a stalled bot, stale data or a stuck lock |
@@ -112,7 +112,7 @@ Verified directly in this session:
    - ~~Store and query the broker order reference during reconciliation.~~ Done (MetaApi, OANDA, HALO Bridge EA; others tag-checked).
    - ~~An admin page for uncertain orders and the price-guard threshold.~~ Done: Admin → Execution.
 2. **Capital protection:** verify Capital Guardian and the prop rules on a demo account.
-3. **Security:** Super Admin 2FA, and rate limits on AI, backtest, autopilot and scanner routes.
+3. **Security:** ~~Super Admin 2FA~~ (built: owner to turn it on); rate limits on AI, backtest, autopilot and scanner routes.
 4. **Integrations:** OANDA practice, the EA demo, MetaApi, then IG and Binance. Needs credentials.
 5. **Data:** Postgres plan, automated backups and a restore test; the decision on the bad trade.
 6. **Commercial:** payment sandboxes, legal drafts, monitoring, hosting.
@@ -139,6 +139,8 @@ Verified directly in this session:
 | deriv-catalog-test | 68/68 |
 | **pine-compiler-test** | **41/42**: the built-in EA template uses `timenow` (see §2). The test file also had a top-level `await` that the runner can't load; changed to a static import (test file only) |
 | **exec-lock-concurrency-test** (new) | **33/33** on a throwaway DB (`db/custom.db` verified unchanged by checksum), including reconciliation by order reference through a simulated EA |
+| two-factor-selftest (new) | 20/20 (incl. RFC 6238 vectors) |
+| two-factor-e2e (new) | 23/23 over HTTP against a throwaway DB copy (`db/custom.db` verified unchanged) |
 | adapter-stub-test | **not run**: needs the local MetaApi stub, which requires the Bun runtime (not installed) |
 
 ## 9. Actions needing the user (credentials or approval)
@@ -151,6 +153,7 @@ Verified directly in this session:
 6. Decide whether the +2,933-pip test trade should be marked VOID.
 7. Approve enabling the news blackout (built, off).
 8. Change the Exness demo password (it was shared in chat).
+9. Turn on two-factor sign-in for the Super Admin account (Account → Two-factor sign-in) and save the recovery codes.
 
 ## 10. Recommended next milestone
 
