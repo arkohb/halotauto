@@ -40,6 +40,9 @@ interface CalendarRes {
   stale: boolean;
   events: EconEvent[];
   error?: string;
+  note?: string; // transparency remark on success (e.g. served via XML fallback)
+  rateLimited?: boolean; // the feed itself answered HTTP 429
+  retryIn?: number; // seconds until a real re-fetch opens
 }
 
 interface NewsItem {
@@ -124,15 +127,18 @@ export function IntelPanel() {
   const [quotes, setQuotes] = useState<Record<string, QuoteRes>>({});
   const [loading, setLoading] = useState(false);
 
-  const loadCalendar = useCallback(async () => {
-    const cur = currency === "ALL" ? "" : `&currency=${currency}`;
-    try {
-      const r = await fetch(`/api/intel/calendar?day=${day}&impact=${impact}${cur}`, { cache: "no-store" });
-      setCal((await r.json()) as CalendarRes);
-    } catch {
-      setCal({ ok: false, source: "ForexFactory", fetchedAt: new Date().toISOString(), stale: true, events: [], error: "network error" });
-    }
-  }, [day, impact, currency]);
+  const loadCalendar = useCallback(
+    async (force = false) => {
+      const cur = currency === "ALL" ? "" : `&currency=${currency}`;
+      try {
+        const r = await fetch(`/api/intel/calendar?day=${day}&impact=${impact}${cur}${force ? "&force=1" : ""}`, { cache: "no-store" });
+        setCal((await r.json()) as CalendarRes);
+      } catch {
+        setCal({ ok: false, source: "ForexFactory", fetchedAt: new Date().toISOString(), stale: true, events: [], error: "network error" });
+      }
+    },
+    [day, impact, currency]
+  );
 
   const loadNews = useCallback(async () => {
     try {
@@ -159,7 +165,9 @@ export function IntelPanel() {
 
   const refreshAll = useCallback(() => {
     setLoading(true);
-    void Promise.allSettled([loadCalendar(), loadNews(), loadQuotes()]).finally(() => setLoading(false));
+    // calendar: force=1 → a REAL re-fetch attempt (the server still respects
+    // the feed's own cooldown, so a rate-limited refresh cannot deepen the ban)
+    void Promise.allSettled([loadCalendar(true), loadNews(), loadQuotes()]).finally(() => setLoading(false));
   }, [loadCalendar, loadNews, loadQuotes]);
 
   // deferred initial load + periodic auto-refresh (setState stays in callbacks)
@@ -198,7 +206,7 @@ export function IntelPanel() {
           <span className="text-[9px] font-bold uppercase tracking-wider text-[#6485AB]">· live external feeds</span>
         </div>
         <span className="rounded-full border border-[#0F2E58] bg-[#041428] px-2.5 py-1 text-[9px] font-bold text-[#8AA2C2]">
-          ForexFactory {cal ? srcStamp(cal.ok, cal.stale, cal.fetchedAt) : "…"}
+          ForexFactory {cal ? (cal.rateLimited ? "rate-limited" : srcStamp(cal.ok, cal.stale, cal.fetchedAt)) : "…"}
         </span>
         <span className="rounded-full border border-[#0F2E58] bg-[#041428] px-2.5 py-1 text-[9px] font-bold text-[#8AA2C2]">
           Bloomberg {news && newsSrc === "bloomberg" ? srcStamp(news.ok, news.stale, news.fetchedAt) : newsSrc === "bloomberg" ? "…" : "idle"}
@@ -251,13 +259,24 @@ export function IntelPanel() {
           </div>
 
           {/* rows */}
+          {cal?.ok && (cal.error || cal.note) && (
+            <p className="rounded-md border border-[#E9B94E]/35 bg-[#E9B94E]/10 px-2.5 py-1.5 text-[9.5px] leading-snug text-[#E9B94E]">
+              {cal.error ?? cal.note}
+            </p>
+          )}
           <div className="halo-scroll max-h-[430px] min-h-[120px] overflow-y-auto pr-1">
             {!cal ? (
               <p className="py-6 text-center text-[10.5px] text-[#6485AB]">Fetching ForexFactory calendar…</p>
             ) : !cal.ok ? (
-              <p className="rounded-lg border border-[rgba(255,77,94,0.4)] bg-[rgba(255,77,94,0.07)] px-3 py-3 text-[10.5px] leading-snug text-[#FF4D5E]">
-                Calendar feed unreachable — {cal.error}. Retry with the refresh button; nothing is invented to fill the gap.
-              </p>
+              cal.rateLimited ? (
+                <p className="rounded-lg border border-[rgba(255,77,94,0.4)] bg-[rgba(255,77,94,0.07)] px-3 py-3 text-[10.5px] leading-snug text-[#FF4D5E]">
+                  ForexFactory is rate-limiting this server (HTTP 429). A real retry opens in ~{cal.retryIn ? `${Math.max(1, Math.round(cal.retryIn / 60))}m` : "a few minutes"} — the refresh button respects that window instead of hammering the feed, which only extends the ban. Nothing is invented to fill the gap.
+                </p>
+              ) : (
+                <p className="rounded-lg border border-[rgba(255,77,94,0.4)] bg-[rgba(255,77,94,0.07)] px-3 py-3 text-[10.5px] leading-snug text-[#FF4D5E]">
+                  Calendar feed unreachable — {cal.error}. Retry with the refresh button; nothing is invented to fill the gap.
+                </p>
+              )
             ) : cal.events.length === 0 ? (
               <p className="py-6 text-center text-[10.5px] text-[#6485AB]">
                 No {impact === "all" ? "" : impact === "high" ? "high-impact " : "medium-or-higher "}
