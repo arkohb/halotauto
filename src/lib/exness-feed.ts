@@ -17,9 +17,15 @@ import { exnessCandles, exnessConfig, subscribeExnessTicks } from "@/lib/exness-
 
 const g = globalThis as unknown as { __haloEaFeed?: { at: number; creds: BrokerCreds | null; label: string } };
 const CACHE_MS = 30_000;
-// after an Exness API failure, skip it for a minute instead of retrying on every refresh
-const gApi = globalThis as unknown as { __haloExnessApiDownUntil?: number; __haloExnessApiErr?: string };
+// after an Exness API failure, skip it briefly instead of retrying on every refresh
+const gApi = globalThis as unknown as { __haloExnessApiDownUntil?: number; __haloExnessApiErr?: string; __haloExnessNoSym?: Map<string, number> };
 const apiUsable = () => !!exnessConfig() && Date.now() >= (gApi.__haloExnessApiDownUntil ?? 0);
+// a symbol Exness does not serve (404 MARKET_INSTRUMENT_NOT_FOUND) is skipped on
+// its own for 15 minutes — it must never pause the API for every other symbol
+const NO_SYMBOL_MS = 15 * 60_000;
+const noSym = (gApi.__haloExnessNoSym ??= new Map<string, number>());
+const symbolUsable = (symbol: string) => Date.now() >= (noSym.get(symbol) ?? 0);
+const SYMBOL_ERR = /not available on this Exness account|MARKET_INSTRUMENT_NOT_FOUND|HTTP 404/;
 export function exnessApiLastError(): string {
   return gApi.__haloExnessApiErr ?? "";
 }
@@ -51,13 +57,13 @@ export async function brokerFeed(symbol: string): Promise<{ creds: BrokerCreds; 
 /** which broker feed can serve this symbol now: the cloud API, the EA, or none */
 export async function brokerFeedSource(symbol: string): Promise<"api" | "ea" | null> {
   if (!brokerFeedCovers(symbol)) return null;
-  if (apiUsable()) return "api";
+  if (apiUsable() && symbolUsable(symbol)) return "api";
   return (await brokerFeed(symbol)) ? "ea" : null;
 }
 
 /** hot = the chart's or the bot's symbol (served first under Exness's rate limit) */
 export async function brokerCandles(symbol: string, tf: string, limit: number, hot = true) {
-  if (brokerFeedCovers(symbol) && apiUsable()) {
+  if (brokerFeedCovers(symbol) && apiUsable() && symbolUsable(symbol)) {
     try {
       const c = await exnessCandles(symbol, tf, limit, hot);
       gApi.__haloExnessApiErr = "";
@@ -65,8 +71,16 @@ export async function brokerCandles(symbol: string, tf: string, limit: number, h
     } catch (e) {
       const msg = (e as Error).message;
       gApi.__haloExnessApiErr = msg;
-      // instrument not on the account / rate-limit queue busy → no penalty; auth / network trouble → pause 60 s
-      if (!/not available on this Exness account|not offered|Exness busy/.test(msg)) gApi.__haloExnessApiDownUntil = Date.now() + 60_000;
+      // this symbol not served → skip just this symbol; timeframe not offered or
+      // rate-limit queue busy → no penalty; auth / network trouble → pause 60 s
+      if (SYMBOL_ERR.test(msg)) noSym.set(symbol, Date.now() + NO_SYMBOL_MS);
+      else if (!/not offered|Exness busy/.test(msg)) {
+        // auth refused even after the retry → 60 s; transient trouble (timeout,
+        // 5xx, 429) → 15 s, so the chart and bot return to Exness quickly
+        const pause = /HTTP 40[13]/.test(msg) ? 60_000 : 15_000;
+        gApi.__haloExnessApiDownUntil = Date.now() + pause;
+        console.warn(`[exness] API paused ${pause / 1000} s (${symbol} ${tf}): ${msg.slice(0, 160)}`);
+      }
       if (!(await brokerFeed(symbol))) throw e;
     }
   }
@@ -81,7 +95,7 @@ export async function brokerQuote(symbol: string): Promise<EaQuote | null> {
 }
 
 export async function subscribeBrokerQuotes(symbol: string, fn: (q: EaQuote) => void): Promise<(() => void) | null> {
-  if (brokerFeedCovers(symbol) && apiUsable()) {
+  if (brokerFeedCovers(symbol) && apiUsable() && symbolUsable(symbol)) {
     const u = await subscribeExnessTicks(symbol, (t) => fn({ bid: t.bid, ask: t.ask, time: t.time, at: Date.now() }));
     if (u) return u;
   }

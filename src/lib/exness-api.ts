@@ -104,8 +104,14 @@ async function signedGet<T>(cfg: ExnessCfg, base: string, path: string, retried 
     const r = await fetch(`${base}${path}`, { headers: { ...exnessHeaders(cfg, "GET", path, "", "", exnessNow()), Accept: "application/json" }, signal: ctrl.signal, cache: "no-store" });
     learnClock(r);
     const text = await r.text();
-    // clock was off: the offset is now learned from this response — sign again once
-    if (r.status === 401 && !retried && /timestamp outside allowed window/i.test(text)) return signedGet<T>(cfg, base, path, true);
+    // 401 → sign again once: either the clock was off (the offset is now learned
+    // from this response) or Exness sent a one-off AUTH_INVALID_API_KEY, which it
+    // does now and then for a valid key. A truly wrong key fails again and is
+    // reported. The pause keeps the retry inside the 2-requests/second limit.
+    if (r.status === 401 && !retried) {
+      if (!/timestamp outside allowed window/i.test(text)) await new Promise((res) => setTimeout(res, 600));
+      return signedGet<T>(cfg, base, path, true);
+    }
     if (!r.ok) throw new Error(`Exness HTTP ${r.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text) as T;
   } finally {

@@ -20,6 +20,7 @@ const ACCOUNT = "5550001";
 const TF_ENUM = new Set(["S1", "S5", "S15", "M1", "M3", "M5", "M10", "M15", "M30", "H1", "H2", "H4", "D1", "W1", "MN"]);
 
 // ── simulated Exness ──
+let flaky401 = 0; // simulate Exness's occasional AUTH_INVALID_API_KEY for a valid key
 const stats = { accessPoint: 0, badSig: 0, candleQueries: [] as URLSearchParams[], wsHandshakes: 0, wsRejected: 0, subscribes: [] as string[][] };
 function verify(method: string, url: string, h: http.IncomingHttpHeaders): string | null {
   const data = String(h["exn-data"] ?? "");
@@ -40,7 +41,7 @@ function verify(method: string, url: string, h: http.IncomingHttpHeaders): strin
 const HOUR = 3_600_000;
 const server = http.createServer((req, res) => {
   const url = req.url ?? "/";
-  const bad = verify(req.method ?? "GET", url, req.headers);
+  const bad = flaky401 > 0 ? (flaky401--, "AUTH_INVALID_API_KEY") : verify(req.method ?? "GET", url, req.headers);
   const send = (code: number, body: unknown) => {
     res.writeHead(code, { "content-type": "application/json" });
     res.end(JSON.stringify(body));
@@ -54,7 +55,7 @@ const server = http.createServer((req, res) => {
     stats.accessPoint++;
     return send(200, { access_point: `http://127.0.0.1:${(server.address() as { port: number }).port}`, account_id: u.searchParams.get("account_id") });
   }
-  if (u.pathname === `/v1/configuration/accounts/${ACCOUNT}/instruments`) return send(200, { instruments: ["EURUSD", "XAUUSDm", "US30"] });
+  if (u.pathname === `/v1/configuration/accounts/${ACCOUNT}/instruments`) return send(200, { instruments: ["EURUSD", "XAUUSDm", "US30", "USDSEK"] });
   if (u.pathname === `/v1/market-data/accounts/${ACCOUNT}/candles`) {
     const q = u.searchParams;
     stats.candleQueries.push(q);
@@ -142,6 +143,20 @@ async function main() {
     missing = (e as Error).message;
   }
   ok(/not available on this Exness account/.test(missing), "a symbol the account does not have is reported clearly");
+
+  // a symbol the account lists but whose candles 404 must not pause the feed for gold
+  const feed = await import("../src/lib/exness-feed");
+  const before404 = stats.candleQueries.length;
+  await feed.brokerCandles("USDSEK", "1h", 5).catch(() => []);
+  const gold = await feed.brokerCandles("XAUUSD", "1h", 5).catch((e: Error) => e.message);
+  ok(Array.isArray(gold) && gold.length === 5, "a 404 on one symbol (USDSEK) does not pause Exness for gold", gold);
+  await feed.brokerCandles("USDSEK", "1h", 5).catch(() => []);
+  const usdsekQueries = stats.candleQueries.slice(before404).filter((q) => q.get("instrument") === "USDSEK").length;
+  ok(usdsekQueries === 1, "the unsupported symbol is skipped afterwards instead of re-asked every refresh", usdsekQueries);
+
+  flaky401 = 1;
+  const afterFlaky = await api.exnessCandles("XAUUSD", "1h", 5).catch((e: Error) => e.message);
+  ok(Array.isArray(afterFlaky) && afterFlaky.length === 5, "a one-off 401 AUTH_INVALID_API_KEY is retried once and the candles arrive", afterFlaky);
 
   // live ticks
   const got: number[] = [];
