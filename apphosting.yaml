@@ -40,6 +40,7 @@ env:
   #   firebase apphosting:secrets:set METAAPI_TOKEN
   #   firebase apphosting:secrets:set OANDA_PRACTICE_TOKEN
   #   firebase apphosting:secrets:set OANDA_PRACTICE_ACCOUNT
+  #   firebase apphosting:secrets:set EXNESS_API_KEY / EXNESS_API_SECRET / EXNESS_GATEWAY_URL / EXNESS_ACCOUNT_ID
   #   firebase apphosting:secrets:set HALO_DATA_KEY
   - variable: DATABASE_URL
     secret: DATABASE_URL
@@ -61,6 +62,19 @@ env:
     availability: [RUNTIME]
   - variable: OANDA_PRACTICE_ACCOUNT
     secret: OANDA_PRACTICE_ACCOUNT
+    availability: [RUNTIME]
+  # Exness Trader API — live price feed from the trading account (market data only)
+  - variable: EXNESS_API_KEY
+    secret: EXNESS_API_KEY
+    availability: [RUNTIME]
+  - variable: EXNESS_API_SECRET
+    secret: EXNESS_API_SECRET
+    availability: [RUNTIME]
+  - variable: EXNESS_GATEWAY_URL
+    secret: EXNESS_GATEWAY_URL
+    availability: [RUNTIME]
+  - variable: EXNESS_ACCOUNT_ID
+    secret: EXNESS_ACCOUNT_ID
     availability: [RUNTIME]
   # Encryption key for stored credentials (broker logins, alert tokens, webhook secret)
   - variable: HALO_DATA_KEY

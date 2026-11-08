@@ -47,6 +47,7 @@ The levels below mean exactly what the brief defines: IMPLEMENTED (source exists
 | Charts (CURRENT / ALL LEVELS, signal labelling) | TESTED (manual) | Checked in-app |
 | OANDA practice feed | IMPLEMENTED | Not configured (no keys) → not INTEGRATION VERIFIED |
 | Yahoo data | IMPLEMENTED | **Unofficial, not licensed for a commercial product** |
+| Exness Trader API price feed | **TESTED** (simulated, signature-verifying server) | Official API (www.exness-api.com): Ed25519-signed requests (matches Exness's published test vector), access-point discovery, candles (bid, M1–D1, UTC), signed tick WebSocket; first source for forex/metals/indices when `EXNESS_API_*` is set; 60-s back-off on errors. **Not yet run against real Exness: needs a Trading API key (Key Management); demo-account support undocumented.** Setup: `docs/EXNESS-API-SETUP.md` |
 | Broker price feed (HALO Bridge EA v1.20) | **TESTED** (simulated EA, unit + HTTP end-to-end on a throwaway DB) | First source for forex/metals/indices when the EA is online: candles via MT5 `CopyRates` (UTC), live bid/ask on every poll, chart badge EXNESS LIVE, bot runs on it; falls back to OANDA → Yahoo when offline. The user's Exness **Partnership API** is a reporting/rebates API with no market data, so it cannot be used for prices. **Not yet compiled or run in MT5** |
 | MetaApi | Auth INTEGRATION VERIFIED (token HTTP 200) | Account creation blocked by MetaApi billing; no orders |
 | OANDA / IG / Binance adapters | IMPLEMENTED | Not verified against the services this session |
@@ -145,6 +146,7 @@ Verified directly in this session:
 | two-factor-selftest (new) | 20/20 (incl. RFC 6238 vectors) |
 | rate-limit-selftest (new) | 18/18 |
 | health-selftest (new) | 27/27 |
+| exness-api-test (new) | 16/16 against a local simulated Exness server that verifies every signature |
 | ea-price-feed-test (new) | 10/10 (simulated EA) |
 | ea-price-feed-e2e (new) | 9/9 over HTTP on a throwaway DB copy (`db/custom.db` verified unchanged) |
 | two-factor-e2e (new) | 23/23 over HTTP against a throwaway DB copy (`db/custom.db` verified unchanged) |
@@ -162,7 +164,8 @@ Verified directly in this session:
 8. Change the Exness demo password (it was shared in chat).
 9. Turn on two-factor sign-in for the Super Admin account (Account → Two-factor sign-in) and save the recovery codes.
 10. Fix alert delivery: create a new Telegram bot token (@BotFather) and paste it in the Alerts tab, and/or set up e-mail, then send a test alert.
-11. Decide the bot's market: it is on V75 (simulated-only right now); gold was the previous choice.
+11. ~~Decide the bot's market~~: back on gold (XAUUSD 1h).
+12. For the cloud Exness price feed: create a **Trading** API key in Exness Personal Area → Key Management and put the four `EXNESS_*` values in `.env` (see `docs/EXNESS-API-SETUP.md`).
 
 ## 10. Recommended next milestone
 

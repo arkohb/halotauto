@@ -3,7 +3,7 @@ import { guardLicensed } from "@/lib/api-guard";
 import { SYMBOLS, TIMEFRAMES, tfSec } from "@/lib/market";
 import type { Candle } from "@/lib/halo/types";
 import { fetchOandaCandles, oandaConfig, oandaInstrument, subscribeOandaTicks } from "@/lib/oanda-feed";
-import { brokerCandles, brokerFeed, subscribeBrokerQuotes } from "@/lib/exness-feed";
+import { brokerCandles, brokerFeedSource, subscribeBrokerQuotes } from "@/lib/exness-feed";
 
 // Live ticks for the chart, as Server-Sent Events — from your broker's MT5
 // via the HALO Bridge EA when it is online (first event: "source: exness"),
@@ -23,8 +23,8 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "bad symbol or timeframe" }, { status: 400 });
   }
   const inst = oandaInstrument(symbol);
-  const ea = await brokerFeed(symbol);
-  const source: "exness" | "oanda" | null = ea ? "exness" : oandaConfig() && inst ? "oanda" : null;
+  const broker = await brokerFeedSource(symbol);
+  const source: "exness" | "oanda" | null = broker ? "exness" : oandaConfig() && inst ? "oanda" : null;
   if (!source) {
     return NextResponse.json({ error: "no live stream for this symbol (broker EA offline, OANDA not configured)" }, { status: 404 });
   }
