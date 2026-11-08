@@ -9,7 +9,7 @@
 //  here, in the browser:
 //
 //    • SYNTHETICS / FOREX / METALS → Deriv public websocket
-//      (wss://ws.derivws.com · public market data · app_id 1089):
+//      (wss://api.derivws.com/trading/v1/options/ws/public · public market data):
 //      `ticks_history` seeds REAL candles, then `ohlc` pushes the forming
 //      candle on every tick (~1–2s for synthetics).
 //    • CRYPTO → Binance combined stream: kline (authoritative OHLC + bar
@@ -58,8 +58,11 @@ export interface LiveHandlers {
   onUpdate?(bar: LiveBar): void;
 }
 
-const DERIV_APP_ID = (process.env.NEXT_PUBLIC_DERIV_APP_ID ?? "1089").trim();
-const DERIV_URL = `wss://ws.derivws.com/websockets/v3?app_id=${encodeURIComponent(DERIV_APP_ID)}`;
+// Deriv moved public market data to api.derivws.com; the legacy
+// wss://ws.derivws.com/websockets/v3 now answers Cloudflare 520 for every
+// app_id, which left the chart with no live stream. Override with
+// NEXT_PUBLIC_DERIV_WS_URL if Deriv moves it again.
+const DERIV_URL = (process.env.NEXT_PUBLIC_DERIV_WS_URL ?? "wss://api.derivws.com/trading/v1/options/ws/public").trim();
 const BINANCE_URL = "wss://stream.binance.com:9443/stream?streams=";
 const HISTORY_COUNT = 300;
 const IDLE_CLOSE_MS = 45_000;
@@ -291,11 +294,17 @@ function derivOpen(conn: DerivConn): void {
     // load the symbol catalog once per connection → powers name resolution
     const reqId = ++conn.reqId;
     conn.pending.set(reqId, (msg) => {
-      const list = msg.active_symbols as Array<{ symbol?: string; display_name?: string }> | undefined;
+      // new API: underlying_symbol / underlying_symbol_name · legacy: symbol / display_name
+      const list = msg.active_symbols as
+        | Array<{ symbol?: string; display_name?: string; underlying_symbol?: string; underlying_symbol_name?: string }>
+        | undefined;
       if (Array.isArray(list)) {
         for (const s of list) {
-          if (s.symbol) conn.names.set(norm(s.symbol), s.symbol);
-          if (s.display_name) conn.names.set(norm(s.display_name), s.symbol ?? "");
+          const code = s.underlying_symbol ?? s.symbol;
+          if (!code) continue;
+          conn.names.set(norm(code), code);
+          const label = s.underlying_symbol_name ?? s.display_name;
+          if (label) conn.names.set(norm(label), code);
         }
         conn.namesLoaded = true;
         // explicit codes are now confirmable — drop rule-based caches that
@@ -306,7 +315,7 @@ function derivOpen(conn: DerivConn): void {
       }
       conn.pending.delete(reqId);
     });
-    derivSend(conn, { active_symbols: "brief", product_type: "basic", req_id: reqId });
+    derivSend(conn, { active_symbols: "brief", req_id: reqId }); // product_type is rejected by the new API
     for (const req of conn.queue.splice(0)) {
       try {
         ws.send(req);

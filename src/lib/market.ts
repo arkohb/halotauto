@@ -9,6 +9,7 @@ import { Candle } from "./halo/types";
 import { decimalsOf, getSymbolMeta, isSimOnlyGroup, simStyleOf, tfSec, YAHOO_INDEX_MAP, type SymbolMeta } from "./market-symbols";
 import { fetchOandaCandles, oandaConfig, oandaInstrument } from "./oanda-feed";
 import { brokerCandles, brokerFeedCovers } from "./exness-feed";
+import { fetchDerivCandles } from "./deriv-feed";
 
 export { getSymbolMeta, SYMBOLS, tfSec, TIMEFRAMES, decimalsOf } from "./market-symbols";
 export type { SymbolMeta, Timeframe } from "./market-symbols";
@@ -258,7 +259,16 @@ async function fetchFromSources(sym: string, tf: string, limit: number): Promise
   // Deriv synthetic indices: no public OHLC feed exists anywhere (the prices
   // are generated inside Deriv), so serve the seeded simulator directly —
   // never touch Yahoo (it has no such tickers and would just burn requests).
+  // Deriv now serves them on its public websocket (deriv-feed.ts): real
+  // prices first, the seeded simulator only when Deriv is unreachable or
+  // does not list the instrument.
   if (isSimOnlyGroup(getSymbolMeta(sym).group)) {
+    try {
+      const candles = await fetchDerivCandles(sym, tf, limit);
+      if (candles.length > 0) return { candles: candles.slice(-limit), source: "deriv" };
+    } catch {
+      // unreachable / not listed → simulator
+    }
     return { candles: simGet(sym, tf, limit, Date.now()), source: "simulator" };
   }
   // forex / metals / stock indices / energy: real OHLC from Yahoo Finance's
@@ -577,8 +587,10 @@ export async function getKlines(
     return { candles: entry.candles.slice(-want), source: entry.source };
   }
 
-  // incremental refresh from live sources
-  if (entry && entry.candles.length > 0) {
+  // incremental refresh from live sources — only when the cache already
+  // holds a usable window; a short one (first filled by a small scanner
+  // request) gets a full fetch, or a 3-bar top-up would never grow it
+  if (entry && entry.candles.length >= Math.min(want, 50)) {
     try {
       const freshBars = await fetchFromSources(sym, tf, 3);
       if (freshBars.candles.length) mergeInto(entry.candles, freshBars.candles);

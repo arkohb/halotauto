@@ -17,6 +17,7 @@
 //  get an honestly-labelled deterministic simulator run — see getDeepHistory.)
 // ════════════════════════════════════════════════════════════════════════
 
+import { fetchDerivCandles } from "./deriv-feed";
 import { Candle } from "./halo/types";
 import { SYMBOLS, tfSec, isBtTf, YAHOO_INDEX_MAP } from "./market-symbols";
 import type { SymbolMeta, SymbolGroup } from "./market-symbols";
@@ -575,6 +576,19 @@ export async function getDeepHistory(req: DeepRequest): Promise<DeepResult> {
   // "simulator", so backtests stay functional instead of erroring.
   if (classifySymbol(sym) === "synth") {
     const knownMeta = SYMBOLS.find((k) => k.id === sym);
+    // real Deriv history first (public websocket, ≤5 000 bars per request)
+    if (knownMeta && (want ?? 50_000) <= 5_000) {
+      try {
+        const real = (await fetchDerivCandles(sym, tf, want ?? 5_000)).filter((c) => !fromMs || c.time >= fromMs);
+        if (real.length >= 50) {
+          const res: DeepResult = { candles: real, source: "deriv", complete: true, meta: knownMeta };
+          deepCache.set(cacheKey, { res, at: Date.now() });
+          return res;
+        }
+      } catch {
+        // unreachable / not listed → simulator below
+      }
+    }
     if (knownMeta) {
       const candles = simulateCandles(sym, tf, want ?? 50_000, Date.now()).filter(
         (c) => !fromMs || c.time >= fromMs

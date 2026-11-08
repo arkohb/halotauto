@@ -387,7 +387,8 @@ export function venueGroupLabel(v: Venue, g: SymbolGroup): string {
 // The chart's live layer subscribes straight to the venue that publishes
 // each instrument, so the candles move tick-by-tick like the real
 // TradingView web chart:
-//   • SYNTHETICS / FOREX / METALS → Deriv public websocket (app_id 1089):
+//   • SYNTHETICS / FOREX / METALS → Deriv public websocket
+//     (wss://api.derivws.com/trading/v1/options/ws/public):
 //     `ticks_history` seeds REAL candles, then `ohlc` pushes the forming
 //     candle on every tick. Codes below are Deriv API stream symbols.
 //   • CRYPTO → Binance kline websocket (same source as the REST candles).
@@ -401,17 +402,17 @@ export const DERIV_WS_CODE: Record<string, string> = {
   V50: "R_50",
   V75: "R_75",
   V100: "R_100",
-  // 1-second volatility variants
-  V10S: "R_10s",
-  V25S: "R_25s",
-  V50S: "R_50s",
-  V75S: "R_75s",
-  V100S: "R_100s",
+  // 1-second volatility variants (Deriv codes them 1HZ<n>V)
+  V10S: "1HZ10V",
+  V25S: "1HZ25V",
+  V50S: "1HZ50V",
+  V75S: "1HZ75V",
+  V100S: "1HZ100V",
   // boom / crash classics
-  BOOM300: "BOOM300",
+  BOOM300: "BOOM300N",
   BOOM500: "BOOM500",
   BOOM1000: "BOOM1000",
-  CRASH300: "CRASH300",
+  CRASH300: "CRASH300N",
   CRASH500: "CRASH500",
   CRASH1000: "CRASH1000",
   // step / range break / jump families

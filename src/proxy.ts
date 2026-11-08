@@ -69,7 +69,7 @@ function buildCsp(nonce: string): string {
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' wss://stream.binance.com:9443 wss://ws.derivws.com${dev ? " ws://localhost:*" : ""}`,
+    `connect-src 'self' wss://stream.binance.com:9443 wss://api.derivws.com wss://ws.derivws.com${dev ? " ws://localhost:*" : ""}`,
     "frame-src https://s.tradingview.com https://www.tradingview.com",
     "media-src 'self' blob: data:",
     "worker-src 'self'",
