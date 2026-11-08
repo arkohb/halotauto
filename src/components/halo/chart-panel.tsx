@@ -26,6 +26,7 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   createChart,
@@ -48,6 +49,7 @@ import { ZoneOverlay, type ZoneRectSpec } from "./lwc-zone";
 import { TvChart } from "./tv-chart";
 import { TvSignalOverlay } from "./tv-signal-overlay";
 import { IndicatorRail } from "./indicator-rail";
+import { PineIndicatorRail } from "./pine-indicator-rail";
 import { CandleTimer } from "./candle-timer";
 import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
 
@@ -65,7 +67,9 @@ interface ChartProps {
   /** where fires are routed, e.g. "LIVE → ICMarketsSC-MT5 · 12345" */
   routing?: string;
   /** when a Pine strategy is the bot's active strategy, its indicator plots here */
-  pineStrategy?: { id: string; name: string } | null;
+  pineStrategy?: { id: string; name: string; rev?: number } | null;
+  /** open position held by the attached Pine strategy (drives the position tool) */
+  pinePosition?: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null; entryTime: number } | null;
   /** GLOBAL TRADE LOCK — a trade running anywhere in the app. When it belongs
    * to THIS chart's symbol it renders exactly like an engine trade: the
    * ENTRY/SL/TP position tool plus the live price marker line. */
@@ -121,7 +125,7 @@ const LEVELS_KEY = "halo3el.chartlevels.v2"; // "current" (default) | "all"
 export default function ChartPanel(props: ChartProps) {
   const {
     candles, drawings, log, trade: engineTrade, mintick, symbol, tf, source, statusLine, routing,
-    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy, scanLock,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy, pinePosition, scanLock,
   } = props;
   // ── GLOBAL TRADE LOCK · a scanner / sweep / TV trade on THIS symbol ──
   // A trade can fire off-chart (watchlist sweep, TV webhook). When the locked
@@ -150,7 +154,40 @@ export default function ChartPanel(props: ChartProps) {
       traded: true,
     };
   }, [scanLock, symbol, mintick, cfg.pipMult]);
-  const trade = engineTrade ?? scanLockTrade;
+  // ── attached Pine strategy · single-indicator semantics ──
+  // While a Pine strategy is attached it is THE indicator on the chart: the
+  // default 3EL visuals stand down (the same rule the bot follows — one
+  // strategy trades at a time). Its own open position still draws the
+  // position tool.
+  const pineId = pineStrategy?.id ?? null;
+  const pineOverlayActive = !!pineStrategy;
+  const pineTradeSnap = useMemo<TradeSnapshot | null>(() => {
+    if (!pineStrategy || !pinePosition || pinePosition.sl === null || pinePosition.tp === null) return null;
+    const pip = mintick * (cfg.pipMult || 10);
+    const risk = Math.abs(pinePosition.entry - pinePosition.sl);
+    const reward = Math.abs(pinePosition.tp - pinePosition.entry);
+    return {
+      dir: pinePosition.dir,
+      entry: pinePosition.entry,
+      sl: pinePosition.sl,
+      tp: pinePosition.tp,
+      risk,
+      riskPips: pip > 0 ? risk / pip : 0,
+      rewardPips: pip > 0 ? reward / pip : 0,
+      entryTime: pinePosition.entryTime,
+      ext: pinePosition.entry,
+      levelTop: pinePosition.entry,
+      levelBot: pinePosition.entry,
+      trigger: pinePosition.entry,
+      slModeLabel: "Pine SL/TP",
+      traded: true,
+    };
+  }, [pineStrategy, pinePosition, mintick, cfg.pipMult]);
+  // precedence: the Pine position → the engine's own trade → a lock trade on this symbol
+  const trade = pineTradeSnap ?? engineTrade ?? scanLockTrade;
+  const pineRailPos = pineTradeSnap
+    ? { dir: pineTradeSnap.dir, entry: pineTradeSnap.entry, sl: pineTradeSnap.sl, tp: pineTradeSnap.tp, riskPips: pineTradeSnap.riskPips, rewardPips: pineTradeSnap.rewardPips }
+    : null;
   const [mode, setMode] = useState<ChartMode>("3el");
   const [tvNote, setTvNote] = useState<string | null>(null);
   // broker filter for the pair picker — null = ALL brokers (sectioned list)
@@ -245,6 +282,26 @@ export default function ChartPanel(props: ChartProps) {
       // ignore
     }
   };
+
+  // ATTACH → swap to the native engine view, where the compiled indicator
+  // actually draws (the free TV embed is cross-origin and cannot host custom
+  // scripts). Once per attach — later manual mode switches are respected.
+  const prevPineIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevPineIdRef.current;
+    prevPineIdRef.current = pineId;
+    if (pineId && pineId !== prev) {
+      setMode((m) => {
+        if (m === "3el") return m;
+        try {
+          localStorage.setItem(MODE_KEY, "3el");
+        } catch {
+          // storage unavailable
+        }
+        return "3el";
+      });
+    }
+  }, [pineId]);
 
   // init chart once per 3el-mode mount
   useEffect(() => {
@@ -487,6 +544,30 @@ export default function ChartPanel(props: ChartProps) {
     for (const s of overlayRef.current.series) chart.removeSeries(s);
     for (const pl of overlayRef.current.priceLines) cs.removePriceLine(pl);
     overlayRef.current = { series: [], priceLines: [] };
+
+    // PINE ATTACHED: the trader's compiled indicator IS the chart indicator —
+    // the 3EL levels, zones and C1/C2/C3 markers stand down; only the open
+    // position's ENTRY/SL/TP tool still renders here
+    if (pineOverlayActive) {
+      const t = trade && trade.traded !== false ? trade : null;
+      const rects: ZoneRectSpec[] = [];
+      if (t) {
+        const liveT = Math.max(win.last, t.entryTime);
+        const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129";
+        const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69";
+        rects.push({ t1: t.entryTime, t2: liveT, capAtLastBar: true, p1: Math.min(t.entry, t.tp), p2: Math.max(t.entry, t.tp), fill: `rgba(${profitCol},0.13)`, border: `rgba(${profitCol},0.35)` });
+        rects.push({ t1: t.entryTime, t2: liveT, capAtLastBar: true, p1: Math.min(t.entry, t.sl), p2: Math.max(t.entry, t.sl), fill: `rgba(${riskCol},0.13)`, border: `rgba(${riskCol},0.35)` });
+        overlayRef.current.priceLines.push(
+          cs.createPriceLine({ price: t.entry, color: C.gold, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: `ENTRY ${fmtPx(t.entry, mintick)}` }),
+          cs.createPriceLine({ price: t.sl, color: C.red, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `SL −${t.riskPips.toFixed(0)}p` }),
+          cs.createPriceLine({ price: t.tp, color: C.green, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `TP +${t.rewardPips.toFixed(0)}p` }),
+        );
+      }
+      zone.rects = rects;
+      zone.requestUpdate();
+      mk.setMarkers([]);
+      return;
+    }
 
     // CURRENT: only a BOOKED running trade is drawn — a replayed / untraded
     // signal position appears only under ALL LEVELS
@@ -740,36 +821,58 @@ export default function ChartPanel(props: ChartProps) {
 
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     mk.setMarkers(markers);
-  }, [drawings, log, trade, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin, allLevels]);
+  }, [drawings, log, trade, pineOverlayActive, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin, allLevels]);
 
   // ── PINE STRATEGY OVERLAY · the active custom indicator draws itself here ──
-  const [pineData, setPineData] = useState<PineOverlayData | null>(null);
-  const pineSeriesRef = useRef<ISeriesApi<"Line">[]>([]);
+  // loaded overlay, keyed by the strategy/symbol/tf it belongs to — a switch
+  // shows nothing until the new indicator's data arrives (never the old plots)
+  const [pineLoaded, setPineLoaded] = useState<{ key: string; data: PineOverlayData | null } | null>(null);
+  const pineKey = pineStrategy ? `${pineStrategy.id}|${symbol}|${tf}` : "";
+  const pineData = pineLoaded && pineLoaded.key === pineKey ? pineLoaded.data : null;
+  const setPineData = (key: string, data: PineOverlayData | null) => setPineLoaded({ key, data });
+  const pineSeriesRef = useRef<Array<ISeriesApi<"Line"> | ISeriesApi<"Histogram">>>([]);
   const pineMarkersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
+  const pinePriceLinesRef = useRef<Array<{ s: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | ISeriesApi<"Candlestick">; pl: IPriceLine }>>([]);
 
+  // Primitive deps only — the parent re-creates the pineStrategy object on
+  // every state poll, and the (expensive, 400-bar) preview must NOT refetch
+  // per poll: it loads once per attach / symbol / timeframe change and a
+  // 60 s interval keeps it fresh afterwards. `rev` (the strategy row's
+  // updatedAt) is the ONE exception: an edit/recompile of the attached
+  // indicator bumps it → the preview refetches IMMEDIATELY, so the chart
+  // always shows the selected indicator's current code, never a stale copy.
+  const pineName = pineStrategy?.name ?? "";
+  const pineRev = pineStrategy?.rev ?? 0;
   useEffect(() => {
-    if (!pineStrategy) return; // clearing happens via the render effect below
-    let alive = true;
+    if (!pineId) return; // nothing attached — pineData derives to null
+    const loadKey = `${pineId}|${symbol}|${tf}`;
+    let stale = false; // responses that outlive this attach/symbol/tf key are dropped
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const load = async () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
       try {
-        const r = await fetch(`/api/strategies/${pineStrategy.id}/preview?symbol=${symbol}&tf=${tf}&limit=400`, { cache: "no-store" });
-        const j = (await r.json()) as { ok: boolean; plots?: PineOverlayData["plots"]; markers?: PineOverlayData["markers"]; name?: string };
-        if (alive && j.ok) {
-          setPineData({ plots: j.plots ?? [], markers: j.markers ?? [], name: j.name ?? pineStrategy.name });
-        } else if (alive && !j.ok) {
-          setPineData(null);
-        }
+        const r = await fetch(`/api/strategies/${pineId}/preview?symbol=${symbol}&tf=${tf}&limit=400`, { cache: "no-store" });
+        const j = (await r.json()) as { ok: boolean; plots?: PineOverlayData["plots"]; markers?: PineOverlayData["markers"]; hlines?: PineOverlayData["hlines"]; inputs?: PineOverlayData["inputs"]; name?: string };
+        if (stale) return;
+        setPineData(loadKey, j.ok ? { plots: j.plots ?? [], markers: j.markers ?? [], hlines: j.hlines ?? [], inputs: j.inputs ?? [], name: j.name ?? pineName } : null);
+        // success → refresh on the next candles poll cycle; failure (cold feed /
+        // transient 5xx) → quick retry so the attached indicator appears as
+        // soon as the feed warms. 20 s keeps the indicator's last bars close
+        // to the live candle without hammering the 400-bar recompute.
+        if (!stale) timer = setTimeout(load, j.ok ? 20_000 : 5_000);
       } catch {
-        // keep last overlay on network hiccups
+        if (!stale) timer = setTimeout(load, 5_000);
       }
     };
     void load();
-    const id = setInterval(load, 60_000); // indicator series move slowly — refresh once a minute
     return () => {
-      alive = false;
-      clearInterval(id);
+      stale = true;
+      if (timer) clearTimeout(timer);
     };
-  }, [pineStrategy?.id, pineStrategy, symbol, tf]);
+  }, [pineId, pineName, pineRev, symbol, tf]);
 
   useEffect(() => {
     if (mode !== "3el") return;
@@ -785,25 +888,86 @@ export default function ChartPanel(props: ChartProps) {
       }
     }
     pineSeriesRef.current = [];
+    for (const { s, pl } of pinePriceLinesRef.current) {
+      try {
+        s.removePriceLine(pl);
+      } catch {
+        // already gone
+      }
+    }
+    pinePriceLinesRef.current = [];
     if (pineMarkersRef.current) {
       pineMarkersRef.current.setMarkers([]);
     }
     if (!pineStrategy || !pineData || candles.length === 0) return;
-    for (const p of pineData.plots.slice(0, 6)) {
+
+    // Pane placement: overlay scripts draw straight on the price pane;
+    // separate-pane scripts (RSI / MACD style, overlay=false) get their own
+    // pane below so their 0-100 scale never wrecks the price axis.
+    let firstPaneSeries: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | null = null;
+    for (const p of pineData.plots.slice(0, 8)) {
       if (p.data.length === 0) continue;
-      const ser = chart.addSeries(LineSeries, {
-        color: p.color || C.cyan,
-        lineWidth: Math.min(3, Math.max(1, p.lineWidth ?? 2)) as 1 | 2 | 3,
-        lastValueVisible: true,
-        priceLineVisible: false,
-        title: p.title,
-        crosshairMarkerVisible: false,
-        pointMarkersVisible: false,
-      });
-      ser.setData(p.data.map((d) => ({ time: (d.time / 1000) as UTCTimestamp, value: d.value })));
+      const separate = p.overlay === false;
+      const paneIdx = separate ? 1 : 0;
+      const asHistogram = p.style === "histogram" || p.style === "columns";
+      const ser = asHistogram
+        ? chart.addSeries(
+            HistogramSeries,
+            {
+              color: p.color || C.cyan,
+              lastValueVisible: true,
+              priceLineVisible: false,
+              title: p.title,
+            },
+            paneIdx
+          )
+        : chart.addSeries(
+            LineSeries,
+            {
+              color: p.color || C.cyan,
+              lineWidth: Math.min(3, Math.max(1, p.lineWidth ?? 2)) as 1 | 2 | 3,
+              lastValueVisible: true,
+              priceLineVisible: false,
+              title: p.title,
+              crosshairMarkerVisible: false,
+              pointMarkersVisible: false,
+            },
+            paneIdx
+          );
+      ser.setData(p.data.map((d) => ({ time: (d.time / 1000) as UTCTimestamp, value: d.value, color: d.color })));
       pineSeriesRef.current.push(ser);
+      if (separate && !firstPaneSeries) firstPaneSeries = ser;
     }
-    const mkPine: SeriesMarker<Time>[] = pineData.markers.slice(0, 120).map((m) => ({
+
+    // hlines — overlay scripts pin them to the candles; pane scripts to their pane
+    const hlineTarget = firstPaneSeries ?? cs;
+    for (const h of pineData.hlines ?? []) {
+      try {
+        pinePriceLinesRef.current.push({
+          s: hlineTarget,
+          pl: hlineTarget.createPriceLine({
+            price: h.price,
+            color: h.color || C.label,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: h.title || "hline",
+          }),
+        });
+      } catch {
+        // out-of-range hline — skip
+      }
+    }
+
+    // Markers must anchor to bars that actually exist in the chart series —
+    // the preview computes 400 bars while the live series may hold fewer
+    // (feed warm-up) — a marker outside the window makes lightweight-charts
+    // throw "Value is null". Clamp to the exact live window first, THEN cap.
+    const win = seriesWinRef.current;
+    const mkPine: SeriesMarker<Time>[] = pineData.markers
+      .filter((m) => !win || (m.time >= win.first && m.time <= win.last))
+      .slice(0, 120)
+      .map((m) => ({
       time: (m.time / 1000) as UTCTimestamp,
       position: m.up ? "belowBar" : "aboveBar",
       shape: m.up ? "arrowUp" : "arrowDown",
@@ -999,23 +1163,34 @@ export default function ChartPanel(props: ChartProps) {
             }}
           />
           {/* 3EL INDICATOR attached to the TradingView web chart (legend rail) */}
-          <IndicatorRail
-            side="right"
-            levels={freshLevels}
-            trade={bookedTrade}
-            live={liveStat.active && liveBar ? liveBar : liveCandle}
-            price={liveStat.active && liveBar ? liveBar.close : price}
-            atr={atr}
-            cfg={cfg}
-            mintick={mintick}
-          />
+          {pineStrategy ? (
+            <PineIndicatorRail
+              name={pineStrategy.name}
+              plots={(pineData?.plots ?? []).map((p) => ({ title: p.title, color: p.color }))}
+              inputs={pineData?.inputs}
+              position={pineRailPos}
+              mintick={mintick}
+              note="PLOTS DRAW ON THE “TRADINGVIEW · 3EL” ENGINE VIEW — THE FREE TV EMBED IS CROSS-ORIGIN"
+            />
+          ) : (
+            <IndicatorRail
+              side="right"
+              levels={freshLevels}
+              trade={bookedTrade}
+              live={liveStat.active && liveBar ? liveBar : liveCandle}
+              price={liveStat.active && liveBar ? liveBar.close : price}
+              atr={atr}
+              cfg={cfg}
+              mintick={mintick}
+            />
+          )}
           {/* approximate price ladder — current-signal lines drawn OVER the
               free embed (C1/C2/wick + ENTRY/SL/TP), drag-to-align */}
           <TvSignalOverlay
             candles={candles}
-            levels={freshLevels}
-            history={allLevels ? drawings.filter((d) => d.state !== "fresh") : []}
-            log={allLevels ? log : []}
+            levels={pineOverlayActive ? [] : freshLevels}
+            history={allLevels && !pineOverlayActive ? drawings.filter((d) => d.state !== "fresh") : []}
+            log={allLevels && !pineOverlayActive ? log : []}
             trade={bookedTrade}
             mintick={mintick}
             symbol={symbol}
@@ -1023,8 +1198,9 @@ export default function ChartPanel(props: ChartProps) {
             livePx={liveStat.active && liveBar ? liveBar.close : price}
             pip={mintick * (cfg.pipMult || 10)}
           />
-          {/* C3 forming alert pill — top-center works on both views */}
-          {bestForm && (
+          {/* C3 forming alert pill — 3EL only; an attached Pine indicator
+              replaces it as the chart's signal source */}
+          {bestForm && !pineOverlayActive && (
             <div
               aria-label="C3 forming on live candle"
               className="absolute left-1/2 top-2 z-30 -translate-x-1/2 animate-pulse whitespace-nowrap rounded-full border px-3 py-1 text-[9px] font-extrabold tracking-[0.18em] backdrop-blur"
@@ -1081,16 +1257,26 @@ export default function ChartPanel(props: ChartProps) {
           <div ref={elRef} className={`${heightCls} w-full`} />
           {/* 3EL INDICATOR legend — TradingView-style top-left legend, always
               visible so the indicator is unmistakably attached to the chart */}
-          <IndicatorRail
-            side="left"
-            levels={freshLevels}
-            trade={bookedTrade}
-            live={liveStat.active && liveBar ? liveBar : liveCandle}
-            price={liveStat.active && liveBar ? liveBar.close : price}
-            atr={atr}
-            cfg={cfg}
-            mintick={mintick}
-          />
+          {pineStrategy ? (
+            <PineIndicatorRail
+              name={pineStrategy.name}
+              plots={(pineData?.plots ?? []).map((p) => ({ title: p.title, color: p.color }))}
+              inputs={pineData?.inputs}
+              position={pineRailPos}
+              mintick={mintick}
+            />
+          ) : (
+            <IndicatorRail
+              side="left"
+              levels={freshLevels}
+              trade={bookedTrade}
+              live={liveStat.active && liveBar ? liveBar : liveCandle}
+              price={liveStat.active && liveBar ? liveBar.close : price}
+              atr={atr}
+              cfg={cfg}
+              mintick={mintick}
+            />
+          )}
           {/* CANDLE TIMER — same countdown badge as the TV WEB view */}
           <CandleTimer tf={tf} barOpenTime={liveStat.active && liveBar ? liveBar.time : liveCandle ? liveCandle.time : null} />
         </div>

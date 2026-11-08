@@ -89,7 +89,9 @@ export interface StrategyRes {
   symbol: string;
   tf: string;
   warmed: boolean;
-  position: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null } | null;
+  /** row updatedAt (epoch ms) — bumps on every switch/edit; the chart watches it to redraw instantly */
+  rev: number;
+  position: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null; entryTime: number } | null;
   selected: { id: string | null; name: string; kind: "builtin" | "pine" };
 }
 
@@ -110,9 +112,22 @@ export interface PineOverlayMarker {
   color: string;
   title: string;
 }
+export interface PineOverlayHLine {
+  price: number;
+  title: string;
+  color?: string;
+}
+export interface PineOverlayInput {
+  title: string;
+  value: string;
+}
 export interface PineOverlayData {
   plots: PineOverlayPlot[];
   markers: PineOverlayMarker[];
+  hlines?: PineOverlayHLine[];
+  /** the indicator's input parameters with their resolved values — shown on
+   *  the chart rail so the trader sees the exact settings it trades with */
+  inputs?: PineOverlayInput[];
   name: string;
 }
 

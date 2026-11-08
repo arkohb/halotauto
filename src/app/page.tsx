@@ -433,7 +433,8 @@ export default function Page() {
                       cfg={state.config}
                       atr={state.engine.atr}
                       price={state.feed.price}
-                      pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
+                      pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name, rev: state.strategy.rev ?? 0 } : null}
+                      pinePosition={state.strategy?.selected.kind === "pine" ? state.strategy?.position ?? null : null}
                       scanLock={state.scanLock ?? null}
                     />
                   </div>
@@ -525,7 +526,8 @@ export default function Page() {
                     cfg={state.config}
                     atr={state.engine.atr}
                     price={state.feed.price}
-                    pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
+                    pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name, rev: state.strategy.rev ?? 0 } : null}
+                      pinePosition={state.strategy?.selected.kind === "pine" ? state.strategy?.position ?? null : null}
                     scanLock={state.scanLock ?? null}
                   />
                 </div>

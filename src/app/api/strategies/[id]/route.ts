@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { requireStrategyAccess } from "@/lib/license";
 import { compileAndSave, toSummary } from "@/lib/strategy-store";
-import { deactivatePineStrategy } from "@/lib/pine-bot";
+import { deactivatePineStrategy, resyncActivePineRow } from "@/lib/pine-bot";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +39,12 @@ export async function PATCH(req: NextRequest, ctx: Ctx) {
     if (wasActive && !compile.ok) {
       await deactivatePineStrategy();
       await db.pineStrategy.update({ where: { id }, data: { active: false } });
+    }
+    // an active strategy that STILL compiles must take effect immediately:
+    // the engine re-warms on the new code and the chart redraws the new
+    // plots right away (rev bump) — never the stale version
+    if (wasActive && compile.ok) {
+      await resyncActivePineRow(row).catch(() => {});
     }
     return NextResponse.json({ ok: true, strategy: summary, compile, deactivated: wasActive && !compile.ok });
   } catch (e) {

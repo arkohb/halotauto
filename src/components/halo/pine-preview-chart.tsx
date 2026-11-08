@@ -4,6 +4,8 @@
 //  PINE PREVIEW CHART · candles + compiled Pine plots + trade markers
 //  The Strategy Studio's own lightweight-charts view of what the compiled
 //  script really draws over real market history (from the preview API).
+//  Overlay scripts draw on the price pane; separate-pane scripts (RSI /
+//  MACD, overlay=false) get their own pane so their scale stays honest.
 // ════════════════════════════════════════════════════════════════════════
 
 import { useEffect, useRef } from "react";
@@ -11,11 +13,13 @@ import {
   CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   LineSeries,
   LineStyle,
   createChart,
   createSeriesMarkers,
   type IChartApi,
+  type IPriceLine,
   type ISeriesApi,
   type SeriesMarker,
   type Time,
@@ -30,6 +34,8 @@ export interface PreviewPlot {
   style: string;
   color: string;
   lineWidth: number;
+  /** script-level overlay flag — false renders the plot in its own pane */
+  overlay?: boolean;
   data: { time: number; value: number; color?: string }[];
 }
 export interface PreviewMarker {
@@ -61,7 +67,9 @@ export function PinePreviewChart({
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const extraRef = useRef<ISeriesApi<"Line">[]>([]);
+  const extraRef = useRef<Array<ISeriesApi<"Line"> | ISeriesApi<"Histogram">>>([]);
+  const hlinesRef = useRef<Array<{ s: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | ISeriesApi<"Candlestick">; pl: IPriceLine }>>([]);
+  const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
 
   useEffect(() => {
     const el = elRef.current;
@@ -89,6 +97,8 @@ export function PinePreviewChart({
       chartRef.current = null;
       candleRef.current = null;
       extraRef.current = [];
+      hlinesRef.current = [];
+      markersRef.current = null;
     };
   }, [height]);
 
@@ -109,31 +119,67 @@ export function PinePreviewChart({
       }
     }
     extraRef.current = [];
-
-    for (const p of plots.slice(0, 8)) {
-      const ser = chart.addSeries(LineSeries, {
-        color: p.color || C.cyan,
-        lineWidth: Math.min(3, Math.max(1, p.lineWidth)) as 1 | 2 | 3,
-        lineStyle: p.style === "stepline" ? LineStyle.Solid : LineStyle.Solid,
-        lastValueVisible: true,
-        priceLineVisible: false,
-        title: p.title,
-        crosshairMarkerVisible: false,
-      });
-      ser.setData(
-        p.data.map((d) => ({ time: (d.time / 1000) as UTCTimestamp, value: d.value }))
-      );
-      extraRef.current.push(ser);
+    for (const { s, pl } of hlinesRef.current) {
+      try {
+        s.removePriceLine(pl);
+      } catch {
+        // already gone
+      }
     }
+    hlinesRef.current = [];
+
+    // Pane placement — mirror the live chart: overlay=false scripts plot in
+    // their own pane below the candles.
+    let firstPaneSeries: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | null = null;
+    for (const p of plots.slice(0, 8)) {
+      const separate = p.overlay === false;
+      const paneIdx = separate ? 1 : 0;
+      const asHistogram = p.style === "histogram" || p.style === "columns";
+      const ser = asHistogram
+        ? chart.addSeries(
+            HistogramSeries,
+            {
+              color: p.color || C.cyan,
+              lastValueVisible: true,
+              priceLineVisible: false,
+              title: p.title,
+            },
+            paneIdx
+          )
+        : chart.addSeries(
+            LineSeries,
+            {
+              color: p.color || C.cyan,
+              lineWidth: Math.min(3, Math.max(1, p.lineWidth)) as 1 | 2 | 3,
+              lineStyle: LineStyle.Solid,
+              lastValueVisible: true,
+              priceLineVisible: false,
+              title: p.title,
+              crosshairMarkerVisible: false,
+            },
+            paneIdx
+          );
+      ser.setData(p.data.map((d) => ({ time: (d.time / 1000) as UTCTimestamp, value: d.value, color: d.color })));
+      extraRef.current.push(ser);
+      if (separate && !firstPaneSeries) firstPaneSeries = ser;
+    }
+    const hlineTarget = firstPaneSeries ?? cs;
     for (const h of hlines.slice(0, 6)) {
-      cs.createPriceLine({
-        price: h.price,
-        color: h.color || C.label,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: h.title || "hline",
-      });
+      try {
+        hlinesRef.current.push({
+          s: hlineTarget,
+          pl: hlineTarget.createPriceLine({
+            price: h.price,
+            color: h.color || C.label,
+            lineWidth: 1,
+            lineStyle: LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: h.title || "hline",
+          }),
+        });
+      } catch {
+        // out-of-range hline — skip
+      }
     }
     const mk: SeriesMarker<Time>[] = markers.slice(0, 200).map((m) => ({
       time: (m.time / 1000) as UTCTimestamp,
@@ -142,7 +188,8 @@ export function PinePreviewChart({
       color: m.color || (m.up ? C.green : C.red),
       text: m.text || (m.up ? "BUY" : "SELL"),
     }));
-    createSeriesMarkers(cs, mk);
+    if (!markersRef.current) markersRef.current = createSeriesMarkers(cs, []);
+    markersRef.current.setMarkers(mk);
     chart.timeScale().fitContent();
   }, [candles, plots, markers, hlines]);
 

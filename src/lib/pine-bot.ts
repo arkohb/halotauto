@@ -62,6 +62,7 @@ interface PineState {
   meta: CompiledPine;
   signal: PineSignalCfg;
   risk: { useSlATR: boolean; slATRm: number; useSlPts: boolean; slPts: number; rrMult: number };
+  rev: number; // strategy row updatedAt (epoch ms) — bumps on every edit/recompile
   lastConfirmedTime: number;
   lastPrice: number;
   warmed: boolean;
@@ -102,13 +103,14 @@ export interface PineBotInfo {
   symbol: string;
   tf: string;
   warmed: boolean;
-  position: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null } | null;
+  rev: number; // row updatedAt — the chart watches this to redraw the indicator the moment it changes
+  position: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null; entryTime: number } | null;
 }
 
 export function getPineBotInfo(): PineBotInfo {
   const st = slot().state;
   if (!st) {
-    return { active: false, id: null, name: BUILTIN_STRATEGY_NAME, kind: "builtin", symbol: "", tf: "", warmed: false, position: null };
+    return { active: false, id: null, name: BUILTIN_STRATEGY_NAME, kind: "builtin", symbol: "", tf: "", warmed: false, rev: 0, position: null };
   }
   return {
     active: true,
@@ -118,7 +120,8 @@ export function getPineBotInfo(): PineBotInfo {
     symbol: st.symbol,
     tf: st.tf,
     warmed: st.warmed,
-    position: st.pos ? { dir: st.pos.dir, entry: st.pos.entry, sl: st.pos.sl, tp: st.pos.tp } : null,
+    rev: st.rev,
+    position: st.pos ? { dir: st.pos.dir, entry: st.pos.entry, sl: st.pos.sl, tp: st.pos.tp, entryTime: st.pos.entryTime } : null,
   };
 }
 
@@ -166,13 +169,48 @@ export async function deactivatePineStrategy(): Promise<void> {
   }
 }
 
+/**
+ * RESYNC the active strategy after an edit/recompile (PATCH): rebuild the
+ * runtime from the fresh row so the ENGINE trades the new code and the
+ * CHART redraws the new plots immediately — not on the next 60 s preview
+ * poll, not after a manual deactivate/reactivate. The open position (if
+ * any) survives: its entry/SL/TP are absolute prices that stay valid
+ * across a re-warm.
+ */
+export async function resyncActivePineRow(row: {
+  id: string;
+  name: string;
+  pineSource: string;
+  compiledJson: string;
+  signalJson: string;
+  useSlATR: boolean;
+  slATRm: number;
+  useSlPts: boolean;
+  slPts: number;
+  rrMult: number;
+  updatedAt?: Date | string;
+}): Promise<void> {
+  const s = slot();
+  const old = s.state;
+  if (!old || old.strategyId !== row.id) return; // not the active strategy — nothing to resync
+  const probe = botProbe();
+  // keep trading the SAME instrument the state is on — a chart symbol
+  // switch mid-edit must not orphan an open position
+  const state = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, old.symbol || probe.symbol, old.tf || probe.tf);
+  if (old.pos) state.pos = old.pos;
+  s.state = state;
+  setActiveStrategySel({ id: row.id, name: row.name, kind: "pine" });
+  startTimer();
+  void tickPine(true).catch(() => {});
+}
+
 async function buildState(
   id: string,
   name: string,
   source: string,
   compiledJson: string,
   signalJson: string,
-  row: { useSlATR: boolean; slATRm: number; useSlPts: boolean; slPts: number; rrMult: number },
+  row: { useSlATR: boolean; slATRm: number; useSlPts: boolean; slPts: number; rrMult: number; updatedAt?: Date | string },
   symbol: string,
   tf: string
 ): Promise<PineState> {
@@ -199,6 +237,7 @@ async function buildState(
     meta: meta ?? ({ ok: true, kind: "strategy", name, overlay: true, processOrdersOnClose: false, pyramiding: 0, inputs: [], plots: [], shapes: [], hlines: [], entryIds: [], hasLong: true, hasShort: false, hasExitSLTP: false, hasClose: false, signalCandidates: [], notes: [], diagnostics: [] } as CompiledPine),
     signal,
     risk: { useSlATR: row.useSlATR, slATRm: row.slATRm, useSlPts: row.useSlPts, slPts: row.slPts, rrMult: row.rrMult },
+    rev: row.updatedAt ? new Date(row.updatedAt).getTime() : Date.now(),
     lastConfirmedTime: 0,
     lastPrice: 0,
     warmed: false,
