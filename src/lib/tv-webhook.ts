@@ -281,7 +281,18 @@ export async function processTvAlert(
           .catch(() => null);
       }
     }
-    const exitPx = feedPx || open.entry;
+    // exit price: the close alert's own price first — TradingView quotes the
+    // same feed its entry came from. The server feed can sit on a different
+    // venue/series, and mixing the two once booked +2933.5 pips on a 9-second
+    // gold test trade (entry from the alert, exit from the feed ~293 lower).
+    let exitPx = alert.price > 0 ? alert.price : feedPx || open.entry;
+    // a paper position cannot run past its own stops — the SL/TP would have
+    // closed it there — so bookkeeping is bounded by the SL…TP band
+    if (open.sl > 0 && open.tp > 0) {
+      const lo = Math.min(open.sl, open.tp);
+      const hi = Math.max(open.sl, open.tp);
+      exitPx = Math.min(hi, Math.max(lo, exitPx));
+    }
     const resultPips = ((exitPx - open.entry) * open.direction) / pip;
     await db.trade.update({
       where: { id: open.id },

@@ -32,6 +32,8 @@ import {
   getActiveStrategySel,
   setActiveStrategySel,
 } from "@/lib/strategy-select";
+import { getTradeLock, maybeReleaseLock } from "@/lib/trade-lock";
+import { bookPaperCloseFromDb } from "@/lib/paper-account";
 
 export interface PineSignalCfg {
   mode: "strategy" | "manual";
@@ -618,6 +620,15 @@ async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "
     });
   } catch {
     // book already closed (broker-side SL/TP) — keep going
+  }
+  // paper close → persistent demo balance (exactly once; no-op for LIVE)
+  void bookPaperCloseFromDb(pos.dbId);
+  // GLOBAL TRADE LOCK — the fire engaged it under source BOT; the 3EL engine
+  // that normally releases BOT locks is idle while Pine trades, so the Pine
+  // close must release it or every scanner/sweep/bot fire stays refused.
+  // Only when this position owns the lock.
+  if (getTradeLock()?.tradeDbId === pos.dbId) {
+    maybeReleaseLock("BOT", st.symbol, st.tf, status === "WIN" ? "win" : "loss", Math.abs(pips));
   }
   void sendAlert({
     kind: status === "WIN" ? "win" : "loss",

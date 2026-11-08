@@ -809,3 +809,6 @@ export function scannerPx(v: number, symbol: string): string {
   const meta = getSymbolMeta(symbol);
   return v.toFixed(decimalsOf(meta.mintick));
 }
+
+/** test-only hook — drive a row's fire/close handling with engine events (scripts/fire-e2e-test.ts) */
+export const __tfScannerTest = { makeRow, handleEvents, currentCfg };
