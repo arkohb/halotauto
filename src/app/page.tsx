@@ -434,6 +434,7 @@ export default function Page() {
                       atr={state.engine.atr}
                       price={state.feed.price}
                       pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
+                      scanLock={state.scanLock ?? null}
                     />
                   </div>
                   <div className="col-span-12 space-y-3 md:col-span-6 xl:col-span-4">
@@ -525,6 +526,7 @@ export default function Page() {
                     atr={state.engine.atr}
                     price={state.feed.price}
                     pineStrategy={state.strategy && state.strategy.selected.kind === "pine" && state.strategy.selected.id ? { id: state.strategy.selected.id, name: state.strategy.selected.name } : null}
+                    scanLock={state.scanLock ?? null}
                   />
                 </div>
                 <div className="col-span-12 space-y-3 xl:col-span-4">

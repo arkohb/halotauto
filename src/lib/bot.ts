@@ -87,6 +87,8 @@ export interface BotRuntime {
   pauseNew: boolean;
   bootstrapped: boolean;
   lastConfirmedTime: number;
+  /** engine booted flat while another executor held the trade lock — re-warm with full history once it releases */
+  bootedFlat?: boolean;
   lastTickAt: number;
   feedSource: string;
   feedNote: string;
@@ -230,6 +232,25 @@ async function warmEngine(): Promise<void> {
   bot.engine.tm = effectiveTm();
   bot.openTradeDbId = null;
   bot.lastConfirmedTime = 0;
+  bot.bootedFlat = false;
+  // GLOBAL TRADE LOCK: when another executor holds the running trade (scanner,
+  // sweep, TV, or a trade restored after a restart), the engine boots FLAT.
+  // Replaying history here could complete a formation and leave an in-memory
+  // "ghost" fire with no booked trade and no lock claim; the frozen engine
+  // would then hold it open with no SL/TP detection. The real running trade
+  // is drawn through the chart's lock path instead.
+  if (!isLockHolder("BOT", bot.symbol, bot.tf)) {
+    try {
+      const { candles, source } = await getKlines(bot.symbol, bot.tf, 1, { fresh: true });
+      bot.feedSource = source;
+      const px = candles[candles.length - 1]?.close;
+      if (px && px > 0) bot.lastPrice = px;
+    } catch {
+      // price book stays cold — the first tick warms it
+    }
+    bot.bootedFlat = true;
+    return;
+  }
   try {
     markPrioritySymbol(bot.symbol); // the bot's own market is fetched ahead of scanner traffic
     const { candles, source } = await getKlines(bot.symbol, bot.tf, 600, { deep: true });
@@ -596,6 +617,11 @@ export async function tickBot(force = false): Promise<void> {
     if (frozen) {
       const frozenLive = candles[candles.length - 1];
       if (frozenLive) bot.lastPrice = frozenLive.close;
+      return;
+    }
+    // the lock released after a flat boot: load full history before trading
+    if (bot.bootedFlat) {
+      await warmEngine();
       return;
     }
     // feed upgraded (simulator → real OHLC): re-anchor the engine onto the

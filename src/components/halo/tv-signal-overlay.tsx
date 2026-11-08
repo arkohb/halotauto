@@ -28,10 +28,14 @@ interface Props {
   levels: LevelSnapshot[]; // fresh levels only (the current signal)
   history?: LevelSnapshot[]; // ALL LEVELS: fired / burned levels, drawn as time-bounded segments
   log?: LogEntry[]; // ALL LEVELS: fires + TP/SL hits, drawn as marks
-  trade: TradeSnapshot | null;
+  trade: TradeSnapshot | null; // the ACTIVE trade — engine OR global lock (scanner / sweep / TV fire)
   mintick: number;
   symbol: string;
   tf: string;
+  /** current market price — drives the live trade marker (0 = no price yet) */
+  livePx?: number;
+  /** pip size in price units (mintick × pipMult): pips = ((price − entry) × dir) / pip */
+  pip?: number;
 }
 
 const GOLD = "#E9B94E";
@@ -59,12 +63,14 @@ interface LineSpec {
   dash: boolean;
   dotted: boolean;
   label: string;
+  /** the live trade marker — solid inverted chip with a pulsing beacon */
+  live?: boolean;
 }
 
 /** TradingView's right price axis — the plot area ends left of it */
 const TV_AXIS_W = 66;
 
-export function TvSignalOverlay({ candles, levels, history = [], log = [], trade, mintick, symbol, tf }: Props) {
+export function TvSignalOverlay({ candles, levels, history = [], log = [], trade, mintick, symbol, tf, livePx, pip }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const offKey = `halo3el.tvoverlay.off.${symbol}|${tf}`;
@@ -134,11 +140,13 @@ export function TvSignalOverlay({ candles, levels, history = [], log = [], trade
       fold(trade.entry);
       fold(trade.sl);
       fold(trade.tp);
+      // the live marker rides the CURRENT price — folded in so a breakout can never clip off-panel
+      if (livePx && livePx > 0) fold(livePx);
     }
     if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return null;
     const pad = (hi - lo) * 0.12;
     return { pLo: lo - pad, pHi: hi + pad, win };
-  }, [candles, levels, trade, size.w, size.h]);
+  }, [candles, levels, trade, livePx, size.w, size.h]);
 
   // ── lines to draw: BOTH armed levels + open trade only ─────────────────
   const lines = useMemo<LineSpec[]>(() => {
@@ -203,9 +211,25 @@ export function TvSignalOverlay({ candles, levels, history = [], log = [], trade
         dotted: false,
         label: `TP ${fmtPx(trade.tp, mintick)}`,
       });
+      // ── LIVE TRADE MARKER · the same line the 3EL view rides ──
+      const px = livePx ?? 0;
+      if (px > 0) {
+        const pips = pip && pip > 0 ? ((px - trade.entry) * trade.dir) / pip : 0;
+        const inProfit = pips >= 0;
+        out.push({
+          key: "live",
+          price: px,
+          color: inProfit ? `rgba(${GREEN},0.95)` : `rgba(${RED},0.95)`,
+          width: 2,
+          dash: true,
+          dotted: false,
+          label: `${trade.dir === -1 ? "▼ SELL" : "▲ BUY"} ${inProfit ? "+" : "−"}${Math.abs(pips).toFixed(1)}p`,
+          live: true,
+        });
+      }
     }
     return out;
-  }, [scale, levels, trade, mintick]);
+  }, [scale, levels, trade, livePx, pip, mintick]);
 
   const onDown = (e: React.PointerEvent) => {
     dragRef.current = { y: e.clientY, base: off };
@@ -236,7 +260,8 @@ export function TvSignalOverlay({ candles, levels, history = [], log = [], trade
   const prio = new Map<string, number>();
   for (const l of lines) {
     // ENTRY > SL > TP keep fixed priority; armed levels + wicks rank after
-    prio.set(l.key, l.key === "entry" ? 0 : l.key === "sl" ? 1 : l.key === "tp" ? 2 : 3 + prio.size);
+    // the LIVE price tag always wins (it sits right on ENTRY at a fresh fire)
+    prio.set(l.key, l.key === "live" ? 0 : l.key === "entry" ? 1 : l.key === "sl" ? 2 : l.key === "tp" ? 3 : 4 + prio.size);
   }
   const planned = lines
     .map((l) => ({ key: l.key, y: yOfRaw(l.price), prio: prio.get(l.key) ?? 9 }))
@@ -315,17 +340,18 @@ export function TvSignalOverlay({ candles, levels, history = [], log = [], trade
                   sits within 11px — chips never stack) */}
               {showChip.get(l.key) !== false && (
                 <span
-                  className="rounded border px-1 py-px text-[8.5px] font-extrabold tabular-nums tracking-wide"
+                  className="flex items-center gap-1 rounded border px-1 py-px text-[8.5px] font-extrabold tabular-nums tracking-wide"
                   style={{
                     position: "absolute",
                     right: 4,
                     top: "50%",
                     transform: "translateY(-50%)",
-                    borderColor: l.color,
-                    color: l.color,
-                    background: "rgba(7,13,27,0.88)",
+                    borderColor: l.live ? "transparent" : l.color,
+                    color: l.live ? "#020B1A" : l.color,
+                    background: l.live ? l.color : "rgba(7,13,27,0.88)",
                   }}
                 >
+                  {l.live && <span className="h-1 w-1 animate-pulse rounded-full" style={{ background: "#020B1A" }} />}
                   {l.label}
                 </span>
               )}

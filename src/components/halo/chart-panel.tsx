@@ -66,6 +66,10 @@ interface ChartProps {
   routing?: string;
   /** when a Pine strategy is the bot's active strategy, its indicator plots here */
   pineStrategy?: { id: string; name: string } | null;
+  /** GLOBAL TRADE LOCK — a trade running anywhere in the app. When it belongs
+   * to THIS chart's symbol it renders exactly like an engine trade: the
+   * ENTRY/SL/TP position tool plus the live price marker line. */
+  scanLock?: { source: string; symbol: string; tf: string; dir: number; entry: number; sl: number; tp: number; openedAt: number } | null;
   /** EA bot running */
   enabled: boolean;
   /** EA auto-attaches to this chart (auto-start on boot) */
@@ -95,6 +99,20 @@ function sideColor(side: number, alpha: string): string {
   return `rgba(${rgb},${alpha})`;
 }
 
+/** Move the live trade marker to a new price in place (applyOptions — no
+ * series mutation, no overlay rebuild). Engine formula:
+ * pips = ((price − entry) × dir) / (mintick × pipMult). */
+function applyLiveMark(m: { pl: IPriceLine; entry: number; dir: -1 | 1; pip: number }, px: number): void {
+  if (!(px > 0)) return;
+  const pips = m.pip > 0 ? ((px - m.entry) * m.dir) / m.pip : 0;
+  const inProfit = pips >= 0;
+  m.pl.applyOptions({
+    price: px,
+    color: inProfit ? C.green : C.red,
+    title: `${m.dir === -1 ? "▼ SELL" : "▲ BUY"} ${inProfit ? "+" : "−"}${Math.abs(pips).toFixed(1)}p`,
+  });
+}
+
 type ChartMode = "tv" | "3el";
 const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator view
 const VENUE_KEY = "halo3el.chartvenue.v1"; // broker filter for the pair picker
@@ -102,9 +120,37 @@ const LEVELS_KEY = "halo3el.chartlevels.v2"; // "current" (default) | "all"
 
 export default function ChartPanel(props: ChartProps) {
   const {
-    candles, drawings, log, trade, mintick, symbol, tf, source, statusLine, routing,
-    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy,
+    candles, drawings, log, trade: engineTrade, mintick, symbol, tf, source, statusLine, routing,
+    enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy, scanLock,
   } = props;
+  // ── GLOBAL TRADE LOCK · a scanner / sweep / TV trade on THIS symbol ──
+  // A trade can fire off-chart (watchlist sweep, TV webhook). When the locked
+  // trade belongs to this chart's instrument it is drawn exactly like an
+  // engine trade. The engine's own trade always takes precedence.
+  const scanLockTrade = useMemo<TradeSnapshot | null>(() => {
+    const lock = scanLock;
+    if (!lock || lock.symbol !== symbol || !(lock.tp > 0) || !(lock.sl > 0)) return null;
+    const pip = mintick * (cfg.pipMult || 10);
+    const risk = Math.abs(lock.entry - lock.sl);
+    const reward = Math.abs(lock.tp - lock.entry);
+    return {
+      dir: lock.dir === -1 ? -1 : 1,
+      entry: lock.entry,
+      sl: lock.sl,
+      tp: lock.tp,
+      risk,
+      riskPips: pip > 0 ? risk / pip : 0,
+      rewardPips: pip > 0 ? reward / pip : 0,
+      entryTime: lock.openedAt,
+      ext: lock.entry,
+      levelTop: lock.entry,
+      levelBot: lock.entry,
+      trigger: lock.entry,
+      slModeLabel: `${lock.source} trade`,
+      traded: true,
+    };
+  }, [scanLock, symbol, mintick, cfg.pipMult]);
+  const trade = engineTrade ?? scanLockTrade;
   const [mode, setMode] = useState<ChartMode>("3el");
   const [tvNote, setTvNote] = useState<string | null>(null);
   // broker filter for the pair picker — null = ALL brokers (sectioned list)
@@ -120,6 +166,9 @@ export default function ChartPanel(props: ChartProps) {
   const overlayRef = useRef<LevelLines>({ series: [], priceLines: [] });
   const zoneRef = useRef<ZoneOverlay | null>(null);
   const fitKeyRef = useRef<string>("");
+  // LIVE TRADE MARKER — a price line riding the CURRENT market price while a
+  // trade runs on this chart, moved in place at tick rate, coloured by P&L
+  const liveMarkRef = useRef<{ pl: IPriceLine; entry: number; dir: -1 | 1; pip: number } | null>(null);
 
   // derived (visual-only) state
   const freshLevels = useMemo(() => drawings.filter((d) => d.state === "fresh"), [drawings]);
@@ -239,6 +288,7 @@ export default function ChartPanel(props: ChartProps) {
       markersRef.current = null;
       zoneRef.current = null;
       overlayRef.current = { series: [], priceLines: [] };
+      liveMarkRef.current = null; // the line died with the chart
     };
   }, [mode]);
 
@@ -371,6 +421,45 @@ export default function ChartPanel(props: ChartProps) {
       chart.timeScale().fitContent();
     }
   }, [candles, mode, symbol, tf, liveStat.active, liveStat.kind]);
+
+  // ── LIVE TRADE MARKER · the running trade's line at the CURRENT price ──
+  // Only a booked trade gets the marker (never a replayed signal). Green in
+  // profit, red in loss, tagged with side + floating pips.
+  useEffect(() => {
+    if (mode !== "3el") return; // chart teardown/mount owns the ref across mode switches
+    const cs = candleRef.current;
+    if (!cs) return;
+    const px = liveStat.active && liveBar ? liveBar.close : price;
+    const clear = () => {
+      if (!liveMarkRef.current) return;
+      try {
+        cs.removePriceLine(liveMarkRef.current.pl);
+      } catch {
+        // the chart may already be tearing down
+      }
+      liveMarkRef.current = null;
+    };
+    if (!bookedTrade) return clear();
+    const pip = mintick * (cfg.pipMult || 10);
+    const m = liveMarkRef.current;
+    if (m && (m.entry !== bookedTrade.entry || m.dir !== bookedTrade.dir || m.pip !== pip)) clear(); // a different trade took over
+    if (!liveMarkRef.current) {
+      liveMarkRef.current = {
+        pl: cs.createPriceLine({
+          price: px > 0 ? px : bookedTrade.entry,
+          color: C.cyan,
+          lineWidth: 1,
+          lineStyle: LineStyle.LargeDashed,
+          axisLabelVisible: true,
+          title: bookedTrade.dir === -1 ? "▼ SELL" : "▲ BUY",
+        }),
+        entry: bookedTrade.entry,
+        dir: bookedTrade.dir,
+        pip,
+      };
+    }
+    if (px > 0) applyLiveMark(liveMarkRef.current, px);
+  }, [bookedTrade, liveBar, liveStat.active, price, mintick, cfg.pipMult, mode]);
 
   // overlays: level zones + trigger lines + position tool + markers
   useEffect(() => {
@@ -923,6 +1012,8 @@ export default function ChartPanel(props: ChartProps) {
             mintick={mintick}
             symbol={symbol}
             tf={tf}
+            livePx={liveStat.active && liveBar ? liveBar.close : price}
+            pip={mintick * (cfg.pipMult || 10)}
           />
           {/* C3 forming alert pill — top-center works on both views */}
           {bestForm && (
