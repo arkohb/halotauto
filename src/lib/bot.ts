@@ -18,6 +18,7 @@ import { sendAlert } from "./alerts";
 import { registerBotProbe } from "./strategy-select";
 import { maybeAnnounceRangeOpportunities } from "./range-scan";
 import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
+import { ensurePineLibrary } from "./pine/library";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf } from "./market-symbols";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
@@ -877,6 +878,7 @@ export async function botState(): Promise<{
   const bot = getBot();
   await tickBot().catch(() => {});
   void ensurePineBoot().catch(() => {}); // re-arm the Pine auto-trader after restarts
+  void ensurePineLibrary().catch(() => {}); // install the ★ best-indicators library (idempotent; never selects one)
   const meta = getSymbolMeta(bot.symbol);
   const exec = await loadExecSettings();
   let broker: ExecSummary["broker"] = null;

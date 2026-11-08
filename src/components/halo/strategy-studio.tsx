@@ -20,6 +20,7 @@ import { PageHeader, Pill } from "@/components/halo/panel";
 import { PinePreviewChart, type PreviewHLine, type PreviewMarker, type PreviewPlot } from "@/components/halo/pine-preview-chart";
 import { A, C, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { MAX_PINE_CHARS, MAX_PINE_LINES } from "@/lib/pine/limits";
+import { LIBRARY } from "@/lib/pine/library-sources";
 
 // ── types mirroring the API ──────────────────────────────────────────────
 interface StrategySummary {
@@ -67,7 +68,7 @@ interface PreviewRes {
 }
 
 // ── starter templates (real, compile-ready Pine v5) ──────────────────────
-const TEMPLATES: { name: string; source: string }[] = [
+const BASE_TEMPLATES: { name: string; source: string }[] = [
   {
     name: "EMA Cross strategy",
     source: `//@version=5
@@ -131,7 +132,7 @@ if longCond
     strategy.entry("ST-L", strategy.long)
 if shortCond
     strategy.entry("ST-S", strategy.short)
-plot(sup, "Supertrend", color=dir < 0 ? color.red : color.green)`,
+plot(sup, "Supertrend", color=dir < 0 ? color.green : color.red)`,
   },
   {
     name: "Bollinger mean reversion",
@@ -153,6 +154,14 @@ plot(basis, "Basis", color=color.orange)
 plot(upper, "Upper", color=color.gray)
 plot(lower, "Lower", color=color.gray)`,
   },
+];
+
+// the researched ★ best-indicators library ships alongside the starters —
+// and is ALSO auto-installed into the strategy list by the server seeder
+// (src/lib/pine/library.ts), so these appear ready to trade out of the box.
+const TEMPLATES: { name: string; source: string }[] = [
+  ...BASE_TEMPLATES,
+  ...LIBRARY.map((l) => ({ name: l.name, source: l.source })),
 ];
 
 const EMPTY_EDITOR = { name: "", description: "", source: "" };
@@ -561,11 +570,20 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
               aria-label="Load a starter template"
             >
               <option value="">TEMPLATES…</option>
-              {TEMPLATES.map((t) => (
-                <option key={t.name} value={t.name}>
-                  {t.name}
-                </option>
-              ))}
+              <optgroup label="STARTERS">
+                {BASE_TEMPLATES.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="★ BEST INDICATORS LIBRARY">
+                {LIBRARY.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
             <button
               type="button"
