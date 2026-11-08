@@ -1,12 +1,13 @@
 // ════════════════════════════════════════════════════════════════════════
-//  /api/tf-scanner · TIMEFRAME SCANNER BOT (signal-only)
+//  /api/tf-scanner · TIMEFRAME SCANNER BOT
 //
 //  GET  → full scanner-bot state (status, markets, last scan, messages,
 //         latest qualifying opportunity) — the chat card polls this.
 //  POST → { action: "start" | "pause" | "resume" } — the ONLY controls.
 //
 //  Gated by the middleware login gate like every /api endpoint. This route
-//  never executes trades — the scanner module is signal-only by design.
+//  Fires execute through the shared execution layer (tf-scanner.ts) — this
+//  route is state read + start/pause/resume controls only.
 // ════════════════════════════════════════════════════════════════════════
 
 import { NextResponse } from "next/server";

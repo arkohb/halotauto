@@ -109,7 +109,8 @@ export function ScannerPanel({ notify, onJumpToSymbol }: Props) {
   const [st, setSt] = useState<State | null>(null);
   const [addSym, setAddSym] = useState("BTCUSDT");
   const [addTf, setAddTf] = useState("5m");
-  const [addAuto, setAddAuto] = useState(false);
+  // AUTO-FIRE ON by default — the bot fires on every scan signal, any pair/TF
+  const [addAuto, setAddAuto] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState(false);
   const [loaded, setLoaded] = useState(false);

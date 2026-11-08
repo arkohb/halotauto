@@ -48,7 +48,9 @@ export async function POST(req: Request) {
       const symbol = SYMBOLS.some((s) => s.id === body.symbol) ? String(body.symbol) : "";
       const tf = (TIMEFRAMES as readonly string[]).includes(String(body.tf)) ? String(body.tf) : "5m";
       if (!symbol) return NextResponse.json({ ok: false, error: "unknown symbol" }, { status: 400 });
-      await scannerAdd(symbol, tf, Boolean(body.autoTrade));
+      // AUTO-FIRE by default — the bot executes every scan signal on any
+      // pair + timeframe; the per-row switch can still opt a row out.
+      await scannerAdd(symbol, tf, body.autoTrade !== undefined ? Boolean(body.autoTrade) : true);
     } else if (body.action === "patch" && body.id) {
       await scannerPatch(body.id, {
         enabled: body.enabled,

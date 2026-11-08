@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════════════════
-//  TIMEFRAME SCANNER BOT · signal-only assistant inside the HALO chat
+//  TIMEFRAME SCANNER BOT · market-wide hunting engine inside the HALO chat
 //
 //  "SCAN ALL AVAILABLE SUPPORTED MARKETS AND TIMEFRAMES TO FIND TRADING
 //   OPPORTUNITIES THAT MEET THE EXISTING, ALREADY-IMPLEMENTED HALO TRADING
@@ -11,13 +11,17 @@
 //    rules, no indicators, no reinterpretation.
 //  • Universe: every catalog symbol (SYMBOLS) × every timeframe the app
 //    already supports (TIMEFRAMES). Nothing is added.
-//  • SIGNAL-ONLY: a fire is reported to the chat and the alert log — this
-//    module NEVER calls executeFire, never opens / closes / modifies a
-//    trade, never touches MT5 or the EA controls.
+//  • FIRES ARE REAL TRADES: when the engine fires, the signal routes
+//    through the SAME executeFire() execution layer as the EA bot / scanner
+//    / sweep — a Trade row is written (paper or live, per the global exec
+//    settings), the global trade lock engages, and the engine's own TP/SL
+//    detection closes the row (WIN/LOSS + resultPips) so trade history and
+//    the journal record every engine fire. No fire can stay a DB-less ghost.
 //  • Trade-lock semantics stay consistent app-wide: the bot registers as a
 //    lock participant (its armed levels are wiped when a trade fires
-//    anywhere — "all armed levels are deleted") and it pauses scanning
-//    while a trade runs, resuming after TP/SL.
+//    anywhere — "all armed levels are deleted"), it pauses scanning while a
+//    trade runs and keeps ticking ONLY the row that owns the running trade
+//    (so its TP/SL are detected), resuming the full universe after TP/SL.
 //  • Settings persist in the SystemSetting KV ("tfScannerConfig"), same
 //    infrastructure as the sweep. The ticker is kept alive server-side by
 //    the same /api/bot/state keep-alive that drives the sweep.
@@ -37,7 +41,9 @@ import { clampConfig } from "./bot";
 import { SYMBOLS, TIMEFRAMES, decimalsOf, isSimOnlyGroup } from "./market-symbols";
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
-import { getTradeLock, registerLockParticipant } from "./trade-lock";
+import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } from "./execution";
+import { bookPaperCloseFromDb } from "./paper-account";
+import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
 
 const KV_KEY = "tfScannerConfig";
 const WARM_BARS = 400; // same warm-up depth as the sweep
@@ -72,6 +78,13 @@ interface ScanRow {
   lastError: string;
   source: string;
   armed: number; // fresh armed levels on this row (strategy snapshot)
+  // the DB trade this row's fire opened (executeFire) — the win/loss
+  // handler closes it (status + resultPips + closedAt) so trade history
+  // and the journal always record the engine's fires
+  openTradeDbId: string | null;
+  openTradeExec: "PAPER" | "LIVE";
+  openTradeDir: -1 | 0 | 1;
+  liveBrokerId: string | null;
 }
 
 export interface ScannerOpportunity {
@@ -262,6 +275,10 @@ function makeRow(symbol: string, tf: string, cfg: HaloConfig): ScanRow {
     lastError: "",
     source: "—",
     armed: 0,
+    openTradeDbId: null,
+    openTradeExec: "PAPER",
+    openTradeDir: 0,
+    liveBrokerId: null,
   };
 }
 
@@ -305,13 +322,58 @@ function handleEvents(row: ScanRow, events: EngineEvent[]): void {
         "opportunity",
         `A trading opportunity meeting the existing HALO strategy has been detected on ${label}, ${row.tf.toUpperCase()} — ${side} at ${entryPx}. View the details below.`,
       );
-      // alert log + push channels — same infrastructure the Scanner uses;
-      // strictly a signal: the scanner never executes anything
-      void sendAlert({
-        kind: "scanner",
-        title: `SCANNER BOT ${side} · ${label} ${row.tf.toUpperCase()}`,
-        body: `${e.message}\nSymbol: ${row.symbol} · TF ${row.tf}\nEntry ${entryPx} · SL ${slPx} · TP ${tpPx}\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips\nSignal only — the Timeframe Scanner Bot never executes trades.`,
-      });
+      // GLOBAL TRADE LOCK — one running trade at a time across the whole app:
+      // while a trade runs anywhere the scanner's fire is honestly refused,
+      // never silently dropped (the engine's virtual trade still tracks the
+      // setup on the dashboard list until its own TP/SL).
+      const lock = getTradeLock();
+      if (lock) {
+        void sendAlert({
+          kind: "status",
+          title: `SCANNER BOT · SIGNAL SKIPPED — TRADE ALREADY RUNNING · ${label}`,
+          body: `${side} @ ${entryPx} on ${row.symbol} ${row.tf} was NOT executed: a trade is already running on ${lock.symbol} ${lock.tf}. Scanning resumes when it hits TP or SL.`,
+        });
+        continue;
+      }
+      // THE FIRE IS A REAL TRADE — the same execution layer the EA bot /
+      // scanner / sweep use: a Trade row is written (paper or live, per the
+      // global exec settings), the global trade lock engages and the
+      // trade shows on the chart, in trade history and in the journal.
+      void (async () => {
+        try {
+          const exec = await loadExecSettings();
+          const live = exec.executionMode === "live";
+          const tradeId = await executeFire({
+            source: "SCAN",
+            symbol: row.symbol,
+            tf: row.tf,
+            fire: e,
+            levelTop: e.levelTop,
+            levelBot: e.levelBot,
+            slModeLabel: "Break extreme + buffer",
+            exec,
+          });
+          row.openTradeDbId = tradeId;
+          row.openTradeExec = live ? "LIVE" : "PAPER";
+          row.openTradeDir = e.dir;
+          row.liveBrokerId = live && tradeId ? (await resolveBroker(exec.brokerAccountId))?.id ?? null : null;
+          if (tradeId) {
+            void sendAlert({
+              kind: "scanner",
+              title: `SCANNER BOT ${side} · ${label} ${row.tf.toUpperCase()}`,
+              body: `${e.message}\nSymbol: ${row.symbol} · TF ${row.tf}\nEntry ${entryPx} · SL ${slPx} · TP ${tpPx}\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips\nMode: ${live ? "LIVE · broker" : "PAPER"} — the trade is recorded in trade history and the journal.`,
+            });
+          } else {
+            // execution refused/failed — executeFire already alerted honestly;
+            // keep the dashboard list honest too
+            opp.status = "NOT EXECUTED";
+            if (R.opportunity === opp) R.opportunity = null;
+          }
+        } catch (err) {
+          console.error("[tf-scanner] fire execution failed:", (err as Error).message);
+          opp.status = "NOT EXECUTED";
+        }
+      })();
     } else if (e.type === "win" || e.type === "loss") {
       // the engine's own virtual trade management closed the opportunity —
       // report the outcome honestly against the recorded opportunity
@@ -328,6 +390,46 @@ function handleEvents(row: ScanRow, events: EngineEvent[]): void {
           );
         }
       }
+      // close the DB trade this fire opened — trade history + journal + the
+      // simulator balance all book the engine's outcome (same as bot.ts)
+      // only the row that OWNS the locked trade may release the lock — a
+      // virtual (never-executed) result must never free a trade another
+      // executor holds on the same pair+timeframe (the Market Scanner also
+      // trades under the SCAN source)
+      const ownsLock = row.openTradeDbId != null && getTradeLock()?.tradeDbId === row.openTradeDbId;
+      if (row.openTradeDbId) {
+        const dbId = row.openTradeDbId;
+        const wasLive = row.openTradeExec === "LIVE";
+        const brokerId = row.liveBrokerId;
+        const tradeDir = row.openTradeDir === -1 ? -1 : row.openTradeDir === 1 ? 1 : undefined;
+        void (async () => {
+          try {
+            if (wasLive && brokerId) {
+              const broker = await resolveBroker(brokerId);
+              if (broker) await closeBrokerPosition(broker, row.symbol, tradeDir).catch(() => {});
+            }
+            await db.trade.update({
+              where: { id: dbId },
+              data: {
+                status: e.type === "win" ? "WIN" : "LOSS",
+                resultPips: e.type === "win" ? e.pips : -e.pips,
+                closedAt: new Date(e.time),
+              },
+            });
+            // paper close → persistent simulator balance (no-op for LIVE)
+            void bookPaperCloseFromDb(dbId);
+          } catch (err) {
+            console.error("[tf-scanner] trade close bookkeeping failed:", (err as Error).message);
+          }
+        })();
+        row.openTradeDbId = null;
+        row.openTradeExec = "PAPER";
+        row.openTradeDir = 0;
+        row.liveBrokerId = null;
+      }
+      // GLOBAL TRADE LOCK release — the running trade closed (TP/SL),
+      // scanning re-activates app-wide (announced on the bus)
+      if (ownsLock) maybeReleaseLock("SCAN", row.symbol, row.tf, e.type, e.pips);
     } else if (e.type === "range_skip") {
       // the strategy refused the trade (ranging market, S/R too close) —
       // that is NOT an opportunity; count it honestly, stay silent
@@ -340,6 +442,12 @@ async function tickRow(row: ScanRow): Promise<void> {
   const now = Date.now();
   row.lastTickAt = now;
   const secMs = tfSec(row.tf) * 1000;
+
+  // GLOBAL TRADE LOCK: while a trade runs elsewhere the row is FROZEN (no
+  // bar feeding, no arming, no fires) — only the row that owns the running
+  // trade keeps ticking so its TP/SL are detected (same discipline as the
+  // watchlist scanner). The lock holder is identified by source+symbol+tf.
+  if (!isLockHolder("SCAN", row.symbol, row.tf)) return;
 
   if (!row.bootstrapped) {
     const { candles, source } = await getKlines(row.symbol, row.tf, WARM_BARS, { deep: true });
@@ -489,6 +597,17 @@ async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
         "pause",
         `Timeframe Scanner Bot is currently paused — a trade is running on ${lock.symbol} ${lock.tf}. Scanning resumes when it hits TP or SL.`,
       );
+    }
+    // the row that owns the running trade keeps ticking — its engine must
+    // still detect TP/SL so the DB trade closes and the lock releases
+    // (a frozen holder would leave the trade open until the watchdog).
+    if (lock.source === "SCAN") {
+      const key = rowKey(lock.symbol, lock.tf);
+      const held = R.rows.get(key);
+      if (held && held.bootstrapped && !held.busy) {
+        const cfg = await currentCfg();
+        await tickKey(key, cfg);
+      }
     }
     return;
   }

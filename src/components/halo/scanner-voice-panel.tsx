@@ -245,7 +245,7 @@ export function ScannerVoicePanel({ scannerStatus }: Props) {
             </p>
             <p className="mt-1.5 text-[11px] leading-relaxed" style={{ color: C.txt2 }}>
               The bot listens for its wake word and runs its own functions hands-free: start, pause or resume the sweep, report status and read out every
-              opportunity it finds — automatically. It is signal-only and never places trades.
+              opportunity it finds — automatically. When a fire confirms, the bot takes the trade (paper or live, per the EA execution settings) and scans again after it closes.
             </p>
             {/* pending consequential confirm — trading controls keep their gate */}
             {pendingConfirm && (

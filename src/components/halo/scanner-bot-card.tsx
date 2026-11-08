@@ -506,7 +506,7 @@ export function ScannerBotCard(): React.ReactElement {
                       <StatRow label="CONFIRMATION" value={`Existing HALO strategy · ${opp.sigMode}`} valueColor={C.cyan} />
                       <StatRow label="SIGNAL STATUS" value={opp.status} valueColor={opp.status === "ENTRY FIRED" ? C.cyan : C.goldHover} />
                       <p className="pt-0.5 text-[8px] leading-snug" style={{ color: C.muted }}>
-                        All values are exactly as calculated by the existing HALO strategy engine. The scanner never executes trades.
+                        All values are exactly as calculated by the existing HALO strategy engine. Confirmed fires execute through the shared execution layer and land in trade history and the journal.
                       </p>
                     </div>
                   )}
@@ -551,7 +551,7 @@ export function ScannerBotCard(): React.ReactElement {
               </span>
             )}
             <span className="shrink-0 font-mono text-[7.5px] tracking-wider" style={{ color: C.dim }}>
-              {st?.source && st.source !== "—" ? `feed · ${st.source}` : "signal-only bot"}
+              {st?.source && st.source !== "—" ? `feed · ${st.source}` : "hunting bot"}
             </span>
           </div>
         </div>

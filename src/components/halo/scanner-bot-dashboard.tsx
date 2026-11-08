@@ -12,7 +12,8 @@
 //  Every value comes from /api/tf-scanner exactly as the existing 3EL
 //  engine reports it — the ring is REAL universe coverage (rows warmed),
 //  the R:R slot is the engine's real reward:risk (no invented confidence).
-//  The bot never executes trades — nothing here does either.
+//  Fires execute through the shared execution layer (see tf-scanner.ts) —
+//  this dashboard only displays them.
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -809,7 +810,7 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
                   <TelemetryRow label="Signal status" value={opp.status} color={oppStatusColor(opp.status)} />
                 </div>
                 <p className="mt-2 text-[8.5px] leading-snug" style={{ color: C.muted }}>
-                  All values are exactly as calculated by the existing HALO strategy engine. The Scanner Bot is signal-only — it never executes, modifies or closes trades.
+                  All values are exactly as calculated by the existing HALO strategy engine. When a fire confirms, the Scanner Bot takes the trade through the shared execution layer — the row lands in trade history and the journal, and scanning pauses until it closes.
                 </p>
               </div>
               <div className="min-w-0">
