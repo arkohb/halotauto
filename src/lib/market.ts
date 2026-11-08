@@ -1,12 +1,14 @@
 // ════════════════════════════════════════════════════════════════════════
 //  MARKET DATA · multi-source candle fetcher with simulator fallback
-//  FOREX/METALS: OANDA practice (when configured) → Yahoo Finance → simulator
+//  FOREX/METALS/INDICES: your broker via the HALO Bridge EA (when online)
+//                → OANDA practice (when configured) → Yahoo Finance → simulator
 //  CRYPTO      : Binance → Bybit → OKX → Coinbase → built-in simulator
 // ════════════════════════════════════════════════════════════════════════
 
 import { Candle } from "./halo/types";
 import { decimalsOf, getSymbolMeta, isSimOnlyGroup, simStyleOf, tfSec, YAHOO_INDEX_MAP, type SymbolMeta } from "./market-symbols";
 import { fetchOandaCandles, oandaConfig, oandaInstrument } from "./oanda-feed";
+import { brokerCandles, brokerFeedCovers } from "./exness-feed";
 
 export { getSymbolMeta, SYMBOLS, tfSec, TIMEFRAMES, decimalsOf } from "./market-symbols";
 export type { SymbolMeta, Timeframe } from "./market-symbols";
@@ -262,6 +264,16 @@ async function fetchFromSources(sym: string, tf: string, limit: number): Promise
   // forex / metals / stock indices / energy: real OHLC from Yahoo Finance's
   // chart API (majors, crosses, exotics, XAU/XAG, ^DJI, CL=F …) — falls
   // through to the simulator when blocked.
+  // the broker you trade (HALO Bridge EA in its MT5) comes first: candles at
+  // exactly the prices your orders fill at
+  if (brokerFeedCovers(sym)) {
+    try {
+      const candles = await brokerCandles(sym, tf, limit);
+      if (candles.length > 0) return { candles, source: "exness" };
+    } catch {
+      // EA offline / symbol not in MT5 → next source
+    }
+  }
   // OANDA practice comes first for forex + metals: the same BID prices
   // TradingView charts as OANDA:XAUUSD (spot), instead of Yahoo's futures.
   if (oandaConfig() && oandaInstrument(sym)) {
@@ -524,7 +536,8 @@ export async function getKlines(
   // confirmed-bar engines and charts don't need faster FX ticks.
   const group = getSymbolMeta(sym).group;
   const isFx = group !== "CRYPTO" && group !== "SYNTHETICS";
-  const refreshMs = isFx ? 30_000 : 3500;
+  // the EA feed is our own terminal (no third-party rate limit): refresh fast
+  const refreshMs = entry?.source === "exness" ? 3000 : isFx ? 30_000 : 3500;
   if (
     entry &&
     entry.candles.length >= Math.min(want, 50) &&

@@ -3,8 +3,11 @@ import { guardLicensed } from "@/lib/api-guard";
 import { SYMBOLS, TIMEFRAMES, tfSec } from "@/lib/market";
 import type { Candle } from "@/lib/halo/types";
 import { fetchOandaCandles, oandaConfig, oandaInstrument, subscribeOandaTicks } from "@/lib/oanda-feed";
+import { brokerCandles, brokerFeed, subscribeBrokerQuotes } from "@/lib/exness-feed";
 
-// Live OANDA practice ticks for the chart, as Server-Sent Events. Each event
+// Live ticks for the chart, as Server-Sent Events — from your broker's MT5
+// via the HALO Bridge EA when it is online (first event: "source: exness"),
+// otherwise from OANDA practice when configured. Each event
 // is the forming candle ({ time, open, high, low, close }) moved by the tick
 // that just arrived — seeded from OANDA's own candles so open/high/low agree
 // with the history. Market data only.
@@ -20,14 +23,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "bad symbol or timeframe" }, { status: 400 });
   }
   const inst = oandaInstrument(symbol);
-  if (!oandaConfig() || !inst) {
-    return NextResponse.json({ error: "no OANDA stream for this symbol" }, { status: 404 });
+  const ea = await brokerFeed(symbol);
+  const source: "exness" | "oanda" | null = ea ? "exness" : oandaConfig() && inst ? "oanda" : null;
+  if (!source) {
+    return NextResponse.json({ error: "no live stream for this symbol (broker EA offline, OANDA not configured)" }, { status: 404 });
   }
   const tfMs = tfSec(tf) * 1000;
 
   let seed: Candle | null = null;
   try {
-    const bars = await fetchOandaCandles(symbol, tf, 2);
+    const bars = source === "exness" ? await brokerCandles(symbol, tf, 2) : await fetchOandaCandles(symbol, tf, 2);
     seed = bars[bars.length - 1] ?? null;
   } catch {
     // no seed — the first tick opens the bar
@@ -36,7 +41,9 @@ export async function GET(req: Request) {
   const enc = new TextEncoder();
   let unsub: (() => void) | null = null;
   let beat: ReturnType<typeof setInterval> | null = null;
+  let stopped = false;
   const stop = () => {
+    stopped = true;
     unsub?.();
     unsub = null;
     if (beat) clearInterval(beat);
@@ -54,9 +61,10 @@ export async function GET(req: Request) {
         }
       };
       send("retry: 2000\n\n");
+      send(`event: source\ndata: ${source}\n\n`);
       if (bar) send(`data: ${JSON.stringify(bar)}\n\n`);
-      unsub = subscribeOandaTicks(inst, (tick) => {
-        const px = tick.bid; // TradingView's OANDA charts are BID
+      const onTick = (tick: { time: number; bid: number }) => {
+        const px = tick.bid; // charts are BID (MT5 and TradingView's OANDA charts)
         const open = Math.floor(tick.time / tfMs) * tfMs;
         if (!bar || open > bar.time) bar = { time: open, open: px, high: px, low: px, close: px };
         else if (open < bar.time) return; // late tick from a closed bar
@@ -66,7 +74,15 @@ export async function GET(req: Request) {
           if (px < bar.low) bar.low = px;
         }
         send(`data: ${JSON.stringify(bar)}\n\n`);
-      });
+      };
+      if (source === "exness") {
+        void subscribeBrokerQuotes(symbol, (q) => onTick({ time: q.time, bid: q.bid })).then((u) => {
+          if (stopped) u?.(); // viewer left before the subscription was ready
+          else unsub = u;
+        });
+      } else {
+        unsub = subscribeOandaTicks(inst!, onTick);
+      }
       beat = setInterval(() => send(": keep-alive\n\n"), 15_000);
       req.signal.addEventListener("abort", () => {
         stop();

@@ -22,7 +22,16 @@ Go to **Brokers & MT5 → MT5 · HALO Bridge EA (free) → CONNECT**, paste the 
 
 If MT5 can't reach `127.0.0.1` (an Alert about WebRequest, or no "started" line in HALO), use a public HTTPS address for HALO instead, such as a Cloudflare tunnel or your staging URL. Add it under WebRequest and set it as `HaloUrl`.
 
-## 4. Check
+## 4. Live prices from your broker (EA v1.20)
+While the EA runs, HALO's chart and the bot use **this MT5 account's prices** (e.g. Exness) for forex, metals and indices. These are the same prices your orders fill at. The chart badge shows **EXNESS LIVE**.
+- Ticks: the broker's bid/ask, sent with every poll (about twice a second).
+- History: candles read from this terminal, with times converted to UTC from the server clock.
+- Exness symbol suffixes (e.g. `XAUUSDm`) are found automatically, or set `SymbolSuffix`.
+- When MT5 or the EA is closed, HALO falls back to OANDA (if configured) and then Yahoo.
+
+The bot's signals come from whichever prices feed it, so its levels can differ from the Yahoo-fed version. The strategy rules are unchanged.
+
+## 5. Check
 Press **TEST** on the account card in HALO. It shows the demo login, balance and server.
 
 ## Inputs

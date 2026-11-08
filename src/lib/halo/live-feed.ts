@@ -18,7 +18,9 @@
 //      trade stream moves the forming candle on EVERY trade, exactly like
 //      the BINANCE: chart on TradingView. Same venue as the REST candles,
 //      so history and live bars always agree.
-//    • FOREX / METALS with OANDA configured on the server → OANDA practice
+//    • FOREX / METALS / INDICES via the server relay (/api/market/stream):
+//      your broker's MT5 through the HALO Bridge EA when it is online,
+//      otherwise OANDA practice when configured:
 //      ticks relayed by /api/market/stream (SSE) — the same BID prices
 //      TradingView charts as OANDA:XAUUSD. Tried first; when the server has
 //      no OANDA feed the sub falls back to Deriv.
@@ -39,7 +41,7 @@ export interface LiveBar {
   close: number;
 }
 
-export type LiveFeedKind = "deriv" | "binance" | "oanda";
+export type LiveFeedKind = "deriv" | "binance" | "oanda" | "exness";
 
 export interface LiveStatus {
   /** true when a real stream is confirmed flowing for this symbol+tf */
@@ -86,6 +88,8 @@ interface LiveSub {
   derivSubId: string | null;
   requested: boolean;
   history: LiveBar[];
+  /** server-relayed stream: which source the server chose (broker EA or OANDA) */
+  src?: LiveFeedKind;
 }
 
 interface SubKey {
@@ -590,7 +594,7 @@ function oandaStatus(sub: LiveSub, active: boolean, note?: string): void {
   sub.note = note;
   for (const h of sub.cbs) {
     try {
-      h.onStatus?.({ active, kind: active ? "oanda" : null, note });
+      h.onStatus?.({ active, kind: active ? (sub.src ?? "oanda") : null, note });
     } catch {
       // ignore
     }
@@ -608,6 +612,11 @@ function oandaOpen(sub: LiveSub): void {
     return;
   }
   conns.set(sub.key, es);
+  // the server says which source it relays: your broker's MT5 ("exness") or OANDA
+  es.addEventListener("source", (ev) => {
+    const v = String((ev as MessageEvent).data);
+    sub.src = v === "exness" ? "exness" : "oanda";
+  });
   es.onmessage = (ev) => {
     let bar: LiveBar;
     try {
@@ -683,7 +692,7 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
     const meta = getSymbolMeta(symbol);
     sub = makeSub({ key, symbol, tf, sec });
     if (meta.group === "CRYPTO" && binanceInterval(tf)) sub.kind = "binance";
-    else if ((meta.group === "FOREX" || meta.group === "METALS") && typeof EventSource !== "undefined") sub.kind = "oanda";
+    else if ((meta.group === "FOREX" || meta.group === "METALS" || meta.group === "INDICES") && typeof EventSource !== "undefined") sub.kind = "oanda";
     else if (DERIV_GRANULARITIES.has(sec)) sub.kind = "deriv";
     else sub.note = "no live stream for this timeframe";
     subs.set(key, sub);

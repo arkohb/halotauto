@@ -6,6 +6,9 @@
 //|  quote / ping / lookup) in THIS terminal and reports the results |
 //|  back. Every order carries HALO's order id as its MT5 comment so  |
 //|  HALO can reconcile an unconfirmed order by reference.           |
+//|  Price feed (v1.20): streams this broker's bid/ask for the        |
+//|  symbols HALO watches on every poll, and answers "history" with  |
+//|  candles from this terminal — times converted to UTC.            |
 //|                                                                  |
 //|  Setup:                                                          |
 //|   1. Copy this file to MQL5/Experts (File → Open Data Folder),   |
@@ -20,7 +23,7 @@
 //|  positions carrying this EA's magic number.                      |
 //+------------------------------------------------------------------+
 #property copyright "HALO 3EL Autotrader"
-#property version   "1.10"
+#property version   "1.20"
 
 #include <Trade\Trade.mqh>
 
@@ -39,6 +42,8 @@ string   g_doneIds[];       // recently executed open ids (never execute twice)
 string   g_doneJson[];
 bool     g_warnedUrl = false;
 datetime g_lastOkLog = 0;
+string   g_watchHalo[];   // HALO symbol names HALO asked to stream
+string   g_watchMt5[];    // resolved MT5 names (e.g. XAUUSDm)
 
 //+------------------------------------------------------------------+
 int OnInit()
@@ -280,6 +285,75 @@ string DoLookup(string id, string orderId)
    return("{\"id\":" + J(id) + ",\"ok\":true,\"status\":\"absent\",\"detail\":" + J("no position or deal with this order id in the last 14 days") + "}");
   }
 
+// broker server time → UTC (whole hours; TimeGMT comes from this PC's clock)
+long ServerOffsetSec() { return((long)MathRound((double)(TimeTradeServer() - TimeGMT()) / 3600.0) * 3600); }
+
+ENUM_TIMEFRAMES TfOf(string tf)
+  {
+   if(tf == "1m")  return(PERIOD_M1);
+   if(tf == "3m")  return(PERIOD_M3);
+   if(tf == "5m")  return(PERIOD_M5);
+   if(tf == "15m") return(PERIOD_M15);
+   if(tf == "30m") return(PERIOD_M30);
+   if(tf == "1h")  return(PERIOD_H1);
+   if(tf == "2h")  return(PERIOD_H2);
+   if(tf == "4h")  return(PERIOD_H4);
+   if(tf == "1d")  return(PERIOD_D1);
+   return(PERIOD_CURRENT);
+  }
+
+string DoWatch(string id, string symIn)
+  {
+   for(int i = 0; i < ArraySize(g_watchHalo); i++)
+      if(g_watchHalo[i] == symIn) return("{\"id\":" + J(id) + ",\"ok\":true}");
+   string sym = ResolveSymbol(symIn);
+   if(sym == "") return(Fail(id, "symbol not found in MT5: " + symIn));
+   int n = ArraySize(g_watchHalo);
+   if(n >= 8) { ArrayRemove(g_watchHalo, 0, 1); ArrayRemove(g_watchMt5, 0, 1); n--; }
+   ArrayResize(g_watchHalo, n + 1);
+   ArrayResize(g_watchMt5, n + 1);
+   g_watchHalo[n] = symIn;
+   g_watchMt5[n] = sym;
+   return("{\"id\":" + J(id) + ",\"ok\":true,\"detail\":" + J("streaming " + sym) + "}");
+  }
+
+string DoHistory(string id, string symIn, string tf, int count)
+  {
+   string sym = ResolveSymbol(symIn);
+   if(sym == "") return(Fail(id, "symbol not found in MT5: " + symIn));
+   ENUM_TIMEFRAMES p = TfOf(tf);
+   if(p == PERIOD_CURRENT) return(Fail(id, "unsupported timeframe " + tf));
+   count = MathMax(2, MathMin(count, 1500));
+   MqlRates r[];
+   ArraySetAsSeries(r, false);
+   int got = CopyRates(sym, p, 0, count, r);
+   if(got <= 0) return(Fail(id, "no history for " + sym + " " + tf + " (" + IntegerToString(GetLastError()) + ")"));
+   long off = ServerOffsetSec();
+   int dg = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+   string bars = "";
+   for(int i = 0; i < got; i++)
+     {
+      if(i > 0) bars += ",";
+      bars += "[" + IntegerToString(((long)r[i].time - off) * 1000) + "," + D(r[i].open, dg) + "," + D(r[i].high, dg) + "," + D(r[i].low, dg) + "," + D(r[i].close, dg) + "]";
+     }
+   return("{\"id\":" + J(id) + ",\"ok\":true,\"detail\":" + J(sym) + ",\"bars\":[" + bars + "]}");
+  }
+
+string TicksJson()
+  {
+   long offMs = ServerOffsetSec() * 1000;
+   string out = "";
+   for(int i = 0; i < ArraySize(g_watchMt5); i++)
+     {
+      MqlTick tk;
+      if(!SymbolInfoTick(g_watchMt5[i], tk) || tk.bid <= 0) continue;
+      int dg = (int)SymbolInfoInteger(g_watchMt5[i], SYMBOL_DIGITS);
+      if(out != "") out += ",";
+      out += "{\"s\":" + J(g_watchHalo[i]) + ",\"b\":" + D(tk.bid, dg) + ",\"a\":" + D(tk.ask, dg) + ",\"t\":" + IntegerToString((long)tk.time_msc - offMs) + "}";
+     }
+   return(out);
+  }
+
 void Execute(string line)
   {
    string f[];
@@ -293,6 +367,8 @@ void Execute(string line)
    else if(action == "positions") json = DoPositions(id, f[2]);
    else if(action == "quote")     json = DoQuote(id, f[2]);
    else if(action == "lookup")    json = DoLookup(id, f[10]);
+   else if(action == "watch")     json = DoWatch(id, f[2]);
+   else if(action == "history")   json = DoHistory(id, f[2], f[6], (int)StringToInteger(f[7]));
    else if(action == "ping")      json = "{\"id\":" + J(id) + ",\"ok\":true}";
    else                           json = Fail(id, "unknown action " + action);
    PushResult(json);
@@ -318,7 +394,7 @@ void OnTimer()
    string res = "";
    int n = ArraySize(g_results);
    for(int i = 0; i < n; i++) res += (i > 0 ? "," : "") + g_results[i];
-   string body = "{\"account\":" + AccountJson() + ",\"results\":[" + res + "]}";
+   string body = "{\"account\":" + AccountJson() + ",\"results\":[" + res + "],\"ticks\":[" + TicksJson() + "]}";
 
    char data[], result[];
    string respHeaders;

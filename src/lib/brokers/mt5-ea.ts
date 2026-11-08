@@ -10,6 +10,11 @@
 //    ←    text/plain, one command per line (tab-separated):
 //         id  action  symbol  side  sl  tp  sizeMode  size  percent  riskDistance  ticket  comment
 //
+//  Price feed: every poll also carries the broker's latest bid/ask for the
+//  symbols HALO asked the EA to watch ("watch"), and "history" returns
+//  candles from the terminal (UTC times) — HALO can chart and run on the
+//  exact prices of the account it trades.
+//
 //  Commands wait in an in-memory queue per pairing key (single instance).
 //  An order the EA never collected is a clean rejection; an order it
 //  collected but did not confirm in time is reported as a TIMEOUT so the
@@ -62,6 +67,22 @@ export interface EaResult {
   /** lookup: open | closed | absent */
   status?: string;
   detail?: string;
+  /** history: [timeMsUtc, open, high, low, close][] */
+  bars?: number[][];
+}
+
+/** one broker quote pushed by the EA (s = HALO symbol, t = UTC ms) */
+export interface EaTick {
+  s: string;
+  b: number;
+  a: number;
+  t: number;
+}
+export interface EaQuote {
+  bid: number;
+  ask: number;
+  time: number; // broker tick time, UTC ms
+  at: number; // when HALO received it
 }
 
 interface Cmd {
@@ -76,6 +97,9 @@ interface Channel {
   inflight: Map<string, Cmd>;
   lastSeen: number;
   account: EaAccount | null;
+  ticks?: Map<string, EaQuote>;
+  watching?: Set<string>;
+  tickFns?: Set<(symbol: string, q: EaQuote) => void>;
 }
 
 const gEa = globalThis as unknown as { __haloMt5Ea?: Map<string, Channel> };
@@ -163,12 +187,32 @@ function call(
 }
 
 /** EA poll: record presence + results, hand over queued commands */
-export function eaPoll(key: string, account: EaAccount | null, results: EaResult[]): string[] | null {
+export function eaPoll(key: string, account: EaAccount | null, results: EaResult[], ticks: EaTick[] = []): string[] | null {
   if (key.length < KEY_MIN) return null;
   const ch = channelFor(channelId(key), true);
   if (!ch) return null;
   ch.lastSeen = Date.now();
   if (account) ch.account = account;
+  if (ticks.length) {
+    const book = (ch.ticks ??= new Map());
+    for (const t of ticks.slice(0, 16)) {
+      const bid = Number(t.b);
+      const ask = Number(t.a);
+      if (!t.s || !(bid > 0) || !(ask >= bid)) continue;
+      const q: EaQuote = { bid, ask, time: Number(t.t) || Date.now(), at: Date.now() };
+      const prev = book.get(t.s);
+      book.set(t.s, q);
+      // only a CHANGED price is news for the chart
+      if (prev && prev.bid === q.bid && prev.ask === q.ask) continue;
+      for (const fn of ch.tickFns ?? []) {
+        try {
+          fn(t.s, q);
+        } catch {
+          // a dead listener never stops the feed
+        }
+      }
+    }
+  }
   for (const r of results) {
     const cmd = ch.inflight.get(String(r.id));
     if (!cmd) continue; // late result for a timed-out command — the lock already marked it
@@ -183,6 +227,54 @@ export function eaPoll(key: string, account: EaAccount | null, results: EaResult
     out.push(cmd.line);
   }
   return out;
+}
+
+// ───────────────────────── price feed ─────────────────────────
+
+const QUOTE_FRESH_MS = 15_000;
+
+/** ask the EA to stream this symbol's bid/ask (idempotent, fire-and-forget) */
+export function eaWatch(creds: BrokerCreds, symbol: string): void {
+  const key = eaKey(creds);
+  const ch = key.length >= KEY_MIN ? channels.get(channelId(key)) : undefined;
+  if (!ch || (ch.watching ??= new Set()).has(symbol)) return;
+  ch.watching.add(symbol);
+  call(creds, "watch", { symbol: sym(creds, symbol) }, 8000)
+    .then((r) => {
+      if (!r.ok) ch.watching?.delete(symbol);
+    })
+    .catch(() => ch.watching?.delete(symbol));
+}
+
+/** the EA's latest quote for `symbol` (null when none / older than 15 s) */
+export function eaLatestQuote(creds: BrokerCreds, symbol: string): EaQuote | null {
+  const key = eaKey(creds);
+  const ch = key.length >= KEY_MIN ? channels.get(channelId(key)) : undefined;
+  const q = ch?.ticks?.get(symbol);
+  return q && Date.now() - q.at <= QUOTE_FRESH_MS ? q : null;
+}
+
+/** subscribe to the EA's quote changes for one symbol; returns unsubscribe */
+export function eaSubscribeQuotes(creds: BrokerCreds, symbol: string, fn: (q: EaQuote) => void): () => void {
+  const key = eaKey(creds);
+  const ch = key.length >= KEY_MIN ? channelFor(channelId(key), true) : null;
+  if (!ch) return () => {};
+  const wrapped = (s: string, q: EaQuote) => {
+    if (s === symbol) fn(q);
+  };
+  (ch.tickFns ??= new Set()).add(wrapped);
+  eaWatch(creds, symbol);
+  return () => ch.tickFns?.delete(wrapped);
+}
+
+/** candles from the EA's terminal (UTC open times, oldest first) */
+export async function eaCandles(creds: BrokerCreds, symbol: string, tf: string, count: number): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>> {
+  const r = await call(creds, "history", { symbol: sym(creds, symbol), mode: tf, size: Math.max(2, Math.min(count, 1500)) }, 15_000);
+  if (!r.ok) throw new Error(r.error ?? "EA history failed");
+  eaWatch(creds, symbol);
+  return (r.bars ?? [])
+    .map((b) => ({ time: Number(b[0]), open: Number(b[1]), high: Number(b[2]), low: Number(b[3]), close: Number(b[4]), volume: 0 }))
+    .filter((c) => Number.isFinite(c.time) && c.close > 0 && c.high >= c.low);
 }
 
 /** presence for the UI / status checks */

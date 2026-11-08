@@ -47,6 +47,7 @@ The levels below mean exactly what the brief defines: IMPLEMENTED (source exists
 | Charts (CURRENT / ALL LEVELS, signal labelling) | TESTED (manual) | Checked in-app |
 | OANDA practice feed | IMPLEMENTED | Not configured (no keys) → not INTEGRATION VERIFIED |
 | Yahoo data | IMPLEMENTED | **Unofficial, not licensed for a commercial product** |
+| Broker price feed (HALO Bridge EA v1.20) | **TESTED** (simulated EA, unit + HTTP end-to-end on a throwaway DB) | First source for forex/metals/indices when the EA is online: candles via MT5 `CopyRates` (UTC), live bid/ask on every poll, chart badge EXNESS LIVE, bot runs on it; falls back to OANDA → Yahoo when offline. The user's Exness **Partnership API** is a reporting/rebates API with no market data, so it cannot be used for prices. **Not yet compiled or run in MT5** |
 | MetaApi | Auth INTEGRATION VERIFIED (token HTTP 200) | Account creation blocked by MetaApi billing; no orders |
 | OANDA / IG / Binance adapters | IMPLEMENTED | Not verified against the services this session |
 | HALO Bridge EA | TESTED (simulated EA, 17 checks) | **Never compiled or run in MT5** |
@@ -87,7 +88,7 @@ Verified directly in this session:
 | Sev | Issue |
 |---|---|
 | CRITICAL (launch) | No execution path verified on a real demo broker (EA uncompiled; MetaApi unfunded) |
-| CRITICAL (launch) | Market data is Yahoo (unlicensed) unless OANDA is configured; futures vs spot mismatch with brokers |
+| CRITICAL (launch) | Market data is Yahoo (unlicensed) unless OANDA or the broker EA feed is running; futures vs spot mismatch with brokers. The broker EA feed (built) removes this while MT5 runs |
 | ~~HIGH~~ fixed | Uncertain orders are now reconciled by broker order reference (see §2) |
 | ~~HIGH~~ fixed | MetaApi order comment + client id was 34–36 chars against MetaApi's documented 26-char limit (orders at risk of rejection or a truncated id). The id is now 15 chars and the comment is trimmed to fit |
 | ~~HIGH~~ built | Super Admin 2FA exists (opt-in). It stays a risk until the owner turns it on |
@@ -144,6 +145,8 @@ Verified directly in this session:
 | two-factor-selftest (new) | 20/20 (incl. RFC 6238 vectors) |
 | rate-limit-selftest (new) | 18/18 |
 | health-selftest (new) | 27/27 |
+| ea-price-feed-test (new) | 10/10 (simulated EA) |
+| ea-price-feed-e2e (new) | 9/9 over HTTP on a throwaway DB copy (`db/custom.db` verified unchanged) |
 | two-factor-e2e (new) | 23/23 over HTTP against a throwaway DB copy (`db/custom.db` verified unchanged) |
 | adapter-stub-test | **not run**: needs the local MetaApi stub, which requires the Bun runtime (not installed) |
 
