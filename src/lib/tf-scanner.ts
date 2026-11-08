@@ -34,7 +34,7 @@ import type { EngineEvent, Side } from "./halo/types";
 import { DEFAULT_CONFIG, type HaloConfig } from "./halo/types";
 import { getKlines, getSymbolMeta, tfSec } from "./market";
 import { clampConfig } from "./bot";
-import { SYMBOLS, TIMEFRAMES, decimalsOf } from "./market-symbols";
+import { SYMBOLS, TIMEFRAMES, decimalsOf, isSimOnlyGroup } from "./market-symbols";
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, registerLockParticipant } from "./trade-lock";
@@ -42,10 +42,21 @@ import { getTradeLock, registerLockParticipant } from "./trade-lock";
 const KV_KEY = "tfScannerConfig";
 const WARM_BARS = 400; // same warm-up depth as the sweep
 const SLICE_MS = 2500;
-const ROWS_PER_SLICE = 3; // full pass ≈ 20 min over SYMBOLS × TIMEFRAMES
+// ADAPTIVE PACING — the old single ROWS_PER_SLICE=3 revisited every market
+// only once per ~20 minutes, so a live setup could sit unnoticed for a third
+// of an hour and the feed read as dead. Split the universe by feed cost:
+// simulated-market rows (built-in simulator) cost NOTHING to tick, so they
+// bootstrap and re-check several times faster; real-feed rows (Yahoo/Binance)
+// stay at a rate the venues tolerate (their 8s fresh floor absorbs cache
+// hits). Net effect: the simulated market is re-checked every ~2 min and the
+// whole universe every ~6-8 min instead of ~20.
+const BOOT_REAL_PER_SLICE = 3; // deep warm-ups against real venues (network-bound)
+const BOOT_SIM_PER_SLICE = 10; // simulator warm-ups are free
+const WARM_REAL_PER_SLICE = 4; // real-feed re-checks (mostly cache-friendly)
+const WARM_SIM_PER_SLICE = 8; // simulated-market re-checks are free
 const HOT_PER_SLICE = 2; // armed rows get extra priority re-checks
 const MSG_CAP = 30;
-const RECENT_CAP = 8;
+const RECENT_CAP = 24; // found-trades list on the dashboard stays deep
 
 export const TF_SCANNER_KEY = "tf_scan";
 
@@ -92,10 +103,13 @@ interface TfScannerRuntime {
   cfgHash: string;
   rows: Map<string, ScanRow>;
   order: string[];
-  cursor: number;
+  orderSim: string[]; // simulated-market rows (free to tick)
+  orderReal: string[]; // real-venue rows (Yahoo/Binance, rate-aware)
+  cursorSim: number;
+  cursorReal: number;
   timer: ReturnType<typeof setInterval> | null;
   syncing: boolean;
-  slicing?: boolean; // OVERLAP GUARD — never run two scan slices concurrently
+  slicing: boolean; // OVERLAP GUARD — never run two scan slices concurrently
   startedAt: number;
   lastRun: number;
   lastPassAt: number;
@@ -121,9 +135,13 @@ function rt(): TfScannerRuntime {
       cfgHash: "",
       rows: new Map(),
       order: [],
-      cursor: 0,
+      orderSim: [],
+      orderReal: [],
+      cursorSim: 0,
+      cursorReal: 0,
       timer: null,
       syncing: false,
+      slicing: false,
       startedAt: 0,
       lastRun: 0,
       lastPassAt: 0,
@@ -219,6 +237,18 @@ function buildOrder(): string[] {
   return out;
 }
 
+/** split the universe by feed cost — simulated-market rows tick for free */
+function buildSimRealOrders(order: string[]): { sim: string[]; real: string[] } {
+  const sim: string[] = [];
+  const real: string[] = [];
+  for (const key of order) {
+    const sym = key.split(":")[0];
+    if (isSimOnlyGroup(getSymbolMeta(sym).group)) sim.push(key);
+    else real.push(key);
+  }
+  return { sim, real };
+}
+
 function makeRow(symbol: string, tf: string, cfg: HaloConfig): ScanRow {
   return {
     symbol,
@@ -266,16 +296,21 @@ function handleEvents(row: ScanRow, events: EngineEvent[]): void {
       if (R.recent.length > RECENT_CAP) R.recent.length = RECENT_CAP;
       const side = e.dir === -1 ? "SELL" : "BUY";
       const label = opp.symbolLabel.split("·")[0].trim() || row.symbol;
+      // prices with the symbol's strategy precision — raw floats never reach
+      // the chat bubble or the alert channels
+      const entryPx = scannerPx(e.entry, row.symbol);
+      const slPx = scannerPx(e.sl, row.symbol);
+      const tpPx = scannerPx(e.tp, row.symbol);
       pushMsg(
         "opportunity",
-        `A trading opportunity meeting the existing HALO strategy has been detected on ${label}, ${row.tf.toUpperCase()} — ${side} at ${opp.entry}. View the details below.`,
+        `A trading opportunity meeting the existing HALO strategy has been detected on ${label}, ${row.tf.toUpperCase()} — ${side} at ${entryPx}. View the details below.`,
       );
       // alert log + push channels — same infrastructure the Scanner uses;
       // strictly a signal: the scanner never executes anything
       void sendAlert({
         kind: "scanner",
         title: `SCANNER BOT ${side} · ${label} ${row.tf.toUpperCase()}`,
-        body: `${e.message}\nSymbol: ${row.symbol} · TF ${row.tf}\nEntry ${e.entry} · SL ${e.sl} · TP ${e.tp}\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips\nSignal only — the Timeframe Scanner Bot never executes trades.`,
+        body: `${e.message}\nSymbol: ${row.symbol} · TF ${row.tf}\nEntry ${entryPx} · SL ${slPx} · TP ${tpPx}\nRisk ${e.riskPips.toFixed(1)} → reward ${e.rewardPips.toFixed(1)} pips\nSignal only — the Timeframe Scanner Bot never executes trades.`,
       });
     } else if (e.type === "win" || e.type === "loss") {
       // the engine's own virtual trade management closed the opportunity —
@@ -374,13 +409,63 @@ async function tickKey(key: string, cfg: HaloConfig): Promise<void> {
   }
 }
 
-/** One round-robin step: a few catalog rows + priority re-checks of hot rows. */
+/**
+ * Tick one round-robin lane within a budget. `what` selects the counters:
+ * boot rows (deep warm-up) and warmed re-check rows are counted separately
+ * so a slow venue never eats the simulated market's budget (or vice versa).
+ * Returns how many rows were actually ticked.
+ */
+async function runLane(
+  R: TfScannerRuntime,
+  lane: string[],
+  cursorKey: "cursorSim" | "cursorReal",
+  bootBudget: number,
+  warmBudget: number,
+  cfg: HaloConfig,
+): Promise<number> {
+  if (lane.length === 0) return 0;
+  let boot = 0;
+  let warm = 0;
+  let ticked = 0;
+  let cursor = R[cursorKey];
+  // walk at most one full lap — budgets bound the work per slice
+  for (let i = 0; i < lane.length && (boot < bootBudget || warm < warmBudget); i++) {
+    const key = lane[cursor];
+    cursor = (cursor + 1) % lane.length;
+    const row = R.rows.get(key);
+    // unknown ticker — skip forever; busy row — try again next slice
+    const [symbol] = key.split(":");
+    if (getSymbolMeta(symbol).id !== symbol) continue;
+    if (row?.busy) continue;
+    if (row?.bootstrapped) {
+      if (warm >= warmBudget) continue;
+      warm += 1;
+    } else {
+      if (boot >= bootBudget) continue;
+      boot += 1;
+    }
+    ticked += 1;
+    R.currentKey = key;
+    await tickKey(key, cfg);
+  }
+  // the lap wrapped past index 0 → one full pass over this lane completed
+  if (cursor === 0 && ticked > 0) {
+    R.passes += 1;
+    R.lastPassAt = Date.now();
+  }
+  R[cursorKey] = cursor;
+  return ticked;
+}
+
+/** One round-robin step: hot rows, then boot/warm lanes split by feed cost. */
 async function scanSlice(): Promise<void> {
   const R = rt();
-  // OVERLAP GUARD — the ticker fires every beat whether or not the previous
-  // slice finished. When a live-feed request hangs, slices would pile up and
-  // starve the event loop (slow app, silent bots). Skip the beat instead —
-  // the same discipline the 3EL bot runtime applies.
+  // OVERLAP GUARD — the ticker fires every SLICE_MS regardless of whether the
+  // previous slice finished. On a degraded deployed network one live-feed
+  // attempt can hang for seconds; without this guard slices pile up
+  // unboundedly and starve the event loop (slow app, silent bots, the
+  // dashboard's "Scanner feed unreachable" banner). Skip the beat instead —
+  // exactly the overlap discipline the 3EL bot runtime already applies.
   if (R.slicing) return;
   if (!R.enabled || R.order.length === 0) return;
   R.slicing = true;
@@ -392,6 +477,7 @@ async function scanSlice(): Promise<void> {
 }
 
 async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
+  if (!R.enabled || R.order.length === 0) return;
   R.lastRun = Date.now();
 
   const lock = getTradeLock();
@@ -429,24 +515,22 @@ async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
     }
   }
 
-  for (let i = 0; i < ROWS_PER_SLICE; i++) {
-    const key = R.order[R.cursor];
-    R.cursor += 1;
-    if (R.cursor >= R.order.length) {
-      R.cursor = 0;
-      R.passes += 1;
-      R.lastPassAt = Date.now();
-      const found = R.opportunitiesFound;
-      pushMsg(
-        "info",
-        found > 0
-          ? `Full scan pass complete — every supported market and timeframe was checked against the existing HALO strategy. ${found} qualifying opportunit${found === 1 ? "y" : "ies"} so far. The next pass is starting.`
-          : "Scanning completed. No trading opportunity currently meets the existing HALO strategy conditions. I'll continue scanning.",
-      );
-    }
-    R.scannedRows += 1;
-    R.currentKey = key;
-    await tickKey(key, cfg);
+  // two lanes: the simulated market (free ticks — fast lane) and real venues
+  // (rate-aware slow lane). Each lane keeps its own cursor and budgets, so a
+  // full pass completes minutes earlier and every setup is picked up while
+  // it is still live.
+  const before = R.passes;
+  const simTicked = await runLane(R, R.orderSim, "cursorSim", BOOT_SIM_PER_SLICE, WARM_SIM_PER_SLICE, cfg);
+  const realTicked = await runLane(R, R.orderReal, "cursorReal", BOOT_REAL_PER_SLICE, WARM_REAL_PER_SLICE, cfg);
+  R.scannedRows += simTicked + realTicked;
+  if (R.passes > before) {
+    const found = R.opportunitiesFound;
+    pushMsg(
+      "info",
+      found > 0
+        ? `Full scan pass complete — every supported market and timeframe was checked against the existing HALO strategy. ${found} qualifying opportunit${found === 1 ? "y" : "ies"} so far. The next pass is starting.`
+        : "Scanning completed. No trading opportunity currently meets the existing HALO strategy conditions. I'll continue scanning.",
+    );
   }
 }
 
@@ -474,7 +558,12 @@ export async function ensureTfScanner(): Promise<TfScannerRuntime> {
       if (R.enabled) R.hasStarted = true;
       R.cfgLoadedAt = Date.now();
     }
-    if (R.order.length === 0) R.order = buildOrder();
+    if (R.order.length === 0) {
+      R.order = buildOrder();
+      const { sim, real } = buildSimRealOrders(R.order);
+      R.orderSim = sim;
+      R.orderReal = real;
+    }
     armTimer();
   } catch {
     // db not ready — retry on the next call
@@ -507,6 +596,10 @@ export interface TfScannerState {
   msgs: ScannerMsg[];
   lock: { symbol: string; tf: string } | null;
   source: string;
+  /** warmed rows per feed source — proves which feeds are live right now */
+  sources: Record<string, number>;
+  /** most recent row tick — the live-feed heartbeat on the dashboard */
+  lastTickAt: number;
 }
 
 export async function tfScannerState(): Promise<TfScannerState> {
@@ -515,11 +608,17 @@ export async function tfScannerState(): Promise<TfScannerState> {
   let setups = 0;
   let warm = 0;
   let source = "—";
+  let lastTickAt = 0;
+  const sources: Record<string, number> = {};
   for (const row of R.rows.values()) {
+    if (row.lastTickAt > lastTickAt) lastTickAt = row.lastTickAt;
     if (row.bootstrapped) {
       warm += 1;
       if (row.armed > 0) setups += 1;
-      if (row.source !== "—" && source === "—") source = row.source;
+      if (row.source !== "—") {
+        sources[row.source] = (sources[row.source] ?? 0) + 1;
+        if (source === "—") source = row.source;
+      }
     }
   }
   const [curSym, curTf] = R.currentKey ? R.currentKey.split(":") : ["", ""];
@@ -552,6 +651,8 @@ export async function tfScannerState(): Promise<TfScannerState> {
     msgs: [...R.msgs],
     lock: lock ? { symbol: lock.symbol, tf: lock.tf } : null,
     source,
+    sources,
+    lastTickAt,
   };
 }
 

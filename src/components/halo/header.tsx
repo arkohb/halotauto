@@ -15,7 +15,7 @@ import { A, C, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { fxModeLabel, useFx } from "@/lib/halo/fx";
 import { usePwa } from "./pwa";
 import { useHaloVoice } from "./voice-provider";
-import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES, VENUES, symbolsByVenueGroup, venueGroupLabel, type Venue } from "@/lib/market-symbols";
+import { SYMBOL_GROUPS, symbolsByGroup, TIMEFRAMES, VENUES, symbolsByVenueGroup, venueGroupLabel, getSymbolMeta, isSimOnlyGroup, type Venue } from "@/lib/market-symbols";
 
 interface Props {
   state: BotStateRes | null;
@@ -124,6 +124,16 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
   // ── FX switch — cycles FULL → REDUCED → OFF (persisted by the provider) ──
   const fx = useFx();
 
+  // the active symbol IS the simulated market (Deriv synthetic index) — its
+  // simulator feed is live by design, never a degraded fallback
+  const simOnly = state ? (() => {
+    try {
+      return isSimOnlyGroup(getSymbolMeta(state.symbol).group);
+    } catch {
+      return false;
+    }
+  })() : false;
+  const simLive = Boolean(state && simOnly && state.feed.source === "simulator" && !/unreachable|error/i.test(state.feed.note || ""));
   const feedLive = state ? state.feed.source !== "simulator" && !/slow|error|unreachable/i.test(state.feed.note || "") : false;
 
   const initial = v.profile.hasName ? v.profile.displayName.trim().charAt(0).toUpperCase() : null;
@@ -251,7 +261,8 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
             </button>
           )}
 
-          {/* live feed pill — honest: simulator shows amber */}
+          {/* live feed pill — honest: simulator shows amber; a simulated-
+              market symbol (synthetic index) shows its own live SIM state */}
           {state && (
             <span
               className="hidden items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9.5px] font-extrabold uppercase tracking-[0.14em] md:inline-flex"
@@ -261,8 +272,8 @@ export function Header({ state, busy, onSymbol, onTf }: Props) {
                 background: feedLive ? A.green(0.08) : A.warn(0.08),
               }}
             >
-              <span className={`h-1.5 w-1.5 rounded-full ${feedLive ? "animate-pulse" : ""}`} style={{ background: feedLive ? C.green : C.warn }} />
-              Live · {state.feed.source}
+              <span className={`h-1.5 w-1.5 rounded-full ${feedLive || simLive ? "animate-pulse" : ""}`} style={{ background: feedLive ? C.green : C.warn }} />
+              {simLive ? "SIM · LIVE" : `Live · ${state.feed.source}`}
             </span>
           )}
 

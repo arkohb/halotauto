@@ -16,8 +16,9 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Activity, BarChart3, ChevronRight, Crosshair, RefreshCw, Search, Settings, Star } from "lucide-react";
-import { A, C, type PillTone } from "@/lib/halo/ui-helpers";
+import { Activity, BarChart3, ChevronRight, Crosshair, ListChecks, RefreshCw, Search, Settings, Star, Zap } from "lucide-react";
+import { A, C, fmtPx, type PillTone } from "@/lib/halo/ui-helpers";
+import { getSymbolMeta } from "@/lib/market-symbols";
 import { StateFrame, TelemetryRow } from "./panel";
 import { ScannerBotArt } from "./scanner-bot-card";
 import { ScannerVoicePanel } from "./scanner-voice-panel";
@@ -67,6 +68,8 @@ interface ScannerState {
   msgs: ScannerMsg[];
   lock: { symbol: string; tf: string } | null;
   source: string;
+  sources: Record<string, number>;
+  lastTickAt: number;
 }
 
 interface Props {
@@ -137,6 +140,17 @@ function oppStatusColor(status: string): string {
   if (status.startsWith("TP")) return C.green;
   if (status.startsWith("SL")) return C.red;
   return C.cyan;
+}
+
+/** Format a price with the symbol's real strategy precision — raw floats
+ *  ("4940.6817002868065") must never reach the screen. */
+function pxOf(symbol: string, v: number): string {
+  if (!isFinite(v)) return "—";
+  try {
+    return fmtPx(v, getSymbolMeta(symbol).mintick);
+  } catch {
+    return String(v);
+  }
 }
 
 /** mockup progress ring — REAL coverage: rows warmed ÷ total universe rows */
@@ -256,15 +270,160 @@ function RecentBook({ recent }: { recent: Opportunity[] }) {
                   {o.dir === -1 ? "SELL" : "BUY"}
                 </span>
               </td>
-              <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.txt2 }}>{o.entry}</td>
-              <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.red }}>{o.sl}</td>
-              <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.green }}>{o.tp}</td>
+              <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.txt2 }}>{pxOf(o.symbol, o.entry)}</td>
+              <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.red }}>{pxOf(o.symbol, o.sl)}</td>
+              <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.green }}>{pxOf(o.symbol, o.tp)}</td>
               <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.goldHover }}>{o.rr}</td>
               <td className="border-b px-2.5 py-1.5 text-[8.5px] font-extrabold tracking-wide" style={{ borderColor: C.divider, color: oppStatusColor(o.status) }}>{o.status}</td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/* ───────────────────── live market feed strip ───────────── */
+const SOURCE_LABEL: Record<string, string> = {
+  simulator: "SIM MARKET",
+  yahoo: "YAHOO",
+  binance: "BINANCE",
+  bybit: "BYBIT",
+  okx: "OKX",
+  coinbase: "COINBASE",
+};
+
+const SOURCE_ORDER = ["yahoo", "binance", "bybit", "okx", "coinbase", "simulator"];
+
+/**
+ * LIVE MARKET FEED strip — the dashboard's honest heartbeat. Shows which
+ * feeds are actually streaming right now (rows warmed per source, the
+ * simulated market included) and the age of the newest tick. The simulated
+ * market is a REAL feed here by design — amber chip, pulsing like the rest.
+ */
+function FeedStrip({ st, scanning }: { st: ScannerState | null; scanning: boolean }) {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => force((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const sources = st?.sources ?? {};
+  const entries = SOURCE_ORDER.filter((s) => (sources[s] ?? 0) > 0)
+    .map((s) => [s, sources[s] as number] as const)
+    // any source the engine reports that we don't label explicitly
+    .concat(Object.entries(sources).filter(([s, n]) => n > 0 && !SOURCE_ORDER.includes(s)) as Array<[string, number]>);
+  const tickAgeSec = st?.lastTickAt ? Math.max(0, Math.round((Date.now() - st.lastTickAt) / 1000)) : null;
+  const beating = tickAgeSec != null && tickAgeSec <= 20 && Boolean(st?.enabled);
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t px-3 py-2 sm:px-5"
+      style={{ borderColor: "rgba(15,46,88,0.9)", background: "rgba(1,12,28,0.7)" }}
+      role="status"
+      aria-label="Live market feed status"
+    >
+      <span className="flex items-center gap-1.5 text-[10.5px] font-extrabold tracking-[0.16em]" style={{ color: beating ? C.green : C.muted }}>
+        <span
+          className={`inline-block h-[7px] w-[7px] rounded-full ${beating ? (scanning ? "halo-anim-beacon" : "animate-pulse") : ""}`}
+          style={{ background: beating ? C.green : C.muted, boxShadow: beating ? `0 0 8px ${A.green(0.8)}` : "none", ["--beacon" as string]: `${C.green}88` } as React.CSSProperties}
+          aria-hidden
+        />
+        LIVE MARKET FEED
+      </span>
+      {entries.length === 0 ? (
+        <span className="text-[10.5px] font-bold" style={{ color: C.muted }}>
+          {scanning ? "connecting — warming the first rows…" : st ? "idle — start the bot to open the feeds" : "connecting…"}
+        </span>
+      ) : (
+        <span className="flex flex-wrap items-center gap-1.5">
+          {entries.map(([src, n]) => {
+            const sim = src === "simulator";
+            const color = sim ? C.warn : C.cyan;
+            return (
+              <span
+                key={src}
+                className="flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[9px] font-extrabold uppercase tracking-wider"
+                style={{ borderColor: sim ? A.warn(0.45) : A.cyan(0.35), background: sim ? A.warn(0.08) : A.cyan(0.07), color }}
+              >
+                <span className={`inline-block h-[5px] w-[5px] rounded-full ${scanning ? "animate-pulse" : ""}`} style={{ background: color }} aria-hidden />
+                {SOURCE_LABEL[src] ?? src} · {n}{sim ? " · LIVE" : ""}
+              </span>
+            );
+          })}
+        </span>
+      )}
+      <span className="ml-auto font-mono text-[9.5px] font-bold tracking-wide" style={{ color: C.txt2 }}>
+        {tickAgeSec == null ? "no ticks yet" : tickAgeSec <= 2 ? "last tick just now" : `last tick ${tickAgeSec}s ago`}
+      </span>
+    </div>
+  );
+}
+
+/* ───────────────────── found trades · always-visible list ───────────── */
+/**
+ * Every trade the scanner bot found this session, in one visible list —
+ * newest first, no hiding behind an expansion. Same engine-exact values as
+ * the View Details book; the section appears the moment the first setup is
+ * identified and grows as more fire.
+ */
+function FoundTradesList({ recent, scanning }: { recent: Opportunity[]; scanning: boolean }) {
+  if (recent.length === 0) {
+    if (!scanning) return null;
+    return (
+      <div className="border-t px-3 py-3 sm:px-5" style={{ borderColor: "rgba(15,46,88,0.9)", background: "rgba(1,10,24,0.65)" }}>
+        <div className="flex items-center gap-2">
+          <ListChecks size={14} style={{ color: C.muted }} aria-hidden />
+          <p className="text-[8.5px] font-extrabold tracking-[0.2em]" style={{ color: C.muted }}>FOUND TRADES · LIVE LIST</p>
+        </div>
+        <p className="mt-2 rounded-lg border border-dashed px-3 py-2.5 text-[10.5px]" style={{ borderColor: "rgba(15,46,88,0.9)", color: C.muted }}>
+          No trades found yet — the scanner is watching every market × timeframe against the existing HALO strategy. The moment a setup qualifies it appears here, newest first.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="border-t px-3 py-3 sm:px-5" style={{ borderColor: "rgba(15,46,88,0.9)", background: "rgba(1,10,24,0.65)" }}>
+      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+        <ListChecks size={14} style={{ color: C.gold }} aria-hidden />
+        <p className="text-[8.5px] font-extrabold tracking-[0.2em]" style={{ color: C.gold }}>FOUND TRADES · SCANNER PICKS</p>
+        <span
+          className="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[8.5px] font-extrabold tracking-wider"
+          style={{ borderColor: A.green(0.5), background: A.green(0.1), color: C.green }}
+        >
+          <Zap size={9} aria-hidden /> {recent.length} ON RECORD
+        </span>
+      </div>
+      <div className="halo-scroll max-h-[320px] overflow-auto rounded-lg border" style={{ borderColor: "rgba(15,46,88,0.9)" }}>
+        <table className="w-full min-w-[640px] border-collapse text-left">
+          <thead>
+            <tr>
+              {["SIGNAL TIME", "SYMBOL", "TF", "SIDE", "ENTRY", "SL", "TP", "R:R", "STATUS"].map((h) => (
+                <th key={h} className="sticky top-0 border-b px-2.5 py-1.5 text-[8px] font-extrabold tracking-[0.14em]" style={{ borderColor: C.lineInner, background: "rgba(2,16,36,0.98)", color: C.label }}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {recent.map((o, i) => (
+              <tr key={`${o.symbol}:${o.tf}:${o.time}:${o.dir}:${i}`} className="transition-colors hover:bg-[rgba(46,204,255,0.05)]">
+                <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.muted }}>{fmtClock(o.time)}</td>
+                <td className="border-b px-2.5 py-1.5 text-[10.5px] font-bold" style={{ borderColor: C.divider, color: C.txt }}>{o.symbolLabel.split("·")[0].trim() || o.symbol}</td>
+                <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px] font-bold" style={{ borderColor: C.divider, color: C.txt2 }}>{TF_LABEL[o.tf] ?? o.tf.toUpperCase()}</td>
+                <td className="border-b px-2.5 py-1.5">
+                  <span className="rounded px-1.5 py-px text-[8px] font-extrabold tracking-wider" style={{ background: o.dir === -1 ? A.red(0.14) : A.green(0.14), color: o.dir === -1 ? C.red : C.green }}>
+                    {o.dir === -1 ? "SELL" : "BUY"}
+                  </span>
+                </td>
+                <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.txt2 }}>{pxOf(o.symbol, o.entry)}</td>
+                <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.red }}>{pxOf(o.symbol, o.sl)}</td>
+                <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px]" style={{ borderColor: C.divider, color: C.green }}>{pxOf(o.symbol, o.tp)}</td>
+                <td className="border-b px-2.5 py-1.5 font-mono text-[9.5px] font-bold" style={{ borderColor: C.divider, color: C.goldHover }}>{o.rr}</td>
+                <td className="border-b px-2.5 py-1.5 text-[8.5px] font-extrabold tracking-wide" style={{ borderColor: C.divider, color: oppStatusColor(o.status) }}>{o.status}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -406,7 +565,7 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
     const short = o.symbolLabel.split("·")[0].trim() || o.symbol;
     const side = o.dir === -1 ? "sell" : "buy";
     const rr = String(o.rr).replace(":", " to ");
-    const line = `Scanner opportunity: ${short}, ${TF_LABEL[o.tf] ?? o.tf.toUpperCase()}, ${side} side. Entry ${o.entry}, stop ${o.sl}, target ${o.tp}, reward to risk ${rr}. Details are on the Scanner Bot console.`;
+    const line = `Scanner opportunity: ${short}, ${TF_LABEL[o.tf] ?? o.tf.toUpperCase()}, ${side} side. Entry ${pxOf(o.symbol, o.entry)}, stop ${pxOf(o.symbol, o.sl)}, target ${pxOf(o.symbol, o.tp)}, reward to risk ${rr}. Details are on the Scanner Bot console.`;
     speak(line);
   }, [st?.opportunity, profile.voiceEnabled, prefs.muted, convoOpen, voice, speak]);
 
@@ -548,6 +707,9 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
           </div>
         </div>
 
+        {/* ═══ live market feed strip — which feeds are streaming right now ═══ */}
+        <FeedStrip st={st} scanning={scanning} />
+
         {/* ═══ HALO message band ═══ */}
         <div className="flex items-center gap-3 border-t px-3 py-3 sm:px-5" style={{ borderColor: A.cyan(0.28), background: "rgba(2,14,32,0.6)" }}>
           <span
@@ -593,6 +755,7 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
                 Timeframe: <span className="font-bold" style={{ color: C.txt }}>{TF_LABEL[opp.tf] ?? opp.tf.toUpperCase()}</span>
               </span>
               <span className="text-[11.5px] font-bold" style={{ color: C.green }}>R:R: {opp.rr}</span>
+              <span className="font-mono text-[11.5px] font-bold" style={{ color: C.txt2 }}>{pxOf(opp.symbol, opp.entry)}</span>
               <button
                 type="button"
                 onClick={() => setDetails((d) => !d)}
@@ -611,6 +774,9 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
           )}
         </div>
 
+        {/* ═══ found trades · every pick in one visible list ═══ */}
+        <FoundTradesList recent={st?.recent ?? []} scanning={scanning} />
+
         {/* ═══ View Details expansion — engine-exact values + recent book ═══ */}
         {details && opp && (
           <div className="border-t px-3 py-3 sm:px-5" style={{ borderColor: "rgba(15,46,88,0.9)", background: "rgba(1,10,24,0.65)" }}>
@@ -619,9 +785,9 @@ export function ScannerBotDashboard({ notify, onView }: Props) {
                 <p className="mb-1.5 text-[8.5px] font-extrabold tracking-[0.2em]" style={{ color: C.gold }}>OPPORTUNITY DETAILS · ENGINE-EXACT VALUES</p>
                 <div className="grid grid-cols-4 gap-1.5 text-center">
                   {[
-                    { l: "ENTRY · DOTTED TRIGGER", v: opp.entry, c: C.txt2 },
-                    { l: "STOP LOSS", v: opp.sl, c: C.red },
-                    { l: "TAKE PROFIT", v: opp.tp, c: C.green },
+                    { l: "ENTRY · DOTTED TRIGGER", v: pxOf(opp.symbol, opp.entry), c: C.txt2 },
+                    { l: "STOP LOSS", v: pxOf(opp.symbol, opp.sl), c: C.red },
+                    { l: "TAKE PROFIT", v: pxOf(opp.symbol, opp.tp), c: C.green },
                   ].map((x) => (
                     <div key={x.l} className="rounded-lg border px-1 py-1.5" style={{ borderColor: "rgba(15,46,88,0.9)", background: "rgba(2,11,26,0.75)" }}>
                       <p className="truncate text-[7px] font-extrabold tracking-[0.1em]" style={{ color: C.muted }}>{x.l}</p>

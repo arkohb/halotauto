@@ -20,7 +20,7 @@ import { maybeAnnounceRangeOpportunities } from "./range-scan";
 import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
 import { ensurePineLibrary } from "./pine/library";
 import { publishBotEvent } from "./halo/event-bus";
-import { decimalsOf } from "./market-symbols";
+import { decimalsOf, isSimOnlyGroup } from "./market-symbols";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
 import { getEdgeSync, liveTradeManager } from "./edge/settings";
 import { getOverlay, overlayCfg, overlayManager } from "./edge/autopilot";
@@ -226,6 +226,20 @@ async function persistBot(): Promise<void> {
   }
 }
 
+/**
+ * Honest feed note for a simulator-sourced series. Deriv synthetic indices ARE
+ * the simulated market (live by design), so "live feeds unreachable" was a
+ * false alarm for them; real instruments on the simulator keep that warning.
+ */
+function simFeedNote(symbol: string): string {
+  try {
+    if (isSimOnlyGroup(getSymbolMeta(symbol).group)) return "Simulated market — live built-in synthetic feed";
+  } catch {
+    // unknown symbol — keep the generic note
+  }
+  return "Live feeds unreachable — running built-in market simulator";
+}
+
 async function warmEngine(): Promise<void> {
   const bot = getBot();
   const meta = getSymbolMeta(bot.symbol);
@@ -256,8 +270,7 @@ async function warmEngine(): Promise<void> {
     markPrioritySymbol(bot.symbol); // the bot's own market is fetched ahead of scanner traffic
     const { candles, source } = await getKlines(bot.symbol, bot.tf, 600, { deep: true });
     bot.feedSource = source;
-    bot.feedNote =
-      source === "simulator" ? "Live feeds unreachable — running built-in market simulator" : "";
+    bot.feedNote = source === "simulator" ? simFeedNote(bot.symbol) : "";
     const now = Date.now();
     const secMs = tfSec(bot.tf) * 1000;
     let lastConfirmed = 0;
@@ -611,7 +624,7 @@ export async function tickBot(force = false): Promise<void> {
     bot.feedSource = source;
     bot.feedNote =
       source === "simulator"
-        ? "Live feeds unreachable — running built-in market simulator"
+        ? simFeedNote(bot.symbol)
         : stale
           ? "Feed slow — using cached candles"
           : "";
