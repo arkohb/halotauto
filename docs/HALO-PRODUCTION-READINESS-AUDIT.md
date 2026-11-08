@@ -171,3 +171,31 @@ Verified directly in this session:
 ## 10. Recommended next milestone
 
 **HALO 3EL: Verified Demo Staging Release.** First the execution-safety tests and admin tooling (item 1 of §7, which needs no approval), then the EA demo run with the 0.30 × ATR threshold.
+
+## 2026-11-08 · Ported from the original platform build
+
+Each item is a separate commit, tested and checked in the running app.
+
+| Item | Status | Notes |
+|---|---|---|
+| A · losses shown as gains | Done | `signedPips` everywhere |
+| B4 · calendar 429 cooldown + XML fallback | Done | `scripts/intel-feed-test.ts` |
+| B5 · feed deadline + slice overlap guards | Done | crypto chain only; Yahoo keeps its own gate (`scripts/dead-egress-drill.ts`) |
+| B1 · live running-trade strip | Done | `/api/trades/active` (license guarded) |
+| B2 · lock trades + live marker on both charts | Done | engine boots flat while another executor holds the lock |
+| B3 · persistent demo balance | Done | additive SQL `docs/migrations/2026-11-08-paper-account.sql`, DB backed up; history booked once ($100,223.35 at 0.01 lot) |
+| C1 · Pine runtime fixes | Done | changes output of scripts using x[1], ta.sar, ta.hma, ta.supertrend |
+| C2 · Best Indicators Library | Done | 10 strategies seeded, none activated |
+| B8 · Strategy Lab any-indicator backtests | Done | backtests use the deep-history loader (Yahoo for FX/metals) |
+| B6 · attached Pine replaces 3EL drawings | Done | not exercised with a strategy attached (would switch trading to Pine) |
+| B7 · Scanner Bot found trades / feed strip / lanes | Done | |
+| C3 · Scanner Bot fires trade via executeFire | Done | all safety gates apply; lock released only by its owner; new watchlist rows auto-trade, existing 7 rows unchanged |
+| C4 · chart follows the fired trade | Done | not exercised end to end (needs a real fire) |
+
+Found and fixed while testing: Exness feed fell back to Yahoo for 60 s when
+one pair returned 404 or Exness sent a one-off 401; stale live ticks crashed
+the chart; the account panel counted a replayed signal as an open position.
+
+Known open items: the 3EL Pine template uses `timenow` (not supported by
+the compiler); `scripts/journal-api-test.ts` and `adapter-stub-test.ts` need
+bun / a local MetaApi stub to run.
