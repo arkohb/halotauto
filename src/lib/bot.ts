@@ -27,6 +27,7 @@ import { applyManageLive } from "./edge/trade-manager";
 import { ensureReconciled } from "./exec-lock";
 import { settleOrphanTradesOnce } from "@/lib/orphan-trades";
 import { ensurePropMonitor } from "@/lib/edge/prop";
+import { ensureHealthMonitor } from "@/lib/health";
 import type { TradeManagerCfg } from "./halo/types";
 
 /**
@@ -270,6 +271,7 @@ export async function ensureBoot(): Promise<void> {
     // settled from real candles or voided, so the book never shows ghosts
     await settleOrphanTradesOnce();
     ensurePropMonitor(); // prop-firm loss limits (idles while off / paper)
+    ensureHealthMonitor(); // system health checks + administrator alerts
     await warmEngine();
     bot.bootstrapped = true;
     // ── AUTO-ATTACH ────────────────────────────────────────────────

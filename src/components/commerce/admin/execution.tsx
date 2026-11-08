@@ -46,6 +46,10 @@ interface LockRes {
   uncertain: Intent[];
   recent: Intent[];
 }
+interface HealthRes {
+  at: number;
+  checks: Array<{ id: string; label: string; level: "ok" | "warn" | "crit" | "off"; detail: string }>;
+}
 interface RateRes {
   since: number;
   rules: Array<{ id: string; label: string; keyBy: string; windows: Array<{ limit: number; ms: number }>; allowed: number; rejected: number; lastRejectedAt: number | null }>;
@@ -67,10 +71,13 @@ export function AdminExecution({ isSuper }: { isSuper: boolean }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [thr, setThr] = useState("");
   const [rates, setRates] = useState<RateRes | null>(null);
+  const [health, setHealth] = useState<HealthRes | null>(null);
 
   const load = useCallback(async () => {
     const [l, g, rl] = await Promise.all([api<LockRes>("/api/admin/execution-lock"), api<GuardRes>("/api/admin/price-guard"), api<RateRes>("/api/admin/rate-limits")]);
     if (rl.ok) setRates(rl);
+    const h = await api<HealthRes>("/api/admin/health");
+    if (h.ok) setHealth(h);
     if (l.ok) setLock(l);
     else setNote({ text: l.error ?? "Could not load the execution lock.", bad: true });
     if (g.ok) {
@@ -157,6 +164,32 @@ export function AdminExecution({ isSuper }: { isSuper: boolean }) {
         right={<ActBtn tone="ghost" onClick={() => void load()}>REFRESH</ActBtn>}
       />
       <Note note={note} />
+
+      {/* ── system health ── */}
+      {health && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-extrabold tracking-[0.18em]" style={{ color: C.label }}>
+            SYSTEM HEALTH · CHECKED {health.at ? when(new Date(health.at).toISOString()).toUpperCase() : "—"}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {health.checks.map((c) => {
+              const col = c.level === "crit" ? C.red : c.level === "warn" ? C.warn : c.level === "ok" ? C.green : C.muted;
+              return (
+                <div key={c.id} className="flex gap-2.5 rounded-xl px-3 py-2.5" style={{ background: "#031329", boxShadow: `inset 0 0 0 1px ${c.level === "crit" ? A.red(0.4) : C.line}` }}>
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full" style={{ background: col, boxShadow: c.level === "crit" ? `0 0 8px ${col}` : "none" }} />
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-extrabold" style={{ color: C.txt }}>
+                      {c.label} <span className="ml-1 text-[9px] tracking-[0.12em]" style={{ color: col }}>{c.level.toUpperCase()}</span>
+                    </div>
+                    <div className="text-[10.5px] leading-snug" style={{ color: C.muted }}>{c.detail}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[10px]" style={{ color: C.dim }}>Checked every 30 s. Problems and recoveries are sent to your alert channels (Telegram / e-mail / push); critical ones repeat every 6 h while they last.</p>
+        </div>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard

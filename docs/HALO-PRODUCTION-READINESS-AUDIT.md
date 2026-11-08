@@ -58,7 +58,7 @@ The levels below mean exactly what the brief defines: IMPLEMENTED (source exists
 | Webhook replay protection | TESTED (Phase 3) | |
 | Paystack / Flutterwave | IMPLEMENTED (+ stub tests in Phase 5) | **No sandbox credentials → not INTEGRATION VERIFIED** |
 | Voice assistant | IMPLEMENTED | Neural TTS broken (missing config); the browser voice fallback works |
-| Monitoring (Sentry, heartbeat, uptime) | **ABSENT** | Telegram, e-mail and push alerts exist |
+| Monitoring | **TESTED** (unit + live) | `src/lib/health.ts`, every 30 s: bot heartbeat, price data (weekend-aware), execution lock (uncertain / stuck), broker connection (live mode), database, backup age, alert channels (judged by real delivery results). Alerts on change, 6-h reminders for critical, "recovered" messages; bypass the alert-type filter. Admin → Execution → System Health. **Not yet:** external uptime monitor and error tracking (Sentry or equivalent, not installed: needs an account/DSN), backup-failure alerts (no automated backups exist yet) |
 | Backups / DR | MANUAL | Backups exist (`db/backup-pre-*.db`, `~/HALO-backups`); no automation, no restore test |
 
 ## 3. Confirmed achievements
@@ -76,7 +76,7 @@ Verified directly in this session:
 - **Brokers:** every broker execution path, the EA in MT5, and OANDA, IG and Binance orders.
 - **Payments:** both sandboxes.
 - **Admin:** 2FA is built but not yet turned on for the Super Admin account.
-- **Platform:** monitoring; automated backups and restore tests; Postgres; hosting.
+- **Platform:** external uptime monitor and error tracking; automated backups and restore tests; Postgres; hosting.
 - **Market data:** a licensed source.
 - **Legal:** terms, privacy policy and risk disclosure.
 - **Voice:** fix or remove the neural engine.
@@ -93,7 +93,9 @@ Verified directly in this session:
 | ~~HIGH~~ built | Super Admin 2FA exists (opt-in). It stays a risk until the owner turns it on |
 | ~~HIGH~~ fixed | Rate limits now cover AI, backtest, autopilot, scanner and every other API route |
 | HIGH | Engines run inside the web process: a restart or HMR can leave timers on old code, as seen this session; needs a dedicated worker in production |
-| HIGH | No monitoring or alerting for a stalled bot, stale data or a stuck lock |
+| ~~HIGH~~ built | Monitoring for a stalled bot, stale data, a stuck lock, broker loss, database and backups now exists (see §2) |
+| **HIGH (found by the monitor)** | **No alert channel actually delivers**: Telegram is configured but rejects the bot token (HTTP 401); e-mail is not configured; no device is subscribed to push. Every HALO alert, including critical health alerts, currently goes nowhere |
+| MEDIUM (found by the monitor) | The bot's market is set to V75 (a Deriv synthetic): simulated prices only while Deriv is unreachable, so the bot cannot place orders |
 | HIGH | Old MetaApi token not yet confirmed revoked by the provider |
 | MEDIUM | SQLite in production; no automated backups or restore test |
 | MEDIUM | Paper "restart monitor" counts a stop hit inside the entry candle (could be optimistic or pessimistic) |
@@ -141,6 +143,7 @@ Verified directly in this session:
 | **exec-lock-concurrency-test** (new) | **33/33** on a throwaway DB (`db/custom.db` verified unchanged by checksum), including reconciliation by order reference through a simulated EA |
 | two-factor-selftest (new) | 20/20 (incl. RFC 6238 vectors) |
 | rate-limit-selftest (new) | 18/18 |
+| health-selftest (new) | 27/27 |
 | two-factor-e2e (new) | 23/23 over HTTP against a throwaway DB copy (`db/custom.db` verified unchanged) |
 | adapter-stub-test | **not run**: needs the local MetaApi stub, which requires the Bun runtime (not installed) |
 
@@ -155,6 +158,8 @@ Verified directly in this session:
 7. Approve enabling the news blackout (built, off).
 8. Change the Exness demo password (it was shared in chat).
 9. Turn on two-factor sign-in for the Super Admin account (Account → Two-factor sign-in) and save the recovery codes.
+10. Fix alert delivery: create a new Telegram bot token (@BotFather) and paste it in the Alerts tab, and/or set up e-mail, then send a test alert.
+11. Decide the bot's market: it is on V75 (simulated-only right now); gold was the previous choice.
 
 ## 10. Recommended next milestone
 
