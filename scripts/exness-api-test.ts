@@ -60,12 +60,15 @@ const server = http.createServer((req, res) => {
     stats.candleQueries.push(q);
     if (!["EURUSD", "XAUUSDm", "US30"].includes(q.get("instrument") ?? "")) return send(404, { error: { code: "MARKET_INSTRUMENT_NOT_FOUND" } });
     if (!TF_ENUM.has(q.get("timeframe") ?? "")) return send(400, { error: { code: "REQUEST_INVALID_TIMEFRAME" } });
-    const from = Date.parse(q.get("from") ?? "");
-    const to = Date.parse(q.get("to") ?? "");
-    if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) return send(400, { error: { code: "REQUEST_INVALID_TIME_RANGE" } });
-    if ((to - from) / HOUR > 1000) return send(400, { error: { code: "REQUEST_INVALID_TIME_RANGE" } }); // simulated per-account candle limit
+    // like the real API: from (required) + count (negative = the N candles before `from`), max 1000 per request
+    const fromMs = Date.parse(q.get("from") ?? "");
+    const count = Number(q.get("count") ?? "0");
+    if (!Number.isFinite(fromMs) || !count) return send(400, { error: { code: "REQUEST_INVALID_PARAMETERS" } });
+    if (Math.abs(count) > 1000) return send(400, { error: { code: "REQUEST_INVALID_COUNT" } });
+    // negative: the N candles opened strictly before `from` (newest = the one containing `from`)
+    const first = count < 0 ? Math.floor((fromMs - 1) / HOUR) * HOUR - (Math.abs(count) - 1) * HOUR : Math.ceil(fromMs / HOUR) * HOUR;
     const candles = [];
-    for (let t = Math.ceil(from / HOUR) * HOUR; t < to; t += HOUR) {
+    for (let t = first, k = 0; k < Math.abs(count); t += HOUR, k++) {
       const c = 4000 + (t / HOUR) % 50;
       candles.push({ time: new Date(t).toISOString().replace(".000Z", "+00:00"), open: c, high: c + 2, low: c - 2, close: c + 1, volume: 10 });
     }
@@ -118,9 +121,18 @@ async function main() {
   ok(q.get("instrument") === "XAUUSDm" && q.get("timeframe") === "H1" && q.get("price_type") === "bid", "gold resolved to the account's XAUUSDm, timeframe H1, bid prices");
   ok(bars.length === 50 && bars.every((b, i) => i === 0 || b.time > bars[i - 1].time), "50 candles, oldest → newest");
   ok(bars.at(-1)!.time === Math.floor(Date.now() / HOUR) * HOUR, "newest candle is the current hour (UTC)");
+  const t0 = Date.now();
+  await Promise.all([api.exnessCandles("XAUUSD", "1h", 5), api.exnessCandles("XAUUSD", "1h", 5), api.exnessCandles("XAUUSD", "1h", 5)]);
+  ok(Date.now() - t0 >= 1000, "candle requests are spaced to stay within Exness's 2-per-second limit");
+  let busy = "";
+  const cold = Array.from({ length: 12 }, () => api.exnessCandles("EURUSD", "1h", 5, false).catch((e: Error) => { busy = e.message; return []; }));
+  await Promise.all(cold);
+  ok(/Exness busy/.test(busy), "background (scanner) requests that would wait too long are refused at once, so they use the next source");
 
-  await api.exnessCandles("EURUSD", "1h", 900);
-  ok(stats.candleQueries.length >= 3 && stats.badSig === 0, "a window over the account's candle limit is retried smaller automatically");
+  ok(q.get("count") === "-50", "asks for the last 50 candles before now (works across weekends)");
+  const before = stats.candleQueries.length;
+  const big = await api.exnessCandles("EURUSD", "1h", 1500);
+  ok(stats.candleQueries.length - before === 2 && big.length === 1500 && new Set(big.map((b) => b.time)).size === 1500, "1500 candles are fetched as 1000 + 500 without gaps or duplicates");
   ok(stats.accessPoint === 1, "the access point is discovered once and cached");
 
   let missing = "";

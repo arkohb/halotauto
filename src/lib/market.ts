@@ -268,7 +268,8 @@ async function fetchFromSources(sym: string, tf: string, limit: number): Promise
   // exactly the prices your orders fill at
   if (brokerFeedCovers(sym)) {
     try {
-      const candles = await brokerCandles(sym, tf, limit);
+      const hot = Date.now() - (yGate.hot.get(sym) ?? 0) < PRIORITY_MS; // chart / bot symbol
+      const candles = await brokerCandles(sym, tf, limit, hot);
       if (candles.length > 0) return { candles, source: "exness" };
     } catch {
       // EA offline / symbol not in MT5 → next source

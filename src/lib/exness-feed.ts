@@ -55,17 +55,18 @@ export async function brokerFeedSource(symbol: string): Promise<"api" | "ea" | n
   return (await brokerFeed(symbol)) ? "ea" : null;
 }
 
-export async function brokerCandles(symbol: string, tf: string, limit: number) {
+/** hot = the chart's or the bot's symbol (served first under Exness's rate limit) */
+export async function brokerCandles(symbol: string, tf: string, limit: number, hot = true) {
   if (brokerFeedCovers(symbol) && apiUsable()) {
     try {
-      const c = await exnessCandles(symbol, tf, limit);
+      const c = await exnessCandles(symbol, tf, limit, hot);
       gApi.__haloExnessApiErr = "";
       return c;
     } catch (e) {
       const msg = (e as Error).message;
       gApi.__haloExnessApiErr = msg;
-      // instrument simply not on the account → no penalty; auth / network trouble → pause 60 s
-      if (!/not available on this Exness account|not offered/.test(msg)) gApi.__haloExnessApiDownUntil = Date.now() + 60_000;
+      // instrument not on the account / rate-limit queue busy → no penalty; auth / network trouble → pause 60 s
+      if (!/not available on this Exness account|not offered|Exness busy/.test(msg)) gApi.__haloExnessApiDownUntil = Date.now() + 60_000;
       if (!(await brokerFeed(symbol))) throw e;
     }
   }

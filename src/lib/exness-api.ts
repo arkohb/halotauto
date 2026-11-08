@@ -19,7 +19,7 @@
 import crypto from "node:crypto";
 import WebSocket from "ws";
 import type { Candle } from "./halo/types";
-import { tfSec } from "./market-symbols";
+
 
 interface ExnessCfg {
   apiKey: string;
@@ -85,12 +85,27 @@ export function exnessHeaders(cfg: Pick<ExnessCfg, "apiKey" | "key">, method: st
   };
 }
 
-async function signedGet<T>(cfg: ExnessCfg, base: string, path: string): Promise<T> {
+// Signed requests carry a timestamp Exness only accepts within a short window
+// of ITS clock. A machine whose clock drifts would be refused, so HALO learns
+// the offset from Exness's own Date header and stamps requests in Exness time.
+const gc = globalThis as unknown as { __haloExnessClockOffset?: number };
+export function exnessNow(): number {
+  return Date.now() + (gc.__haloExnessClockOffset ?? 0);
+}
+function learnClock(r: Response): void {
+  const d = Date.parse(r.headers.get("date") ?? "");
+  if (Number.isFinite(d)) gc.__haloExnessClockOffset = d + 500 - Date.now(); // Date has 1-s resolution: aim mid-second
+}
+
+async function signedGet<T>(cfg: ExnessCfg, base: string, path: string, retried = false): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const r = await fetch(`${base}${path}`, { headers: { ...exnessHeaders(cfg, "GET", path), Accept: "application/json" }, signal: ctrl.signal, cache: "no-store" });
+    const r = await fetch(`${base}${path}`, { headers: { ...exnessHeaders(cfg, "GET", path, "", "", exnessNow()), Accept: "application/json" }, signal: ctrl.signal, cache: "no-store" });
+    learnClock(r);
     const text = await r.text();
+    // clock was off: the offset is now learned from this response — sign again once
+    if (r.status === 401 && !retried && /timestamp outside allowed window/i.test(text)) return signedGet<T>(cfg, base, path, true);
     if (!r.ok) throw new Error(`Exness HTTP ${r.status}: ${text.slice(0, 200)}`);
     return JSON.parse(text) as T;
   } finally {
@@ -138,7 +153,49 @@ export async function resolveInstrument(cfg: ExnessCfg, symbol: string): Promise
 
 const TF: Record<string, string> = { "1m": "M1", "3m": "M3", "5m": "M5", "15m": "M15", "30m": "M30", "1h": "H1", "2h": "H2", "4h": "H4", "1d": "D1" };
 
-export async function exnessCandles(symbol: string, tf: string, limit: number): Promise<Candle[]> {
+// Exness allows 2 candle requests/second per account (limits endpoint) and
+// 1000 candles per request. Requests are spaced 550 ms apart; the chart's and
+// the bot's symbols go first; anything else that would wait more than 4 s is
+// refused at once ("busy") so its caller uses the next source instead.
+const CANDLE_GAP_MS = 550;
+const MAX_PER_REQUEST = 1000;
+const BUSY_WAIT_MS = 4000;
+const gq = globalThis as unknown as { __haloExnessQ?: { next: number; queue: Array<{ hot: boolean; go: () => void }>; running: boolean } };
+const q = (gq.__haloExnessQ ??= { next: 0, queue: [], running: false });
+
+function pump(): void {
+  if (q.running) return;
+  const job = q.queue.shift();
+  if (!job) return;
+  q.running = true;
+  const wait = Math.max(0, q.next - Date.now());
+  setTimeout(() => {
+    q.next = Date.now() + CANDLE_GAP_MS;
+    q.running = false;
+    job.go();
+    pump();
+  }, wait);
+}
+
+function candleSlot(hot: boolean): Promise<void> {
+  const ahead = q.queue.filter((j) => hot ? j.hot : true).length + (q.running ? 1 : 0);
+  if (!hot && ahead * CANDLE_GAP_MS + Math.max(0, q.next - Date.now()) > BUSY_WAIT_MS) {
+    return Promise.reject(new Error("Exness busy (candle rate limit) — using the next source"));
+  }
+  return new Promise<void>((resolve) => {
+    const job = { hot, go: resolve };
+    if (hot) {
+      const firstCold = q.queue.findIndex((j) => !j.hot);
+      if (firstCold < 0) q.queue.push(job);
+      else q.queue.splice(firstCold, 0, job);
+    } else q.queue.push(job);
+    pump();
+  });
+}
+
+const clean = (v: number) => Math.round(Number(v) * 1e6) / 1e6; // trims float noise like 4077.4010000000003
+
+export async function exnessCandles(symbol: string, tf: string, limit: number, hot = true): Promise<Candle[]> {
   const cfg = exnessConfig();
   if (!cfg) throw new Error("Exness API not configured");
   const timeframe = TF[tf];
@@ -146,31 +203,28 @@ export async function exnessCandles(symbol: string, tf: string, limit: number): 
   const inst = await resolveInstrument(cfg, symbol);
   if (!inst) throw new Error(`${symbol} is not available on this Exness account`);
   const base = await accessPoint(cfg);
-  const tfMs = tfSec(tf) * 1000;
-  // a window wide enough to hold `limit` bars across weekends; shrink if the account's candle limit is lower
-  let span = Math.ceil(limit * 1.6) + 4;
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const now = Date.now();
-    const from = new Date(Math.floor((now - span * tfMs) / tfMs) * tfMs).toISOString();
-    const to = new Date(Math.floor(now / tfMs) * tfMs + tfMs).toISOString();
-    const path = `/v1/market-data/accounts/${encodeURIComponent(cfg.accountId)}/candles?instrument=${encodeURIComponent(inst)}&timeframe=${timeframe}&price_type=bid&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
-    try {
-      const j = await signedGet<{ candles?: Array<{ time: string; open: number; high: number; low: number; close: number; volume?: number }> }>(cfg, base, path);
-      const out = (j.candles ?? [])
-        .map((c) => ({ time: Date.parse(c.time), open: Number(c.open), high: Number(c.high), low: Number(c.low), close: Number(c.close), volume: Number(c.volume ?? 0) }))
-        .filter((c) => Number.isFinite(c.time) && c.close > 0 && c.high >= c.low)
-        .sort((a, b) => a.time - b.time);
-      return out.slice(-limit);
-    } catch (e) {
-      // too wide for this account's candle limit → halve the window and retry
-      if (/INVALID_TIME_RANGE|INVALID_COUNT|limit/i.test((e as Error).message) && span > 10) {
-        span = Math.ceil(span / 2);
-        continue;
-      }
-      throw e;
-    }
+  // "the N candles before <from>" (count < 0) — correct across weekends and holidays
+  const out: Candle[] = [];
+  let before = exnessNow(); // the forming candle opened before now, so it is included
+  let need = Math.max(1, limit);
+  while (need > 0) {
+    const n = Math.min(need, MAX_PER_REQUEST);
+    await candleSlot(hot);
+    const path = `/v1/market-data/accounts/${encodeURIComponent(cfg.accountId)}/candles?instrument=${encodeURIComponent(inst)}&timeframe=${timeframe}&price_type=bid&from=${encodeURIComponent(new Date(before).toISOString())}&count=-${n}`;
+    const j = await signedGet<{ candles?: Array<{ time: string; open: number; high: number; low: number; close: number; volume?: number }> }>(cfg, base, path);
+    const page = (j.candles ?? [])
+      .map((c) => ({ time: Date.parse(c.time), open: clean(c.open), high: clean(c.high), low: clean(c.low), close: clean(c.close), volume: Number(c.volume ?? 0) }))
+      .filter((c) => Number.isFinite(c.time) && c.close > 0 && c.high >= c.low);
+    out.unshift(...page);
+    if (page.length < n) break; // no more history
+    need -= page.length;
+    before = Math.min(...page.map((c) => c.time));
   }
-  throw new Error("Exness candle request kept exceeding the account's candle limit");
+  const seen = new Set<number>();
+  return out
+    .filter((c) => (seen.has(c.time) ? false : (seen.add(c.time), true)))
+    .sort((a, b) => a.time - b.time)
+    .slice(-limit);
 }
 
 // ───────────────────────── live ticks ─────────────────────────
@@ -206,7 +260,7 @@ async function connectTicks(): Promise<void> {
   try {
     const base = await accessPoint(cfg);
     const path = `/v1/server-events/accounts/${encodeURIComponent(cfg.accountId)}/ws/ticks`;
-    const ws = new WebSocket(`${base.replace(/^http/, "ws")}${path}`, ["exness-ws-protocol"], { headers: exnessHeaders(cfg, "GET", path), handshakeTimeout: 10_000 });
+    const ws = new WebSocket(`${base.replace(/^http/, "ws")}${path}`, ["exness-ws-protocol"], { headers: exnessHeaders(cfg, "GET", path, "", "", exnessNow()), handshakeTimeout: 10_000 });
     hub.ws = ws;
     ws.on("open", () => {
       hub.backoff = 1000;
