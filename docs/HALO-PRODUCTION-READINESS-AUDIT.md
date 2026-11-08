@@ -38,7 +38,7 @@ The levels below mean exactly what the brief defines: IMPLEMENTED (source exists
 | Backtest | IMPLEMENTED | `verify-backtest` exists; no regression suite in the baseline |
 | Paper trading | TESTED (manual) | Seen end-to-end in this session |
 | One-trade lock (DB, survives restart) | **TESTED** | `exec-lock-concurrency-test` (21/21): 50 simultaneous orders → 1 winner; 8 separate processes × 10 → 1 winner; uncertain orders keep the lock; restart recovery for PENDING, UNCERTAIN and SUBMITTING; "not executed" resolution creates no trade; full event audit trail |
-| Uncertain-order handling | **TESTED** (simulated EA) | Never resent. Reconciled **by HALO's order id** at restart, every 60 s, and on a Super Admin re-check: MetaApi (positions + history orders by `clientId`), OANDA (`orders/@<id>`), HALO Bridge EA (id stamped as the MT5 comment). Other brokers only recover a HALO-tagged position. Filled-and-closed releases the lock without inventing a result; "absent" is trusted only after 60 s. Every attempt is logged. Admin API lists uncertain orders with their trail; **no dashboard page yet**. Not yet run against a real broker |
+| Uncertain-order handling | **TESTED** (simulated EA) | Never resent. Reconciled **by HALO's order id** at restart, every 60 s, and on a Super Admin re-check: MetaApi (positions + history orders by `clientId`), OANDA (`orders/@<id>`), HALO Bridge EA (id stamped as the MT5 comment). Other brokers only recover a HALO-tagged position. Filled-and-closed releases the lock without inventing a result; "absent" is trusted only after 60 s. Every attempt is logged. **Admin → Execution** page shows the lock, each uncertain order with its full trail and Super Admin re-check / resolve buttons (confirmation dialogs; audit-logged). Not yet run against a real broker |
 | Price guard (simulated, stale, invalid, deviation) | TESTED | `price-guard-selftest`. Covers `executeFire` (bot, scanners, sweep, Pine) and the webhook. The deviation threshold is unset, so **every live order is refused** |
 | Spread / slippage guard | TESTED (unit) | `edge-filters-prop-test`. Not yet run against a broker quote. One % of stop limit covers all markets; **no per-instrument limits** |
 | HALO EDGE (quality, manager, Guardian, autopilot) | TESTED (unit) | `edge-selftest` |
@@ -75,7 +75,7 @@ Verified directly in this session:
 
 - **Brokers:** every broker execution path, the EA in MT5, and OANDA, IG and Binance orders.
 - **Payments:** both sandboxes.
-- **Admin:** 2FA; an admin UI for uncertain orders and the price-guard threshold.
+- **Admin:** 2FA.
 - **Platform:** rate limits on expensive routes; monitoring; automated backups and restore tests; Postgres; hosting.
 - **Market data:** a licensed source.
 - **Legal:** terms, privacy policy and risk disclosure.
@@ -110,7 +110,7 @@ Verified directly in this session:
 1. **Execution safety (no approval needed):**
    - ~~An automated concurrency and duplicate test for the lock against a throwaway DB.~~ Done: `exec-lock-concurrency-test`, 21/21.
    - ~~Store and query the broker order reference during reconciliation.~~ Done (MetaApi, OANDA, HALO Bridge EA; others tag-checked).
-   - An admin page for uncertain orders and the price-guard threshold.
+   - ~~An admin page for uncertain orders and the price-guard threshold.~~ Done: Admin → Execution.
 2. **Capital protection:** verify Capital Guardian and the prop rules on a demo account.
 3. **Security:** Super Admin 2FA, and rate limits on AI, backtest, autopilot and scanner routes.
 4. **Integrations:** OANDA practice, the EA demo, MetaApi, then IG and Binance. Needs credentials.

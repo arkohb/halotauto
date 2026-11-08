@@ -5,7 +5,7 @@
 //  Separate, secure administration dashboard using the HALO visual identity.
 //  Role-aware navigation (server-side RBAC re-checked on every API call):
 //    Overview · Users · Licenses · Generate · Plans · Transactions ·
-//    Audit · Settings · Administrators
+//    Execution · Audit · Settings · Administrators
 //  Non-admins / signed-out visitors are redirected to /login.
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -23,8 +23,9 @@ import { AdminTransactions } from "@/components/commerce/admin/transactions";
 import { AdminAudit } from "@/components/commerce/admin/audit";
 import { AdminSettings } from "@/components/commerce/admin/settings";
 import { AdminAdmins } from "@/components/commerce/admin/admins";
+import { AdminExecution } from "@/components/commerce/admin/execution";
 
-type Section = "overview" | "users" | "licenses" | "generate" | "plans" | "transactions" | "audit" | "settings" | "admins";
+type Section = "overview" | "users" | "licenses" | "generate" | "plans" | "transactions" | "execution" | "audit" | "settings" | "admins";
 
 const NAV: { key: Section; label: string; superOnly?: boolean }[] = [
   { key: "overview", label: "Overview" },
@@ -33,6 +34,7 @@ const NAV: { key: Section; label: string; superOnly?: boolean }[] = [
   { key: "generate", label: "Generate" },
   { key: "plans", label: "Plans", superOnly: true },
   { key: "transactions", label: "Transactions" },
+  { key: "execution", label: "Execution" },
   { key: "audit", label: "Audit" },
   { key: "settings", label: "Settings", superOnly: true },
   { key: "admins", label: "Administrators", superOnly: true },
@@ -146,6 +148,7 @@ export default function AdminPage() {
             {activeSection === "generate" ? <AdminGenerate onChanged={bump} /> : null}
             {activeSection === "plans" ? <AdminPlans key={`p${refreshKey}`} /> : null}
             {activeSection === "transactions" ? <AdminTransactions key={`t${refreshKey}`} onChanged={bump} /> : null}
+            {activeSection === "execution" ? <AdminExecution isSuper={isSuper} /> : null}
             {activeSection === "audit" ? <AdminAudit /> : null}
             {activeSection === "settings" ? <AdminSettings /> : null}
             {activeSection === "admins" ? <AdminAdmins /> : null}
