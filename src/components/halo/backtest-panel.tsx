@@ -2,16 +2,21 @@
 
 // ════════════════════════════════════════════════════════════════════════
 //  BACKTEST DASHBOARD · REAL MARKET DATA · ∞ BARS · ANY PAIR · ANY BAR SIZE
-//  Replays the exact live engine (wick-line break → return) over real OHLC
-//  history walked page-by-page from the live feeds. Bar count is UNCAPPED —
-//  type any number or pick ALL to walk back to the feed's very first bar —
-//  with 17 timeframes (M1→W1) and any symbol of preference (typed freely).
-//  If only a simulator were reachable the run is REFUSED — the dashboard
-//  never fabricates demo equity.
+//  Replays a strategy over real OHLC history walked page-by-page from the
+//  live feeds. Bar count is UNCAPPED — type any number or pick ALL to walk
+//  back to the feed's very first bar — with 17 timeframes (M1→W1) and any
+//  symbol of preference (typed freely). If only a simulator were reachable
+//  the run is REFUSED — the dashboard never fabricates demo equity.
+//
+//  TWO replay engines: the default HALO wick-line engine, and ANY indicator
+//  chosen from the INDICATOR TO TEST selector — the ★ built-in library ships
+//  INSIDE the app bundle so its indicators are ALWAYS selectable (no network,
+//  no database needed), plus the trader's own saved Pine work. Same real data,
+//  same analytics, so profitability is directly comparable across indicators.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useRef, useState } from "react";
-import { BarChart3, FlaskConical, LineChart, Table2 } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { BarChart3, FlaskConical, LineChart, Loader2, RefreshCw, Table2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -24,8 +29,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PanelCard, Pill, StateFrame } from "@/components/halo/panel";
+import { PinePreviewChart, type PreviewHLine, type PreviewMarker, type PreviewPlot } from "@/components/halo/pine-preview-chart";
 import { A, C, fmtPx, fmtPips } from "@/lib/halo/ui-helpers";
 import { BT_TIMEFRAMES, SYMBOLS, SYMBOL_GROUPS } from "@/lib/market-symbols";
+import { LIBRARY } from "@/lib/pine/library-sources";
 import type { HaloConfig } from "@/lib/halo/types";
 
 interface BtTrade {
@@ -88,11 +95,22 @@ interface BtResult {
   spreadPips: number;
   span: { from: number; to: number };
   cfgEcho: { sigMode: string; slMode: string; rrMult: number; breakATR: number; eqTolATR: number };
+  engine?: "wickline" | "pine";
+  strategy?: { id: string; name: string; description: string } | null;
   stats: BtStats;
   equity: { final: number; maxDrawdown: number };
   curve: Array<{ t: number; pips: number }>;
   tradesTotal?: number;
   trades: BtTrade[];
+}
+
+/** a saved Pine indicator/strategy — everything in the library + the trader's own */
+interface StrategyLite {
+  id: string;
+  name: string;
+  description: string;
+  status: "draft" | "compiled" | "error";
+  kind: "strategy" | "indicator";
 }
 
 interface Props {
@@ -133,6 +151,105 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
   const [elapsed, setElapsed] = useState(0);
   const seq = useRef(0);
 
+  // ── indicator selection ──
+  //   "engine"      → the default HALO wick-line engine
+  //   "builtin:<i>"  → ★ library indicator shipped in the bundle (ALWAYS listed)
+  //   "db:<id>"      → the trader's own saved Pine strategy/indicator
+  // The saved list is a BONUS: if its fetch fails the ★ library remains fully
+  // selectable and the failure is shown with a retry button — never silent.
+  const [sel, setSel] = useState("engine");
+  const [saved, setSaved] = useState<StrategyLite[]>([]);
+  const [savedState, setSavedState] = useState<"loading" | "ok" | "error">("loading");
+  const loadSaved = useCallback(async () => {
+    setSavedState("loading");
+    try {
+      const r = await fetch("/api/strategies");
+      const j = (await r.json()) as { ok: boolean; strategies?: StrategyLite[] };
+      if (j.ok && Array.isArray(j.strategies)) {
+        setSaved(j.strategies.filter((st) => st.status === "compiled"));
+        setSavedState("ok");
+      } else {
+        setSavedState("error");
+      }
+    } catch {
+      setSavedState("error");
+    }
+  }, []);
+  useEffect(() => {
+    void loadSaved();
+  }, [loadSaved]);
+
+  const isBuiltin = sel.startsWith("builtin:");
+  const builtinIdx = isBuiltin ? Number(sel.slice(8)) : -1;
+  const savedEntry = sel.startsWith("db:") ? saved.find((st) => st.id === sel.slice(3)) ?? null : null;
+  const activeName =
+    sel === "engine" ? null : isBuiltin ? (LIBRARY[builtinIdx]?.name ?? null) : (savedEntry?.name ?? null);
+  // a selected saved strategy can vanish (recompile/delete) — fall back to the engine
+  const selValid = sel === "engine" || (isBuiltin && builtinIdx >= 0 && builtinIdx < LIBRARY.length) || savedEntry !== null;
+  const totalIndicators = LIBRARY.length + saved.length;
+
+  // ── THE SELECTED INDICATOR, ON THE CHART ──
+  // Picking an indicator here draws it over the chosen pair immediately (its
+  // own plots, hlines and buy/sell marks over the last 400 confirmed bars) —
+  // the trader SEES the indicator they are about to test, before running.
+  const chartKey = sel === "engine" || !selValid ? null : sel; // "builtin:<i>" | "db:<id>" | null
+  const [pv, setPv] = useState<
+    | { state: "loading" }
+    | { state: "error"; error: string }
+    | { state: "ok"; name: string; plots: PreviewPlot[]; markers: PreviewMarker[]; hlines: PreviewHLine[]; source: string; bars: number; candles: { time: number; open: number; high: number; low: number; close: number }[] }
+    | null
+  >(null);
+  useEffect(() => {
+    if (!chartKey) {
+      setPv(null);
+      return;
+    }
+    let stale = false;
+    setPv({ state: "loading" });
+    const t = setTimeout(async () => {
+      try {
+        const pathId = chartKey.startsWith("db:") ? chartKey.slice(3) : encodeURIComponent(chartKey);
+        const r = await fetch(`/api/strategies/${pathId}/preview?symbol=${encodeURIComponent(activeSym)}&tf=${btTf}&limit=400`, { cache: "no-store" });
+        const j = (await r.json()) as {
+          ok: boolean;
+          error?: string;
+          name?: string;
+          source?: string;
+          bars?: number;
+          plots?: PreviewPlot[];
+          markers?: PreviewMarker[];
+          hlines?: PreviewHLine[];
+        };
+        if (stale) return;
+        if (!j.ok) {
+          setPv({ state: "error", error: j.error ?? "The indicator preview failed — try another pair or timeframe." });
+          return;
+        }
+        // the preview endpoint returns plots/markers but not raw candles — pull
+        // the matching window for the chart (same pattern as Strategy Studio)
+        const cr = await fetch(`/api/market/candles?symbol=${encodeURIComponent(activeSym)}&tf=${btTf}&limit=400`, { cache: "no-store" });
+        const cj = (await cr.json()) as { candles?: { time: number; open: number; high: number; low: number; close: number }[] };
+        if (stale) return;
+        setPv({
+          state: "ok",
+          name: j.name ?? activeName ?? "indicator",
+          plots: j.plots ?? [],
+          markers: j.markers ?? [],
+          hlines: j.hlines ?? [],
+          source: j.source ?? "",
+          bars: j.bars ?? 0,
+          candles: cj.candles ?? [],
+        });
+      } catch (e) {
+        if (!stale) setPv({ state: "error", error: (e as Error).message });
+      }
+    }, 350); // debounce rapid pair/tf/indicator spins
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [chartKey, activeSym, btTf, activeName]);
+
   // elapsed-seconds ticker while a deep walk is running
   useEffect(() => {
     if (!busy) return;
@@ -157,6 +274,11 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           from: from || undefined,
           spreadPips: Number(spread) || 0,
           cfg: config,
+          ...(isBuiltin
+            ? { builtin: builtinIdx }
+            : sel.startsWith("db:")
+              ? { strategyId: sel.slice(3) }
+              : {}),
         }),
       });
       const j = (await r.json()) as BtResult;
@@ -259,6 +381,67 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
             </Select>
           </label>
 
+          {/* indicator to test — ★ built-in library ALWAYS listed + the trader's saved Pine work */}
+          <label className="flex flex-col gap-1">
+            <span className="flex items-center gap-2 text-[9px] font-bold tracking-[0.14em]" style={{ color: C.muted }}>
+              INDICATOR TO TEST
+              <span className="rounded-full px-1.5 py-0.5 text-[8.5px]" style={{ background: A.gold(0.12), color: C.gold }}>
+                {totalIndicators} AVAILABLE
+              </span>
+              {savedState === "error" && (
+                <button
+                  type="button"
+                  onClick={() => void loadSaved()}
+                  className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[8.5px] transition-colors hover:bg-[#0A2A4A]"
+                  style={{ color: C.red }}
+                  title="Saved-indicator list failed to load — retry"
+                >
+                  <RefreshCw size={9} /> SAVED LIST FAILED · RETRY
+                </button>
+              )}
+            </span>
+            <Select value={selValid ? sel : "engine"} onValueChange={setSel}>
+              <SelectTrigger
+                size="sm"
+                className="w-[240px] rounded-md border-[#1C4478] bg-[#020B1A] px-2 font-mono text-xs text-[#EAF3FF]"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="max-h-[380px] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
+                <SelectItem value="engine" className="font-mono text-xs">
+                  HALO WICK-LINE ENGINE (default)
+                </SelectItem>
+                <SelectGroup>
+                  <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">
+                    ★ BEST INDICATORS LIBRARY · {LIBRARY.length} BUILT-IN
+                  </SelectLabel>
+                  {LIBRARY.map((lib, i) => (
+                    <SelectItem key={lib.name} value={`builtin:${i}`} className="font-mono text-xs">
+                      {lib.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+                <SelectGroup>
+                  <SelectLabel className="pl-2 text-[9px] tracking-[0.18em] text-[#E9B94E]/80">
+                    {savedState === "loading"
+                      ? "MY SAVED INDICATORS · LOADING…"
+                      : savedState === "error"
+                        ? "MY SAVED INDICATORS · UNAVAILABLE"
+                        : saved.length > 0
+                          ? `MY SAVED INDICATORS · ${saved.length} READY`
+                          : "MY SAVED INDICATORS · NONE SAVED YET"}
+                  </SelectLabel>
+                  {savedState === "ok" &&
+                    saved.map((st) => (
+                      <SelectItem key={st.id} value={`db:${st.id}`} className="font-mono text-xs">
+                        {st.name}
+                      </SelectItem>
+                    ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </label>
+
           {/* bars — uncapped */}
           <label className="flex flex-col gap-1">
             <span className="text-[9px] font-bold tracking-[0.14em]" style={{ color: C.muted }}>BARS · NO CAP</span>
@@ -320,7 +503,9 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
         </div>
 
         <div className="px-3 pb-2 text-right text-[10px]" style={{ color: C.muted }}>
-          wick-line break → return · same live engine
+          {activeName
+            ? `pine simulation · ${activeName} · next-bar-open fills · intrabar SL/TP (SL first)`
+            : "wick-line break → return · same live engine"}
         </div>
 
         {busy && elapsed >= 6 && (
@@ -331,7 +516,46 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
         )}
       </PanelCard>
 
-      {/* ── results header strip ── */}
+      {/* ── THE SELECTED INDICATOR, ON THE CHART ── visible the moment an
+          indicator is picked — its plots, levels and signals over the chosen
+          pair; the wick-line engine has the live replay deck below instead. */}
+      {sel !== "engine" && (
+        <PanelCard
+          title="SELECTED INDICATOR ON CHART"
+          icon={LineChart}
+          accent="cyan"
+          right={
+            <>
+              <Pill tone="info">{activeName}</Pill>
+              <Pill tone="gold">{activeSym} · {btTf}</Pill>
+            </>
+          }
+        >
+          {pv?.state === "loading" && (
+            <div className="flex items-center gap-2 p-4 text-xs" style={{ color: C.muted }}>
+              <Loader2 size={12} className="animate-spin" /> Drawing {activeName} over {activeSym} {btTf}…
+            </div>
+          )}
+          {pv?.state === "error" && (
+            <div className="p-4 text-xs" style={{ color: C.red }}>
+              {pv.error}
+            </div>
+          )}
+          {pv?.state === "ok" && pv.candles.length > 0 && (
+            <div className="p-2">
+              <PinePreviewChart candles={pv.candles} plots={pv.plots} markers={pv.markers} hlines={pv.hlines} height={340} />
+              <div className="px-1 pt-2 text-[10px]" style={{ color: C.muted }}>
+                {pv.name} · last {pv.bars} confirmed bars · feed: <span style={{ color: C.cyan }}>{pv.source || "live"}</span> · arrows are the indicator's own signals
+              </div>
+            </div>
+          )}
+          {pv?.state === "ok" && pv.candles.length === 0 && (
+            <div className="p-4 text-xs" style={{ color: C.muted }}>
+              Indicator loaded, but the candle feed returned no bars for {activeSym} {btTf} yet — it will draw as soon as the feed warms up.
+            </div>
+          )}
+        </PanelCard>
+      )}
       {res?.ok && (
         <div
           className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-xl border px-4 py-2 text-[10px]"
@@ -356,6 +580,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           {requestedAll && <Pill tone="gold">ALL-HISTORY RUN</Pill>}
           {res.complete && <Pill tone="ok">FEED GENESIS REACHED · NOTHING OLDER EXISTS</Pill>}
           {res.from && <Pill tone="muted">FROM {res.from}</Pill>}
+          {res.engine === "pine" && res.strategy && <Pill tone="gold">INDICATOR: {res.strategy.name}</Pill>}
           <span>spread {res.spreadPips}p</span>
         </div>
       )}
@@ -426,13 +651,21 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
               <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 px-1 text-[10px]" style={{ color: C.muted }}>
                 <span>gross win <span className="font-mono" style={{ color: C.green }}>{fmtPips(s.grossWinPips)}</span></span>
                 <span>gross loss <span className="font-mono" style={{ color: C.red }}>−{num(s.grossLossPips)}p</span></span>
-                <span>levels burned <span className="font-mono">{s.burned}</span></span>
-                <span>crowded/skipped <span className="font-mono">{s.skipped} · {s.tooClose}</span></span>
-                <span>range skips (S/R too close) <span className="font-mono">{s.rangeSkipped}</span></span>
-                <span>removed · never returned <span className="font-mono">{s.noReturnRemoved ?? 0}</span></span>
-                <span>
-                  strategy <span className="font-mono">{res.cfgEcho.sigMode.toUpperCase()} · SL {res.cfgEcho.slMode === "wick" ? "BREAK EXTREME" : res.cfgEcho.slMode.toUpperCase()} · RR 1:{num(res.cfgEcho.rrMult)}</span>
-                </span>
+                {res.engine === "pine" && res.strategy ? (
+                  <span>
+                    indicator <span className="font-mono" style={{ color: C.gold }}>{res.strategy.name}</span> · pine fill model
+                  </span>
+                ) : (
+                  <>
+                    <span>levels burned <span className="font-mono">{s.burned}</span></span>
+                    <span>crowded/skipped <span className="font-mono">{s.skipped} · {s.tooClose}</span></span>
+                    <span>range skips (S/R too close) <span className="font-mono">{s.rangeSkipped}</span></span>
+                    <span>removed · never returned <span className="font-mono">{s.noReturnRemoved ?? 0}</span></span>
+                    <span>
+                      strategy <span className="font-mono">{res.cfgEcho.sigMode.toUpperCase()} · SL {res.cfgEcho.slMode === "wick" ? "BREAK EXTREME" : res.cfgEcho.slMode.toUpperCase()} · RR 1:{num(res.cfgEcho.rrMult)}</span>
+                    </span>
+                  </>
+                )}
               </div>
             </PanelCard>
           </div>

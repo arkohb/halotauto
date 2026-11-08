@@ -6,13 +6,15 @@
 // ════════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
+import { guardLicensed } from "@/lib/api-guard";
 import { db } from "@/lib/db";
-import { PineRuntime } from "@/lib/pine";
+import { PineRuntime, compilePine, type CompiledPine } from "@/lib/pine";
+import { LIBRARY } from "@/lib/pine/library-sources";
 import { getKlines, getSymbolMeta, tfSec } from "@/lib/market";
 import { TIMEFRAMES } from "@/lib/market-symbols";
 import { metaOf, toSummary } from "@/lib/strategy-store";
 import type { Candle } from "@/lib/halo/types";
-import { guardLicensed } from "@/lib/api-guard";
+import type { PineStrategy } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +25,36 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (deny) return deny;
   const { id } = await ctx.params;
   try {
-    const row = await db.pineStrategy.findUnique({ where: { id } });
-    if (!row) return NextResponse.json({ ok: false, error: "Strategy not found." }, { status: 404 });
+    // ── resolve the script ──
+    //   "builtin:<n>" → the ★ best-indicators library shipped in the bundle
+    //   (compiled straight from its source — no DB row needed, so the Strategy
+    //   Lab can chart ANY built-in indicator the moment it is selected)
+    //   anything else  → a saved PineStrategy row
+    const libMatch = /^builtin:(\d+)$/.exec(id);
+    let row: PineStrategy | null = null;
+    let pineSource = "";
+    let displayName = "";
+    let meta: CompiledPine | null = null;
+    if (libMatch) {
+      const idx = Number(libMatch[1]);
+      const entry = idx >= 0 && idx < LIBRARY.length ? LIBRARY[idx] : null;
+      if (!entry) {
+        return NextResponse.json({ ok: false, error: "Library indicator not found — pick another from the ★ list." }, { status: 404 });
+      }
+      const c = compilePine(entry.source);
+      if (c.error) {
+        return NextResponse.json({ ok: false, error: `This library indicator failed to compile: ${c.error.msg}` }, { status: 400 });
+      }
+      meta = c.meta;
+      pineSource = entry.source;
+      displayName = entry.name;
+    } else {
+      row = await db.pineStrategy.findUnique({ where: { id } });
+      if (!row) return NextResponse.json({ ok: false, error: "Strategy not found." }, { status: 404 });
+      meta = metaOf(row);
+      pineSource = row.pineSource;
+      displayName = row.name;
+    }
 
     const url = new URL(req.url);
     const symbol = url.searchParams.get("symbol") || "XAUUSD";
@@ -37,9 +67,8 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return NextResponse.json({ ok: false, error: `Not enough history for ${symbol} ${tf} (got ${candles.length} candles from ${source}).` }, { status: 502 });
     }
 
-    const meta = metaOf(row);
-    const candidates = meta?.signalCandidates ?? toSummary(row).signalCandidates;
-    const rt = new PineRuntime(row.pineSource, { mintick: getSymbolMeta(symbol).mintick, ticker: symbol, tf, pipMult: 10 });
+    const candidates = meta?.signalCandidates ?? (row ? toSummary(row).signalCandidates : []);
+    const rt = new PineRuntime(pineSource, { mintick: getSymbolMeta(symbol).mintick, ticker: symbol, tf, pipMult: 10 });
     if (candidates.length > 0) rt.captureBools(candidates);
 
     const now = Date.now();
@@ -96,10 +125,34 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       return arr && arr.some(Boolean);
     });
 
+    // ── the indicator's INPUT PARAMETERS with their resolved values ──
+    // Shown on the chart rail ("PARAMETERS" card) so the trader sees the
+    // exact settings the attached indicator is trading with. Pine executes
+    // the script body on EVERY bar, so input() registers a record per bar —
+    // AND the per-bar records get fresh ids (input_<n>), so dedupe by TITLE
+    // (first record wins; defval is identical anyway).
+    // source-type inputs (close/open/…) and series values render as "series".
+    const seenInput = new Set<string>();
+    const inputs: { title: string; value: string }[] = [];
+    for (const i of rt.inputs) {
+      const k = i.title || i.id;
+      if (seenInput.has(k)) continue;
+      seenInput.add(k);
+      let value: string;
+      const v = i.defval;
+      if (v === null || v === undefined) value = "—";
+      else if (typeof v === "number") value = Number.isInteger(v) ? String(v) : String(Math.round(v * 1e6) / 1e6);
+      else if (typeof v === "boolean") value = v ? "true" : "false";
+      else if (Array.isArray(v)) value = "[…]";
+      else if (typeof v === "object") value = "series";
+      else value = String(v);
+      inputs.push({ title: k, value });
+    }
+
     return NextResponse.json({
       ok: true,
       kind: meta?.kind ?? "indicator",
-      name: row.name,
+      name: displayName,
       symbol,
       tf,
       source, // feed source stamp — honest provenance
@@ -107,6 +160,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       plots,
       markers: markers.slice(0, 200),
       hlines: meta?.hlines ?? [],
+      inputs,
       trades: trades.slice(-80),
       stats: {
         trades: trades.length,

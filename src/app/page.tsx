@@ -698,10 +698,10 @@ export default function Page() {
                 <PageHeader
                   icon={FlaskConical}
                   title="STRATEGY LAB"
-                  sub="Replay and backtest the 3EL strategy over real market history — no synthetic data, ever."
+                  sub="Pick ANY indicator (★ library or your own) and a pair, then backtest it on real market history — win rate, net pips, profit factor, drawdown."
                 />
-                <BacktestLive symbol={state.symbol} tf={state.tf} config={state.config} />
                 <BacktestPanel symbol={state.symbol} tf={state.tf} config={state.config} />
+                <BacktestLive symbol={state.symbol} tf={state.tf} config={state.config} />
               </div>
             )}
 
