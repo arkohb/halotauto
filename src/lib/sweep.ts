@@ -69,6 +69,7 @@ interface SweepRuntime {
   cursor: number;
   timer: ReturnType<typeof setInterval> | null;
   syncing: boolean;
+  slicing?: boolean; // OVERLAP GUARD — never run two sweep slices concurrently
   startedAt: number;
   fires: number;
   lastRun: number;
@@ -426,7 +427,21 @@ async function tickRow(row: SweepRow): Promise<void> {
 /** One round-robin step: warm/tick a single symbol+tf row. */
 async function sweepSlice(): Promise<void> {
   const R = rt();
+  // OVERLAP GUARD — the ticker fires every beat whether or not the previous
+  // slice finished. When a live-feed request hangs, slices would pile up and
+  // starve the event loop (slow app, silent bots). Skip the beat instead —
+  // the same discipline the 3EL bot runtime applies.
+  if (R.slicing) return;
   if (!R.enabled || R.order.length === 0) return;
+  R.slicing = true;
+  try {
+    await sweepSliceBody(R);
+  } finally {
+    R.slicing = false;
+  }
+}
+
+async function sweepSliceBody(R: SweepRuntime): Promise<void> {
   R.lastRun = Date.now();
   const lock = getTradeLock();
   if (lock && lock.source === "SWEEP") {

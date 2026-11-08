@@ -29,7 +29,7 @@ const gStore = globalThis as unknown as {
 };
 const cache = (gStore.__haloCandleCache ??= new Map<string, CacheEntry>());
 
-async function jget(url: string, ms = 7000): Promise<unknown> {
+async function jget(url: string, ms = 5000): Promise<unknown> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
   try {
@@ -286,24 +286,50 @@ async function fetchFromSources(sym: string, tf: string, limit: number): Promise
     }
   }
   if (getSymbolMeta(sym).group !== "CRYPTO") {
+    // Yahoo keeps its own gate: its timeout only starts once a request leaves
+    // the queue, so no outer deadline here (it would cut off queued requests)
     return await fYahoo(sym, tf, limit);
   }
-  const sources: Array<[string, () => Promise<Candle[]>]> = [
-    ["binance", () => fBinance(sym, tf, limit)],
-    ["bybit", () => fBybit(sym, tf, limit)],
-    ["okx", () => fOKX(sym, tf, limit)],
-    ["coinbase", () => fCoinbase(sym, tf, limit)],
-  ];
-  let lastErr: unknown = null;
-  for (const [name, fn] of sources) {
-    try {
-      const candles = await fn();
-      if (candles.length > 0) return { candles, source: name };
-    } catch (e) {
-      lastErr = e;
+  const cryptoChain = async (): Promise<{ candles: Candle[]; source: string }> => {
+    const sources: Array<[string, () => Promise<Candle[]>]> = [
+      ["binance", () => fBinance(sym, tf, limit)],
+      ["bybit", () => fBybit(sym, tf, limit)],
+      ["okx", () => fOKX(sym, tf, limit)],
+      ["coinbase", () => fCoinbase(sym, tf, limit)],
+    ];
+    let lastErr: unknown = null;
+    for (const [name, fn] of sources) {
+      try {
+        const candles = await fn();
+        if (candles.length > 0) return { candles, source: name };
+      } catch (e) {
+        lastErr = e;
+      }
     }
-  }
-  throw lastErr ?? new Error("no source reachable");
+    throw lastErr ?? new Error("no source reachable");
+  };
+  // a chain of 4 exchanges × 5 s would burn 20 s on a dead network; bound the
+  // whole attempt — past it the established simulator fallback takes over
+  return await withDeadline(cryptoChain(), "crypto feeds");
+}
+
+// DEGRADED-EGRESS DEADLINE — healthy networks answer in well under a second,
+// so this only bites when the feed is already lost.
+const SOURCE_DEADLINE_MS = 7000;
+function withDeadline<T>(p: Promise<T>, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`${what}: deadline ${SOURCE_DEADLINE_MS}ms`)), SOURCE_DEADLINE_MS);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e: unknown) => {
+        clearTimeout(t);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      },
+    );
+  });
 }
 
 // ───────────────────────── SIMULATOR ─────────────────────────
@@ -538,7 +564,10 @@ export async function getKlines(
   const group = getSymbolMeta(sym).group;
   const isFx = group !== "CRYPTO" && group !== "SYNTHETICS";
   // the EA feed is our own terminal (no third-party rate limit): refresh fast
-  const refreshMs = entry?.source === "exness" ? 3000 : isFx ? 30_000 : 3500;
+  // an explicit fresh request (the chart's poll for the ONE symbol on screen)
+  // drops the FX floor to 8 s so the chart tracks the market; bulk scanner and
+  // sweep paths keep the 30 s guard
+  const refreshMs = entry?.source === "exness" ? 3000 : isFx ? (opts?.fresh ? 8_000 : 30_000) : 3500;
   if (
     entry &&
     entry.candles.length >= Math.min(want, 50) &&

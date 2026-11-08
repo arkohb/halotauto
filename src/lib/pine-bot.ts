@@ -263,6 +263,7 @@ function stepAtr(st: PineState, c: Candle): void {
 const gTim = globalThis as unknown as {
   __haloPineTimer?: ReturnType<typeof setInterval>;
   __haloPineGen?: number;
+  __haloPineTicking?: boolean;
 };
 
 function startTimer(): void {
@@ -276,7 +277,14 @@ function startTimer(): void {
       gTim.__haloPineTimer = undefined;
       return;
     }
-    void tickPine().catch(() => {});
+    // OVERLAP GUARD — a hanging feed request must never pile up ticks
+    if (gTim.__haloPineTicking) return;
+    gTim.__haloPineTicking = true;
+    tickPine()
+      .catch(() => {})
+      .finally(() => {
+        gTim.__haloPineTicking = false;
+      });
   }, 2500);
   (gTim.__haloPineTimer as unknown as { unref?: () => void }).unref?.();
   s.timer = gTim.__haloPineTimer;

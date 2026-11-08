@@ -95,6 +95,7 @@ interface TfScannerRuntime {
   cursor: number;
   timer: ReturnType<typeof setInterval> | null;
   syncing: boolean;
+  slicing?: boolean; // OVERLAP GUARD — never run two scan slices concurrently
   startedAt: number;
   lastRun: number;
   lastPassAt: number;
@@ -376,7 +377,21 @@ async function tickKey(key: string, cfg: HaloConfig): Promise<void> {
 /** One round-robin step: a few catalog rows + priority re-checks of hot rows. */
 async function scanSlice(): Promise<void> {
   const R = rt();
+  // OVERLAP GUARD — the ticker fires every beat whether or not the previous
+  // slice finished. When a live-feed request hangs, slices would pile up and
+  // starve the event loop (slow app, silent bots). Skip the beat instead —
+  // the same discipline the 3EL bot runtime applies.
+  if (R.slicing) return;
   if (!R.enabled || R.order.length === 0) return;
+  R.slicing = true;
+  try {
+    await scanSliceBody(R);
+  } finally {
+    R.slicing = false;
+  }
+}
+
+async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
   R.lastRun = Date.now();
 
   const lock = getTradeLock();
