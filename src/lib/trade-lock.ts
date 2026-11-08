@@ -142,6 +142,9 @@ export function maybeReleaseLock(
   // persistent execution lock: the trade closed — release it (dynamic import
   // avoids a circular module dependency)
   void import("./exec-lock").then((m) => m.releaseForTrade(lock.tradeDbId, `closed: ${result} ${pips.toFixed(1)} pips`)).catch(() => {});
+  // demo balance: book the closed PAPER trade (exactly once; the close path
+  // writes the row's result around this call, so give it a moment)
+  setTimeout(() => void import("./paper-account").then((m) => m.syncPaperBookings()).catch(() => {}), 1500);
   const now = Date.now();
   const how = result === "win" ? `take profit hit, plus ${pips.toFixed(1)} pips` : `stop loss hit, minus ${pips.toFixed(1)} pips`;
   publishBotEvent({

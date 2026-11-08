@@ -14,17 +14,24 @@ import {
   mapWith,
 } from "./types";
 
-const FAKE_BALANCE = 100000;
+/** persistent demo balance (lib/paper-account.ts). Lazy import: paper-account
+ *  imports execution, which imports this module graph. */
+async function currentBalance(): Promise<number> {
+  const { getPaperAccount } = await import("../paper-account");
+  return (await getPaperAccount()).balance;
+}
 
-function paperAccount(equity = FAKE_BALANCE): AccountInfo {
+async function paperAccount(equity?: number): Promise<AccountInfo> {
+  const balance = await currentBalance();
+  const eq = equity ?? balance;
   return {
     ok: true,
     id: "paper",
     currency: "USD",
-    balance: FAKE_BALANCE,
-    equity,
+    balance,
+    equity: eq,
     margin: 0,
-    freeMargin: equity,
+    freeMargin: eq,
     marginLevel: 0,
     leverage: 500,
     login: "HALO-EA",

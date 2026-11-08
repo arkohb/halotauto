@@ -169,6 +169,30 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
   const deg = data?.degraded ?? null;
   const lastAge = data ? Math.max(0, Math.round((Date.now() - data.updatedAt) / 1000)) : null;
 
+  // demo reset — persistent simulator balance back to its starting amount
+  // (paper mode only; a live broker's balance is the broker's)
+  const [resetting, setResetting] = useState(false);
+  const resetPaper = async () => {
+    if (live || resetting) return;
+    if (!window.confirm("Reset the demo account balance to $100,000? Closed-trade history stays.")) return;
+    setResetting(true);
+    try {
+      const r = await fetch("/api/brokers/live-account", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reset-paper" }),
+      });
+      const j = (await r.json()) as { ok: boolean; error?: string };
+      if (j.ok) notify?.("DEMO ACCOUNT RESET", "The simulator balance is back to its starting amount.");
+      else notify?.("Reset failed", j.error ?? "unknown error", true);
+      void load();
+    } catch (e) {
+      notify?.("Reset failed", (e as Error).message, true);
+    } finally {
+      setResetting(false);
+    }
+  };
+
   return (
     <section aria-label="Live MT5 mobile account" className="flex justify-center">
       {/* ══ phone frame ══ */}
@@ -265,8 +289,8 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
           />
         </div>
 
-        {/* tabs */}
-        <div className="grid grid-cols-2 border-b" style={{ borderColor: C.line, background: C.navy }}>
+        {/* tabs (paper mode gets the demo-balance reset on the right) */}
+        <div className={`grid border-b ${live ? "grid-cols-2" : "grid-cols-3"}`} style={{ borderColor: C.line, background: C.navy }}>
           {(["positions", "history"] as const).map((t) => {
             const active = tab === t;
             const count = t === "positions" ? positions.length : data?.history.length ?? 0;
@@ -285,6 +309,18 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
               </button>
             );
           })}
+          {!live && (
+            <button
+              type="button"
+              aria-label="Reset demo account balance"
+              onClick={() => void resetPaper()}
+              disabled={resetting}
+              className="relative py-2.5 text-[10px] font-black tracking-[0.18em] transition-colors disabled:opacity-50"
+              style={{ color: C.red }}
+            >
+              {resetting ? "RESETTING…" : "RESET DEMO"}
+            </button>
+          )}
         </div>
 
         {/* body */}

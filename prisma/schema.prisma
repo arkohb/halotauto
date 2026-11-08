@@ -35,7 +35,19 @@ model Trade {
   partialPips   Float? // Smart Trade Manager: signed pips banked by a partial close
   openedAt      DateTime
   closedAt      DateTime?
+  pnlBooked     Boolean   @default(false) // PAPER: realized P&L already applied to the demo balance (exactly-once guard)
   createdAt     DateTime  @default(now())
+}
+
+// Simulator (paper) account — persistent demo balance (id = "main").
+// Realized P&L from every closed PAPER trade is booked here exactly once,
+// so the demo balance carries the results of the trades taken.
+model PaperAccount {
+  id              String   @id @default("main")
+  balance         Float    @default(100000)
+  startingBalance Float    @default(100000)
+  currency        String   @default("USD")
+  updatedAt       DateTime @updatedAt
 }
 
 // Singleton bot config row (id = "main")

@@ -7,6 +7,7 @@ import { ensureBoot, getBot, closeOpenTrade } from "@/lib/bot";
 import { loadExecSettings } from "@/lib/execution";
 import { getSymbolMeta } from "@/lib/market-symbols";
 import { guardTrading } from "@/lib/api-guard";
+import { getPaperAccount, paperVolumeOf, resetPaperAccount, syncPaperBookings, PAPER_STARTING_BALANCE, PIP_VALUE_PER_LOT } from "@/lib/paper-account";
 
 export const dynamic = "force-dynamic";
 
@@ -93,8 +94,9 @@ interface Payload {
   updatedAt: number;
 }
 
-const PAPER_BALANCE = 100_000;
-const PIP_VALUE_PER_LOT = 10; // display convention for the simulator account
+// the demo balance is persistent (lib/paper-account.ts): every closed PAPER
+// trade books its realized P&L exactly once
+const PAPER_BALANCE = PAPER_STARTING_BALANCE; // fallback only, when the DB is unreachable
 
 // tiny server cache + in-flight dedupe (dashboard polls every ~2.5s)
 let cache: { at: number; data: Payload } | null = null;
@@ -113,7 +115,7 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
   });
 }
 
-function paperAccount(equity: number, margin: number): LiveAcct {
+function paperAccount(equity: number, margin: number, balance: number = PAPER_BALANCE): LiveAcct {
   return {
     login: "HALO-EA",
     broker: "HALO 3EL Simulator",
@@ -121,7 +123,7 @@ function paperAccount(equity: number, margin: number): LiveAcct {
     platform: "MT5",
     currency: "USD",
     leverage: 500,
-    balance: PAPER_BALANCE,
+    balance,
     equity,
     margin,
     freeMargin: Math.max(0, equity - margin),
@@ -156,6 +158,9 @@ async function buildPayload(): Promise<Payload> {
   const bot = getBot();
   const exec = await loadExecSettings();
   const snap = bot.engine.snapshot();
+  // only a BOOKED trade is an open position — a signal the engine replayed
+  // from history (traded === false, no trade row) is not money at risk
+  const booked = snap.trade && snap.trade.traded !== false && bot.openTradeDbId ? snap.trade : null;
   const meta = getSymbolMeta(bot.symbol);
 
   const activeRow = await db.brokerAccount
@@ -177,7 +182,7 @@ async function buildPayload(): Promise<Payload> {
     account: null,
     positions: [],
     orders: [],
-    eaOpen: Boolean(snap.trade) && bot.openTradeExec === "PAPER",
+    eaOpen: Boolean(booked) && bot.openTradeExec === "PAPER",
     history: [],
     updatedAt: Date.now(),
   };
@@ -196,8 +201,9 @@ async function buildPayload(): Promise<Payload> {
     if (!acct.ok) {
       // broker link down — fall back to the EA engine view, flag degraded
       base.degraded = (acct.error ?? "broker unreachable").slice(0, 200);
-      base.account = paperAccount(PAPER_BALANCE, 0);
-      base.eaOpen = Boolean(snap.trade);
+      const demo = await getPaperAccount();
+      base.account = paperAccount(demo.balance, 0, demo.balance);
+      base.eaOpen = Boolean(booked);
       base.history = await loadHistory();
       return base;
     }
@@ -268,20 +274,12 @@ async function buildPayload(): Promise<Payload> {
 
   // ── PAPER account (engine-synthesized, mirrors the EA in real time) ────
   const price = bot.lastPrice || 0;
-  const t = snap.trade;
+  const t = booked;
   const pip = (meta.mintick ?? 0.01) * ((bot.cfg.pipMult ?? 10) || 10);
 
-  const volume =
-    exec.sizingMode === "fixed"
-      ? Math.max(0.01, Math.round(exec.sizeFixed * 100) / 100)
-      : Math.max(
-          0.01,
-          Math.round(
-            ((PAPER_BALANCE * exec.sizePercent) / 100 /
-              Math.max(1, (t ? t.riskPips : 50) * PIP_VALUE_PER_LOT)) *
-              100
-          ) / 100
-        );
+  await syncPaperBookings(); // book any trade that closed since the last poll
+  const demoBalance = (await getPaperAccount()).balance;
+  const volume = paperVolumeOf(exec, t ? t.riskPips : 50, demoBalance);
 
   let floating = 0;
   const positions: LivePos[] = [];
@@ -315,7 +313,7 @@ async function buildPayload(): Promise<Payload> {
 
   base.kind = "paper";
   base.brokerLabel = "Paper EA";
-  base.account = paperAccount(Math.round((PAPER_BALANCE + floating) * 100) / 100, margin);
+  base.account = paperAccount(Math.round((demoBalance + floating) * 100) / 100, margin, demoBalance);
   base.positions = positions;
   base.eaOpen = positions.length > 0;
   base.history = await loadHistory();
@@ -372,10 +370,16 @@ export async function POST(req: Request) {
       sl?: number | null;
       tp?: number | null;
     };
-    if (!body.action || !["close", "close-all", "cancel-order", "modify"].includes(body.action)) {
+    if (!body.action || !["close", "close-all", "cancel-order", "modify", "reset-paper"].includes(body.action)) {
       return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });
     }
     cache = null; // force a fresh read after the mutation
+
+    // ── demo reset: simulator balance back to its starting amount ──
+    if (body.action === "reset-paper") {
+      const acct = await resetPaperAccount();
+      return NextResponse.json({ ok: true, paper: true, balance: acct.balance });
+    }
 
     // paper EA trade → finalize through the engine
     if (body.action === "close" && (!body.positionId || body.positionId.startsWith("ea-"))) {
