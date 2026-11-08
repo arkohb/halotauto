@@ -25,6 +25,7 @@
 // ══════════════════════════════════════════════════════════════════════════
 
 import { NextRequest, NextResponse } from "next/server";
+import { checkRate } from "@/lib/rate-limit";
 
 const SESSION_COOKIE = "halo_session";
 
@@ -116,6 +117,20 @@ export function proxy(req: NextRequest) {
   const hasSession = () => !!req.cookies.get(SESSION_COOKIE)?.value;
 
   if (pathname.startsWith("/api/")) {
+    // RATE LIMITS — one rule table for every API route (src/lib/rate-limit.ts)
+    const rate = checkRate({
+      pathname,
+      method: req.method,
+      session: req.cookies.get(SESSION_COOKIE)?.value ?? null,
+      ip: req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "local",
+      eaKey: req.headers.get("x-halo-ea-key"),
+    });
+    if (!rate.ok) {
+      return NextResponse.json(
+        { ok: false, error: `Too many requests (${rate.rule.label}). Try again in ${rate.retryAfterSec}s.`, code: "RATE_LIMITED", retryAfterSec: rate.retryAfterSec },
+        { status: 429, headers: { "Retry-After": String(rate.retryAfterSec) } },
+      );
+    }
     // CSRF backstop (on top of the SameSite=Lax session cookie): a browser
     // request that changes state must come from this site. Server-to-server
     // callers (payment + TradingView webhooks) send no Origin header.

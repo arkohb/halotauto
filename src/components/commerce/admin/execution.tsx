@@ -46,6 +46,10 @@ interface LockRes {
   uncertain: Intent[];
   recent: Intent[];
 }
+interface RateRes {
+  since: number;
+  rules: Array<{ id: string; label: string; keyBy: string; windows: Array<{ limit: number; ms: number }>; allowed: number; rejected: number; lastRejectedAt: number | null }>;
+}
 interface GuardRes {
   maxDeviationAtr: number | null;
   liveTradingAllowed: boolean;
@@ -62,9 +66,11 @@ export function AdminExecution({ isSuper }: { isSuper: boolean }) {
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [thr, setThr] = useState("");
+  const [rates, setRates] = useState<RateRes | null>(null);
 
   const load = useCallback(async () => {
-    const [l, g] = await Promise.all([api<LockRes>("/api/admin/execution-lock"), api<GuardRes>("/api/admin/price-guard")]);
+    const [l, g, rl] = await Promise.all([api<LockRes>("/api/admin/execution-lock"), api<GuardRes>("/api/admin/price-guard"), api<RateRes>("/api/admin/rate-limits")]);
+    if (rl.ok) setRates(rl);
     if (l.ok) setLock(l);
     else setNote({ text: l.error ?? "Could not load the execution lock.", bad: true });
     if (g.ok) {
@@ -275,6 +281,41 @@ export function AdminExecution({ isSuper }: { isSuper: boolean }) {
           </table>
         </TableWrap>
       </div>
+
+      {/* ── request limits ── */}
+      {rates && (
+        <div className="space-y-2">
+          <div className="text-[10px] font-extrabold tracking-[0.18em]" style={{ color: C.label }}>
+            REQUEST LIMITS · SINCE {when(new Date(rates.since).toISOString()).toUpperCase()}
+          </div>
+          <TableWrap maxH={420}>
+            <table className="w-full border-collapse">
+              <thead>
+                <tr>
+                  <Th>Area</Th>
+                  <Th>Limit</Th>
+                  <Th>Counted per</Th>
+                  <Th>Allowed</Th>
+                  <Th>Rejected</Th>
+                  <Th>Last rejected</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rates.rules.map((r) => (
+                  <tr key={r.id}>
+                    <Td>{r.label}</Td>
+                    <Td mono>{r.windows.map((w) => `${w.limit}/${w.ms >= 86_400_000 ? "day" : w.ms >= 600_000 ? `${w.ms / 60_000} min` : "min"}`).join(" · ")}</Td>
+                    <Td>{r.keyBy === "session" ? "signed-in session" : r.keyBy === "ea" ? "EA pairing key" : "IP address"}</Td>
+                    <Td mono>{r.allowed}</Td>
+                    <Td mono>{r.rejected ? <span style={{ color: C.red }}>{r.rejected}</span> : "0"}</Td>
+                    <Td>{r.lastRejectedAt ? when(new Date(r.lastRejectedAt).toISOString()) : "—"}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
+        </div>
+      )}
 
       <ConfirmDialog state={confirm} onClose={() => setConfirm(null)} />
     </div>
