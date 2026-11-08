@@ -9,7 +9,7 @@
 
 import { db } from "@/lib/db";
 import { botState } from "@/lib/bot";
-import { statusOf } from "@/lib/halo/ui-helpers";
+import { signedPips, statusOf } from "@/lib/halo/ui-helpers";
 import { getAdapter, isBrokerKind, parseCreds } from "@/lib/brokers";
 import { getSymbolMeta, SYMBOLS, TIMEFRAMES, decimalsOf } from "@/lib/market-symbols";
 
@@ -181,12 +181,12 @@ export async function buildSnapshot(): Promise<Snapshot> {
       take: 500,
     });
     for (const r of recent) {
-      const pips = r.resultPips ?? 0;
+      const pips = signedPips(r.status, r.resultPips); // sign from status (LOSS rows store a magnitude)
       if (r.openedAt >= monthStart) {
         snap.monthlyStats.trades += 1;
         if (r.status === "WIN") snap.monthlyStats.wins += 1;
         if (r.status === "LOSS") snap.monthlyStats.losses += 1;
-        if (r.status !== "OPEN") snap.monthlyStats.netPips += r.resultPips ?? 0;
+        if (r.status !== "OPEN") snap.monthlyStats.netPips += pips;
         else snap.monthlyStats.netPips += 0;
       }
       if (r.openedAt >= dayStart) {

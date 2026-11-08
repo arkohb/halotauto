@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { TrendingUp } from "lucide-react";
-import { A, C } from "@/lib/halo/ui-helpers";
+import { A, C, signedPips } from "@/lib/halo/ui-helpers";
 import { PanelCard, StateFrame, StatCell } from "./panel";
 
 interface TradeRow {
@@ -73,8 +73,9 @@ export function PerformanceIntel({ refreshKey }: { refreshKey: number }) {
 
     const wins = closed.filter((t) => t.status === "WIN");
     const losses = closed.filter((t) => t.status === "LOSS");
-    const grossWin = wins.reduce((s, t) => s + Math.max(0, t.resultPips ?? 0), 0);
-    const grossLoss = Math.abs(losses.reduce((s, t) => s + Math.min(0, t.resultPips ?? 0), 0));
+    // the sign comes from the status (most LOSS rows store a positive magnitude)
+    const grossWin = wins.reduce((s, t) => s + Math.max(0, signedPips(t.status, t.resultPips)), 0);
+    const grossLoss = Math.abs(losses.reduce((s, t) => s + Math.min(0, signedPips(t.status, t.resultPips)), 0));
     const net = grossWin - grossLoss;
     const wr = closed.length > 0 ? (wins.length * 100) / closed.length : null;
     const pf = grossLoss > 0 ? grossWin / grossLoss : null;
@@ -88,7 +89,7 @@ export function PerformanceIntel({ refreshKey }: { refreshKey: number }) {
     let peak = 0;
     let maxDd = 0;
     for (let i = 0; i < seq.length; i++) {
-      cum += seq[i].resultPips ?? 0;
+      cum += signedPips(seq[i].status, seq[i].resultPips);
       curve[i] = cum;
       times[i] = seq[i].closedAt ? new Date(seq[i].closedAt as string).getTime() : 0;
       peak = Math.max(peak, cum);
@@ -115,7 +116,7 @@ export function PerformanceIntel({ refreshKey }: { refreshKey: number }) {
       }
       row.trades += 1;
       if (t.status === "WIN") row.wins += 1;
-      row.pips += t.resultPips ?? 0;
+      row.pips += signedPips(t.status, t.resultPips);
     }
     const months = Array.from(monthMap.values())
       .map((r) => ({ ...r, wr: r.trades > 0 ? (r.wins * 100) / r.trades : 0 }))

@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from "react";
 import { Activity, Crosshair, Radar } from "lucide-react";
-import { A, C, decimalsOf, fmtPx, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, decimalsOf, fmtPips, fmtPx, signedPips, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
 import { PanelCard, Pill, StateFrame } from "./panel";
 
 /* ───────────────────────── latest signal ───────────────────────── */
@@ -217,7 +217,7 @@ export function RecentTrades({ onOpenHistory }: { onOpenHistory?: () => void }) 
                   className="ml-auto font-mono text-[10px] font-bold tabular-nums"
                   style={{ color: t.resultPips == null ? C.dim : win ? C.green : loss ? C.red : C.txt2 }}
                 >
-                  {t.resultPips == null ? "OPEN" : `${t.resultPips >= 0 ? "+" : "−"}${Math.abs(t.resultPips).toFixed(1)}p`}
+                  {t.resultPips == null ? "OPEN" : `${fmtPips(signedPips(t.status, t.resultPips))}p`}
                 </span>
                 <span className="w-[34px] shrink-0 text-right font-mono text-[8.5px]" style={{ color: C.dim }}>
                   {new Date(t.openedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}

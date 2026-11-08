@@ -589,7 +589,7 @@ export async function pineBookSummary(): Promise<{ wins: number; losses: number;
     });
     const wins = trades.filter((t) => t.status === "WIN").length;
     const losses = trades.filter((t) => t.status === "LOSS").length;
-    const netPips = trades.reduce((a, t) => a + (t.resultPips ?? 0), 0);
+    const netPips = trades.reduce((a, t) => a + (t.status === "WIN" ? 1 : -1) * Math.abs(t.resultPips ?? 0), 0); // sign from status
     return { wins, losses, netPips };
   } catch {
     return { wins: 0, losses: 0, netPips: 0 };

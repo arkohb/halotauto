@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { A, C, fmtPx } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPips, fmtPx, signedPips } from "@/lib/halo/ui-helpers";
 import { StateFrame } from "./panel";
 import type { HistoryPeriod } from "@/lib/halo/actions";
 
@@ -140,7 +140,7 @@ export function HistoryPanel({ mintick, refreshKey, filter = "all" }: Props) {
                   <td className="px-2 py-1.5 text-right font-mono" style={{ color: C.txt }}>{fmtPx(t.entry, mintick)}</td>
                   <td className="px-2 py-1.5 text-right font-mono" style={{ color: C.muted }}>1:{t.rewardPips > 0 && t.riskPips > 0 ? (t.rewardPips / t.riskPips).toFixed(1) : "—"}</td>
                   <td className="px-2 py-1.5 text-right font-mono font-bold" style={{ color: t.status === "WIN" ? C.green : t.status === "LOSS" ? C.red : C.muted }}>
-                    {t.resultPips === null ? "—" : `${t.resultPips >= 0 ? "+" : "−"}${Math.abs(t.resultPips).toFixed(1)}p`}
+                    {t.resultPips === null ? "—" : `${fmtPips(signedPips(t.status, t.resultPips))}p`}
                   </td>
                   <td className="px-3 py-1.5 text-right">
                     <span className="rounded px-1.5 py-0.5 text-[9px] font-bold" style={{ background: t.status === "WIN" ? A.green(0.15) : t.status === "LOSS" ? A.red(0.15) : "rgba(140,152,174,0.15)", color: t.status === "WIN" ? C.green : t.status === "LOSS" ? C.red : C.muted }}>

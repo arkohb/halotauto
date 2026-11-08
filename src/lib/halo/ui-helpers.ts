@@ -146,6 +146,14 @@ export function fmtPx(px: number, mintick: number): string {
   });
 }
 
+/** a trade's result in SIGNED pips. The book stores most LOSS rows as a
+ *  positive magnitude (and TV-closed rows signed), so the sign always comes
+ *  from the status — never from the raw number. */
+export function signedPips(status: string, resultPips: number | null | undefined): number {
+  const v = Math.abs(Number(resultPips ?? 0)) || 0;
+  return status === "WIN" ? v : status === "LOSS" ? -v : 0;
+}
+
 export function fmtPips(p: number): string {
   const s = p >= 0 ? "+" : "−";
   return `${s}${Math.abs(p).toFixed(1)}`;

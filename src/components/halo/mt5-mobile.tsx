@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { A, C } from "@/lib/halo/ui-helpers";
+import { A, C, signedPips } from "@/lib/halo/ui-helpers";
 
 interface LivePos {
   id: string;
@@ -323,7 +323,7 @@ export function Mt5MobileApp({ notify }: { notify?: (title: string, desc?: strin
             <ul className="space-y-1">
               {data.history.map((h) => {
                 const win = h.status === "WIN";
-                const pips = h.resultPips ?? 0;
+                const pips = signedPips(h.status, h.resultPips); // sign from status
                 return (
                   <li key={h.id} className="flex items-center justify-between rounded-lg px-2.5 py-2" style={{ background: C.navy }}>
                     <div className="flex min-w-0 items-center gap-2">
