@@ -184,6 +184,7 @@ export async function POST(req: Request) {
         );
       }
       try {
+        rt.knownLastBar = confirmed.length - 1;
         for (const c of confirmed) {
           // mirror the simulated position so position_size reads truth
           rt.externalPos = rt.simPos ? { dir: rt.simPos.dir, entry: rt.simPos.entry } : { dir: 0, entry: 0 };

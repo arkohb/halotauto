@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardLicensed } from "@/lib/api-guard";
 import { db } from "@/lib/db";
-import { PineRuntime, compilePine, type CompiledPine } from "@/lib/pine";
+import { PineRuntime, compilePine, exportDrawings, type CompiledPine } from "@/lib/pine";
 import { LIBRARY } from "@/lib/pine/library-sources";
 import { getKlines, getSymbolMeta, tfSec } from "@/lib/market";
 import { TIMEFRAMES } from "@/lib/market-symbols";
@@ -74,6 +74,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     const now = Date.now();
     const secMs = tfSec(tf) * 1000;
     const confirmed: Candle[] = [];
+    rt.knownLastBar = candles.filter((c) => c.time + secMs <= now).length - 1;
     for (const c of candles) {
       if (c.time + secMs <= now) {
         rt.externalPos = rt.simPos ? { dir: rt.simPos.dir, entry: rt.simPos.entry } : { dir: 0, entry: 0 };
@@ -172,6 +173,9 @@ export async function GET(req: NextRequest, ctx: Ctx) {
       },
       booleanSeries,
       notes: meta?.notes ?? [],
+      overlay: meta?.overlay ?? true,
+      // lines / boxes / labels / tables / fill / bgcolor — drawn on the chart canvas
+      drawings: exportDrawings(rt, confirmed.map((c) => c.time), confirmed.map((c) => c.high), confirmed.map((c) => c.low), secMs),
     });
   } catch (e) {
     const msg = (e as Error).message || "Preview failed.";

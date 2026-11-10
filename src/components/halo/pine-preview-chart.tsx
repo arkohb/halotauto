@@ -21,12 +21,15 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type ISeriesPrimitive,
   type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
 import { C } from "@/lib/halo/ui-helpers";
 import type { Candle } from "@/lib/halo/types";
+import type { PineDrawings } from "@/lib/pine/drawings";
+import { PineDrawOverlay } from "./lwc-pine";
 
 export interface PreviewPlot {
   key: string;
@@ -56,12 +59,17 @@ export function PinePreviewChart({
   plots,
   markers,
   hlines,
+  drawings,
+  overlay = true,
   height = 380,
 }: {
   candles: Candle[];
   plots: PreviewPlot[];
   markers: PreviewMarker[];
   hlines: PreviewHLine[];
+  /** the script's line/box/label/table/fill/bgcolor objects */
+  drawings?: PineDrawings;
+  overlay?: boolean;
   height?: number;
 }) {
   const elRef = useRef<HTMLDivElement | null>(null);
@@ -70,6 +78,7 @@ export function PinePreviewChart({
   const extraRef = useRef<Array<ISeriesApi<"Line"> | ISeriesApi<"Histogram">>>([]);
   const hlinesRef = useRef<Array<{ s: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | ISeriesApi<"Candlestick">; pl: IPriceLine }>>([]);
   const markersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
+  const drawRef = useRef<{ s: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | ISeriesApi<"Candlestick">; prim: PineDrawOverlay } | null>(null);
 
   useEffect(() => {
     const el = elRef.current;
@@ -99,6 +108,7 @@ export function PinePreviewChart({
       extraRef.current = [];
       hlinesRef.current = [];
       markersRef.current = null;
+      drawRef.current = null;
     };
   }, [height]);
 
@@ -127,6 +137,14 @@ export function PinePreviewChart({
       }
     }
     hlinesRef.current = [];
+    if (drawRef.current) {
+      try {
+        drawRef.current.s.detachPrimitive(drawRef.current.prim as unknown as ISeriesPrimitive<Time>);
+      } catch {
+        // series already removed
+      }
+      drawRef.current = null;
+    }
 
     // Pane placement — mirror the live chart: overlay=false scripts plot in
     // their own pane below the candles.
@@ -190,8 +208,17 @@ export function PinePreviewChart({
     }));
     if (!markersRef.current) markersRef.current = createSeriesMarkers(cs, []);
     markersRef.current.setMarkers(mk);
+    const drawTarget = overlay === false ? firstPaneSeries : cs;
+    if (drawings && drawTarget) {
+      const prim = new PineDrawOverlay();
+      prim.data = drawings;
+      prim.setPlots(plots);
+      prim.getBars = () => cs.data().map((b) => b.time as number);
+      drawTarget.attachPrimitive(prim as unknown as ISeriesPrimitive<Time>);
+      drawRef.current = { s: drawTarget, prim };
+    }
     chart.timeScale().fitContent();
-  }, [candles, plots, markers, hlines]);
+  }, [candles, plots, markers, hlines, drawings, overlay]);
 
   return <div ref={elRef} className="w-full" style={{ height }} />;
 }

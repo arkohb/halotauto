@@ -1,20 +1,17 @@
 // ════════════════════════════════════════════════════════════════════════
-//  HALO STRATEGY STUDIO · Pine Script v5 (subset) LEXER
-//  Tokenizer for the trader-authored Pine sources. Newlines and
-//  indentation are significant (Pine blocks are indentation-based); inside
-//  (…) / […] newlines are swallowed so wrapped call arguments just work.
+//  HALO STRATEGY STUDIO · Pine Script LEXER (v4 / v5 / v6)
+//  Tokenizer for trader-authored Pine sources, following TradingView's
+//  rules:
+//    • blocks are indentation based (4 spaces or a tab per level)
+//    • inside (…) / […] newlines are swallowed, so wrapped call arguments
+//      just work
+//    • LINE WRAPPING — a line indented by a number of spaces that is NOT a
+//      multiple of 4 continues the previous line (TradingView's rule); a
+//      line that follows one ending in a binary operator, "," "?" ":" or
+//      "=" is treated as a continuation too
 // ════════════════════════════════════════════════════════════════════════
 
-export type TokKind =
-  | "nl"
-  | "indent"
-  | "dedent"
-  | "num"
-  | "str"
-  | "color"
-  | "ident"
-  | "op"
-  | "eof";
+export type TokKind = "nl" | "indent" | "dedent" | "num" | "str" | "color" | "ident" | "op" | "eof";
 
 export interface Token {
   kind: TokKind;
@@ -34,42 +31,67 @@ export class PineSyntaxError extends Error {
 }
 
 const OPS = [
-  "===", "!==",
   "==", "!=", "<=", ">=", ":=", "+=", "-=", "*=", "/=", "%=", "=>",
   "+", "-", "*", "/", "%", "<", ">", "=", "?", ":", ".", ",", "[", "]", "(", ")", "{", "}",
 ];
 
 export const KEYWORDS = new Set([
-  "if", "else", "for", "to", "by", "while", "var", "varip", "and", "or", "not",
-  "true", "false", "na", "break", "continue", "switch",
+  "if", "else", "for", "to", "by", "in", "while", "var", "varip", "and", "or", "not",
+  "true", "false", "na", "break", "continue", "switch", "type", "enum", "method", "import", "export",
 ]);
+
+/** tokens after which the next physical line is a continuation */
+const CONT_OPS = new Set([
+  "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "?", ":", ",", "=", ":=", "+=", "-=", "*=", "/=", "%=",
+]);
+const CONT_WORDS = new Set(["and", "or", "not"]);
 
 const IDENT_START = /[A-Za-z_]/;
 const IDENT_CHAR = /[A-Za-z0-9_]/;
+const NUM_RE = /^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?/;
+
+function endsWithContinuation(toks: Token[]): boolean {
+  // last real token before the pending newline
+  for (let i = toks.length - 1; i >= 0; i--) {
+    const t = toks[i];
+    if (t.kind === "nl") continue;
+    if (t.kind === "op") return CONT_OPS.has(t.value);
+    if (t.kind === "ident") return CONT_WORDS.has(t.value);
+    return false;
+  }
+  return false;
+}
 
 export function tokenize(src: string): Token[] {
   const toks: Token[] = [];
   const lines = src.replace(/\r\n?/g, "\n").split("\n");
-  // indentation stack — Pine convention: blocks indent deeper than parent
   const indents: number[] = [0];
   let depth = 0; // () [] nesting — suppresses NL/INDENT while > 0
 
   for (let li = 0; li < lines.length; li++) {
-    const raw = lines[li];
+    const raw = lines[li].replace(/﻿/g, "");
     let i = 0;
     const lineNo = li + 1;
 
     if (depth === 0) {
-      // measure indentation
       let ind = 0;
-      while (i < raw.length && (raw[i] === " " || raw[i] === "\t")) {
-        ind += raw[i] === "\t" ? 4 : 1;
+      let spacesOnly = true;
+      while (i < raw.length && (raw[i] === " " || raw[i] === "\t" || raw[i] === " ")) {
+        if (raw[i] === "\t") { ind += 4; spacesOnly = false; } else ind += 1;
         i++;
       }
-      const rest = raw.slice(i);
-      // blank / comment-only lines never affect indentation
-      if (rest.trim() === "" || rest.trim().startsWith("//")) continue;
-      if (ind > indents[indents.length - 1]) {
+      const rest = raw.slice(i).trim();
+      if (rest === "" || rest.startsWith("//")) continue; // blank / comment lines never affect indentation
+
+      const prev = toks.length > 0 ? toks[toks.length - 1] : null;
+      const isContinuation =
+        prev !== null &&
+        prev.kind === "nl" &&
+        ind > 0 &&
+        ((spacesOnly && ind % 4 !== 0) || (endsWithContinuation(toks) && ind > indents[indents.length - 1] - 0 && !(rest.startsWith("=>"))));
+      if (isContinuation) {
+        toks.pop(); // join with the previous logical line
+      } else if (ind > indents[indents.length - 1]) {
         indents.push(ind);
         toks.push({ kind: "indent", value: " ".repeat(ind), line: lineNo, col: 1 });
       } else {
@@ -78,26 +100,24 @@ export function tokenize(src: string): Token[] {
           toks.push({ kind: "dedent", value: "", line: lineNo, col: 1 });
         }
         if (ind !== indents[indents.length - 1]) {
-          throw new PineSyntaxError(
-            "Inconsistent indentation — this line does not align with the block it belongs to.",
-            lineNo,
-            ind + 1
-          );
+          // tolerate a dedent that lands between two levels: snap to the
+          // enclosing level (TradingView would reject; we stay forgiving and
+          // let the parser judge the structure)
+          indents.push(ind);
+          toks.push({ kind: "indent", value: " ".repeat(ind), line: lineNo, col: 1 });
         }
       }
     }
 
     while (i < raw.length) {
       const c = raw[i];
-      // comment → end of line
-      if (c === "/" && raw[i + 1] === "/") break;
-      if (c === " " || c === "\t") {
+      if (c === "/" && raw[i + 1] === "/") break; // comment → end of line
+      if (c === " " || c === "\t" || c === " ") {
         i++;
         continue;
       }
       const col = i + 1;
 
-      // string literal (single or double quotes)
       if (c === '"' || c === "'") {
         const quote = c;
         let j = i + 1;
@@ -118,7 +138,6 @@ export function tokenize(src: string): Token[] {
         continue;
       }
 
-      // hex color literal #RGB[A] / #RRGGBB[AA]
       if (c === "#") {
         const m = /^#[0-9a-fA-F]{3,8}/.exec(raw.slice(i));
         if (!m) throw new PineSyntaxError("Invalid color literal after '#'.", lineNo, col);
@@ -127,25 +146,24 @@ export function tokenize(src: string): Token[] {
         continue;
       }
 
-      // number (int / float / exponent)
       if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(raw[i + 1] ?? ""))) {
-        const m = /^[0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?/.exec(raw.slice(i))!;
-        toks.push({ kind: "num", value: m[0], line: lineNo, col });
-        i += m[0].length;
+        const m = NUM_RE.exec(raw.slice(i))!;
+        let lit = m[0];
+        // "1.method" never happens in Pine, but "arr[1].x" etc. must not eat the dot
+        if (lit.endsWith(".") && IDENT_START.test(raw[i + lit.length] ?? "")) lit = lit.slice(0, -1);
+        toks.push({ kind: "num", value: lit, line: lineNo, col });
+        i += lit.length;
         continue;
       }
 
-      // identifier / keyword / namespace
       if (IDENT_START.test(c)) {
         let j = i + 1;
         while (j < raw.length && IDENT_CHAR.test(raw[j])) j++;
-        const word = raw.slice(i, j);
-        toks.push({ kind: "ident", value: word, line: lineNo, col });
+        toks.push({ kind: "ident", value: raw.slice(i, j), line: lineNo, col });
         i = j;
         continue;
       }
 
-      // operators
       const op = OPS.find((o) => raw.startsWith(o, i));
       if (op) {
         if (op === "(" || op === "[" || op === "{") depth++;
@@ -160,11 +178,16 @@ export function tokenize(src: string): Token[] {
 
     if (depth === 0) toks.push({ kind: "nl", value: "\\n", line: lineNo, col: raw.length + 1 });
   }
-  // close trailing open blocks
   while (indents.length > 1) {
     indents.pop();
     toks.push({ kind: "dedent", value: "", line: lines.length, col: 1 });
   }
   toks.push({ kind: "eof", value: "", line: lines.length + 1, col: 1 });
   return toks;
+}
+
+/** `//@version=N` (defaults to 5 when absent, like a fresh TradingView editor) */
+export function pineVersion(src: string): number {
+  const m = /\/\/\s*@version\s*=\s*(\d+)/.exec(src);
+  return m ? Number(m[1]) : 5;
 }

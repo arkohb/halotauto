@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PanelCard, Pill, StateFrame } from "@/components/halo/panel";
+import type { PineDrawings } from "@/lib/pine/drawings";
 import { PinePreviewChart, type PreviewHLine, type PreviewMarker, type PreviewPlot } from "@/components/halo/pine-preview-chart";
 import { A, C, fmtPx, fmtPips } from "@/lib/halo/ui-helpers";
 import { BT_TIMEFRAMES, SYMBOLS, SYMBOL_GROUPS } from "@/lib/market-symbols";
@@ -196,7 +197,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
   const [pv, setPv] = useState<
     | { state: "loading" }
     | { state: "error"; error: string }
-    | { state: "ok"; name: string; plots: PreviewPlot[]; markers: PreviewMarker[]; hlines: PreviewHLine[]; source: string; bars: number; candles: { time: number; open: number; high: number; low: number; close: number }[] }
+    | { state: "ok"; name: string; plots: PreviewPlot[]; markers: PreviewMarker[]; hlines: PreviewHLine[]; drawings?: PineDrawings; overlay?: boolean; source: string; bars: number; candles: { time: number; open: number; high: number; low: number; close: number }[] }
     | null
   >(null);
   useEffect(() => {
@@ -219,6 +220,8 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           plots?: PreviewPlot[];
           markers?: PreviewMarker[];
           hlines?: PreviewHLine[];
+          drawings?: PineDrawings;
+          overlay?: boolean;
         };
         if (stale) return;
         if (!j.ok) {
@@ -236,6 +239,8 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           plots: j.plots ?? [],
           markers: j.markers ?? [],
           hlines: j.hlines ?? [],
+          drawings: j.drawings,
+          overlay: j.overlay,
           source: j.source ?? "",
           bars: j.bars ?? 0,
           candles: cj.candles ?? [],
@@ -543,7 +548,7 @@ export function BacktestPanel({ symbol, tf, config }: Props) {
           )}
           {pv?.state === "ok" && pv.candles.length > 0 && (
             <div className="p-2">
-              <PinePreviewChart candles={pv.candles} plots={pv.plots} markers={pv.markers} hlines={pv.hlines} height={340} />
+              <PinePreviewChart candles={pv.candles} plots={pv.plots} markers={pv.markers} hlines={pv.hlines} drawings={pv.drawings} overlay={pv.overlay} height={340} />
               <div className="px-1 pt-2 text-[10px]" style={{ color: C.muted }}>
                 {pv.name} · last {pv.bars} confirmed bars · feed: <span style={{ color: C.cyan }}>{pv.source || "live"}</span> · arrows are the indicator's own signals
               </div>

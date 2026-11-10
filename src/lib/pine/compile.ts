@@ -1,15 +1,20 @@
 // ════════════════════════════════════════════════════════════════════════
-//  HALO STRATEGY STUDIO · Pine Script v5 (subset) COMPILER
-//  Parse + honest static validation + metadata extraction. Every script a
-//  trader pastes either compiles cleanly (with a list of what it detected)
-//  or fails with the exact line/col and a human explanation — never a
-//  silent wrong result.
+//  HALO STRATEGY STUDIO · Pine Script COMPILER (v4 / v5 / v6)
+//  Parse + static validation + metadata extraction + a short dry run on
+//  synthetic candles. Names are validated against the SAME tables the
+//  runtime dispatches on, so a script that compiles is a script that runs.
+//  Every script either compiles cleanly (with notes on what is accepted but
+//  not drawn on the HALO chart) or fails with the exact line/col and a
+//  human explanation — the same way TradingView's editor reports errors.
 // ════════════════════════════════════════════════════════════════════════
 
-import { parsePine, type Arg, type Bin, type Call, type Expr, type Program, type Stmt } from "./parser";
+import { parsePine, type Arg, type Bin, type Expr, type Program, type Stmt } from "./parser";
 import { PineSyntaxError } from "./lexer";
-import { PineError } from "./runtime";
+import { PineError } from "./values";
 import { MAX_PINE_CHARS, MAX_PINE_LINES, pineLimitMessage } from "./limits";
+import { FUNC_NAMES, VAR_NAMES, V4_ALIASES, CAST_FUNCS, isConstantPath } from "./builtins";
+import { TA_SIGS, TA_VARS } from "./ta";
+import { PineRuntime } from "./runtime";
 
 export interface PineDiagnostic {
   line: number;
@@ -63,8 +68,9 @@ export interface CompiledPine {
   hasExitSLTP: boolean;
   hasClose: boolean;
   signalCandidates: string[];
-  notes: string[]; // honest notes about tolerated-but-not-rendered features
+  notes: string[]; // honest notes about accepted-but-not-rendered features
   diagnostics: PineDiagnostic[];
+  version?: number;
 }
 
 export interface CompileResult {
@@ -72,95 +78,49 @@ export interface CompileResult {
   error: PineDiagnostic | null; // fatal parse error (compile stopped)
 }
 
-// ── supported-function tables (kept in sync with runtime.ts) ─────────────
-const TA_FUNCS = new Set([
-  "sma", "ema", "wma", "rma", "vwma", "hma", "rsi", "macd", "atr", "tr", "stdev", "dev",
-  "variance", "bb", "bbw", "stoch", "highest", "lowest", "change", "mom", "roc",
-  "crossover", "crossunder", "cross", "cum", "vwap", "wpr", "cci", "mfi", "obv",
-  "linreg", "supertrend", "sar", "pivothigh", "pivotlow", "valuewhen", "barssince",
-  "rising", "falling", "median", "percentrank", "sum",
-]);
-const MATH_FUNCS = new Set([
-  "abs", "sqrt", "exp", "log", "log10", "sign", "floor", "ceil", "round", "pow",
-  "max", "min", "avg", "sum", "todegrees", "toradians", "round_to_mintick", "pi",
-]);
-const STR_FUNCS = new Set([
-  "tostring", "tonumber", "length", "contains", "startswith", "endswith", "lower",
-  "upper", "trim", "substring", "replace", "repeat", "split",
-]);
-const ARR_FUNCS = new Set([
-  "new_int", "new_float", "new_bool", "new_string", "new_color", "new_line", "new_label",
-  "new_box", "new_array", "from", "size", "get", "set", "push", "pop", "shift", "unshift",
-  "insert", "remove", "clear", "first", "last", "includes", "indexof", "lastindexof",
-  "reverse", "slice", "copy", "join", "sort", "min", "max", "sum", "avg",
-]);
-const INPUT_FUNCS = new Set([
-  "int", "float", "bool", "string", "color", "source", "time", "session", "price", "timeframe",
-]);
-const STRATEGY_FUNCS = new Set([
-  "entry", "exit", "close", "close_all", "cancel", "cancel_all", "opentrades", "closedtrades",
-  "position_size", "position_avg_price", "long", "short",
-]);
-const GLOBAL_FUNCS = new Set([
-  "na", "nz", "fixnan", "plot", "plotshape", "plotchar", "plotarrow", "hline", "bgcolor",
-  "barcolor", "fill", "alert", "alertcondition", "indicator", "strategy", "max_bars_back",
-  "time", "year", "month", "dayofmonth", "hour", "minute", "dayofweek", "timestamp",
-]);
-const BUILTIN_VARS = new Set([
-  "open", "high", "low", "close", "volume", "time", "time_close", "hl2", "hlc3", "ohlc4",
-  "bar_index", "last_bar_index", "na", "true", "false",
-]);
-const CONST_NS = new Set([
-  "color", "plot", "shape", "location", "size", "alert", "extend", "line", "label",
-  "format", "display", "xloc", "yloc", "scale", "currency", "adjustment", "barstate",
-  "math", "text",
-]);
-const BANNED_NS = new Set(["request", "ticker", "finance", "security", "earnings", "dividends", "splits", "quandl", "financial"]);
-
 const SIGNAL_NAME_RE = /(long|short|buy|sell|bull|bear|signal|entry|exit)/i;
+const NOTE_DRAW = "Drawing objects (line/label/box) run for script logic but are NOT rendered on the HALO chart.";
+const NOTE_TABLE = "Tables, bgcolor, barcolor and fill run normally but are not drawn on the HALO chart.";
 
 class Ctx {
-  decls: string[] = [];
-  funcs: string[] = [];
   diagnostics: PineDiagnostic[] = [];
-  meta: CompiledPine;
   notes: string[] = [];
+  meta: CompiledPine;
+  funcs = new Set<string>();
+  methods = new Set<string>();
+  types = new Set<string>();
+  enums = new Map<string, Set<string>>();
+  imports = new Map<string, string>();
+  globals = new Set<string>();
+  version = 5;
   constructor(kind: "indicator" | "strategy") {
     this.meta = {
-      ok: false,
-      kind,
-      name: "",
-      overlay: kind === "strategy",
-      processOrdersOnClose: false,
-      pyramiding: 0,
-      inputs: [],
-      plots: [],
-      shapes: [],
-      hlines: [],
-      entryIds: [],
-      hasLong: false,
-      hasShort: false,
-      hasExitSLTP: false,
-      hasClose: false,
-      signalCandidates: [],
-      notes: [],
-      diagnostics: [],
+      ok: false, kind, name: "", overlay: kind === "strategy", processOrdersOnClose: false, pyramiding: 0,
+      inputs: [], plots: [], shapes: [], hlines: [], entryIds: [], hasLong: false, hasShort: false,
+      hasExitSLTP: false, hasClose: false, signalCandidates: [], notes: [], diagnostics: [],
     };
   }
   err(msg: string, line: number, col: number): void {
-    this.diagnostics.push({ line, col, msg });
+    if (this.diagnostics.length < 50) this.diagnostics.push({ line, col, msg });
   }
-  hasErrors(): boolean {
-    return this.diagnostics.length > 0;
+  note(n: string): void {
+    if (!this.notes.includes(n)) this.notes.push(n);
   }
 }
 
 function memberPath(e: Expr): string {
   if (e.k === "ident") return e.name;
-  if (e.k === "member") return `${memberPath(e.obj)}.${e.name}`;
+  if (e.k === "member") {
+    const p = memberPath(e.obj);
+    return p ? `${p}.${e.name}` : "";
+  }
   return "";
 }
-
+function rootName(e: Expr): string | null {
+  let x = e;
+  while (x.k === "member") x = x.obj;
+  return x.k === "ident" ? x.name : null;
+}
 function litStr(a: Arg | undefined): string | undefined {
   return a && a.e.k === "str" ? a.e.v : undefined;
 }
@@ -174,16 +134,11 @@ function litBool(a: Arg | undefined): boolean | undefined {
 /** rough static type inference for manual-signal candidates */
 function inferBool(e: Expr, boolVars: Set<string>): boolean {
   switch (e.k) {
-    case "bool":
-      return true;
-    case "na":
-      return false;
-    case "unary":
-      return e.op === "not" || inferBool(e.e, boolVars);
-    case "ternary":
-      return inferBool(e.a, boolVars) && inferBool(e.b, boolVars);
+    case "bool": return true;
+    case "na": return false;
+    case "unary": return e.op === "not" || inferBool(e.e, boolVars);
+    case "ternary": return inferBool(e.a, boolVars) && inferBool(e.b, boolVars);
     case "bin": {
-      // long or-chains (very large scripts) walk ITERATIVELY — no stack risk
       switch (e.op) {
         case "==": case "!=": case "<": case "<=": case ">": case ">=":
           return true;
@@ -197,9 +152,7 @@ function inferBool(e: Expr, boolVars: Set<string>): boolean {
             cur = (cur as Bin).l;
           }
           if (inferBool(cur, boolVars)) return true;
-          for (let i = spine.length - 1; i >= 0; i--) {
-            if (inferBool(spine[i], boolVars)) return true;
-          }
+          for (let i = spine.length - 1; i >= 0; i--) if (inferBool(spine[i], boolVars)) return true;
           return false;
         }
         default:
@@ -208,13 +161,17 @@ function inferBool(e: Expr, boolVars: Set<string>): boolean {
     }
     case "call": {
       const p = memberPath(e.callee);
-      return /^(ta\.)?(crossover|crossunder|cross|rising|falling)$/.test(p);
+      return /^(ta\.)?(crossover|crossunder|cross|rising|falling)$/.test(p) || p === "na" || /^str\.(contains|startswith|endswith)$/.test(p) || p === "timeframe.change";
     }
-    case "ident":
-      return boolVars.has(e.name);
-    default:
-      return false;
+    case "hist": return inferBool(e.e, boolVars);
+    case "ident": return boolVars.has(e.name);
+    default: return false;
   }
+}
+
+const V3_VARS = new Set(["n", "tickerid", "ticker", "period", "interval", "isintraday", "isdwm", "isdaily", "isweekly", "ismonthly"]);
+function isKnownVarPath(p: string, version: number): boolean {
+  return VAR_NAMES.has(p) || isConstantPath(p, version) || (version <= 3 && V3_VARS.has(p));
 }
 
 export function compilePine(srcRaw: string): CompileResult {
@@ -223,58 +180,67 @@ export function compilePine(srcRaw: string): CompileResult {
   const ctx = new Ctx(declGuess);
 
   if (src.trim().length === 0) {
-    return { meta: ctx.meta, error: { line: 1, col: 1, msg: "The script is empty — paste a Pine v5 indicator() or strategy() script." } };
+    return { meta: ctx.meta, error: { line: 1, col: 1, msg: "The script is empty — paste a Pine indicator() or strategy() script." } };
   }
-  if (src.length > MAX_PINE_CHARS || src.replace(/\r\n?/g, "\n").split("\n").length > MAX_PINE_LINES) {
-    return {
-      meta: ctx.meta,
-      error: {
-        line: 1,
-        col: 1,
-        msg: pineLimitMessage(src.length, src.replace(/\r\n?/g, "\n").split("\n").length),
-      },
-    };
+  const lineCount = src.replace(/\r\n?/g, "\n").split("\n").length;
+  if (src.length > MAX_PINE_CHARS || lineCount > MAX_PINE_LINES) {
+    return { meta: ctx.meta, error: { line: 1, col: 1, msg: pineLimitMessage(src.length, lineCount) } };
   }
 
   let program: Program;
   try {
     program = parsePine(src);
   } catch (e) {
-    if (e instanceof PineError) {
-      return { meta: ctx.meta, error: { line: e.line, col: e.col, msg: e.message } };
-    }
-    if (e instanceof PineSyntaxError) {
+    if (e instanceof PineError || e instanceof PineSyntaxError) {
       return { meta: ctx.meta, error: { line: e.line, col: e.col, msg: e.message } };
     }
     return { meta: ctx.meta, error: { line: 0, col: 0, msg: `Parse failed: ${(e as Error).message}` } };
   }
+  ctx.version = program.version;
+  ctx.meta.version = program.version;
 
   // declaration metadata
   if (!program.decl) {
     ctx.err("Missing the script declaration — start the script with indicator(\"…\") or strategy(\"…\").", 1, 1);
   } else {
-    ctx.meta.name = litStr(program.decl.args[0]) ?? "Untitled";
-    const overlayArg = program.decl.args.find((a) => a.name === "overlay");
-    const ov = litBool(overlayArg);
-    ctx.meta.overlay = ov ?? (ctx.meta.kind === "strategy");
-    ctx.meta.processOrdersOnClose = litBool(program.decl.args.find((a) => a.name === "process_orders_on_close")) ?? false;
-    ctx.meta.pyramiding = litNum(program.decl.args.find((a) => a.name === "pyramiding")) ?? 0;
-    if (program.decl.args.some((a) => a.name === "calc_on_every_tick" && litBool(a) === true)) {
-      ctx.notes.push("calc_on_every_tick=true is ignored — the HALO runtime evaluates confirmed bars only (Pine bar-close standard).");
-    }
+    const d = program.decl;
+    const named = (n: string) => d.args.find((a) => a.name === n);
+    ctx.meta.name = litStr(named("title")) ?? litStr(d.args.find((a) => !a.name)) ?? "Untitled";
+    const ov = litBool(named("overlay")) ?? litBool(d.args.filter((a) => !a.name)[2]);
+    ctx.meta.overlay = ov ?? ctx.meta.kind === "strategy";
+    ctx.meta.processOrdersOnClose = litBool(named("process_orders_on_close")) ?? false;
+    ctx.meta.pyramiding = litNum(named("pyramiding")) ?? 0;
+    if (litBool(named("calc_on_every_tick")) === true) ctx.note("calc_on_every_tick=true is ignored — the HALO runtime evaluates confirmed bars only (Pine bar-close standard).");
+    if (program.declKind === "library") ctx.note("This is a library script — it compiles, but libraries produce no plots or trades on their own.");
   }
 
-  const boolVars = new Set<string>();
-  walkBody(program.body, ctx, new Set(ctx.decls), boolVars, false);
-  ctx.meta.notes = ctx.notes;
-
-  if (!ctx.hasErrors()) {
-    ctx.meta.ok = true;
-    // refine kind: strategy only if it actually places orders
-    if (ctx.meta.kind === "indicator" && (ctx.meta.entryIds.length > 0 || ctx.meta.hasClose)) {
-      ctx.meta.kind = "strategy";
+  // hoisted names (functions, methods, types, enums, imports, top-level variables)
+  const collectGlobals = (body: Stmt[]) => {
+    for (const st of body) {
+      if (st.k === "func") (st.isMethod ? ctx.methods : ctx.funcs).add(st.name);
+      else if (st.k === "typeDecl") ctx.types.add(st.name);
+      else if (st.k === "enumDecl") ctx.enums.set(st.name, new Set(st.fields.map((f) => f.name)));
+      else if (st.k === "import") ctx.imports.set(st.alias, st.path);
+      else if (st.k === "varDecl") ctx.globals.add(st.name);
+      else if (st.k === "tuple" && st.isDecl) st.names.forEach((n) => ctx.globals.add(n));
     }
-    // signal candidates: boolean globals, signal-like names first
+  };
+  collectGlobals(program.body);
+
+  const boolVars = new Set<string>();
+  walkBody(program.body, ctx, new Set<string>(), boolVars, false);
+
+  if (ctx.diagnostics.length === 0) {
+    // short dry run on synthetic candles — catches runtime faults before the
+    // trader attaches the script (time-boxed; never blocks a heavy script)
+    const dry = dryRun(src);
+    if (dry) ctx.err(dry.msg, dry.line, dry.col);
+  }
+
+  ctx.meta.notes = ctx.notes;
+  if (ctx.diagnostics.length === 0) {
+    ctx.meta.ok = true;
+    if (ctx.meta.kind === "indicator" && (ctx.meta.entryIds.length > 0 || ctx.meta.hasClose)) ctx.meta.kind = "strategy";
     const scored = [...boolVars].sort((a, b) => {
       const am = SIGNAL_NAME_RE.test(a) ? 0 : 1;
       const bm = SIGNAL_NAME_RE.test(b) ? 0 : 1;
@@ -286,323 +252,302 @@ export function compilePine(srcRaw: string): CompileResult {
   return { meta: ctx.meta, error: null };
 }
 
+// ── dry run ──────────────────────────────────────────────────────────────
+function synth(n: number): { time: number; open: number; high: number; low: number; close: number; volume: number }[] {
+  let s = 1234567;
+  const r = () => ((s = (Math.imul(s, 1103515245) + 12345) >>> 0) / 4294967296);
+  const out: { time: number; open: number; high: number; low: number; close: number; volume: number }[] = [];
+  let px = 2000;
+  const t0 = Date.UTC(2026, 0, 5, 0, 0, 0);
+  for (let i = 0; i < n; i++) {
+    const o = px;
+    const c = px + Math.sin(i / 9) * 2 + (r() - 0.5) * 4;
+    const h = Math.max(o, c) + r() * 2;
+    const l = Math.min(o, c) - r() * 2;
+    out.push({ time: t0 + i * 300000, open: o, high: h, low: l, close: c, volume: 500 + r() * 1000 });
+    px = c;
+  }
+  return out;
+}
+function dryRun(src: string): PineDiagnostic | null {
+  const started = Date.now();
+  try {
+    const rt = new PineRuntime(src, { mintick: 0.01, ticker: "XAUUSD", tf: "5m", pipMult: 10 });
+    rt.budgetMs = 1500;
+    const bars = synth(320);
+    rt.knownLastBar = bars.length - 1; // exercise `if barstate.islast` branches too
+    for (const c of bars) {
+      rt.processBar(c);
+      if (Date.now() - started > 900) break;
+    }
+  } catch (e) {
+    if (e instanceof PineError) {
+      if (/^runtime\.error/.test(e.message) || /budget/.test(e.message)) return null;
+      return { line: e.line, col: e.col, msg: e.message };
+    }
+    const pe = e as { message?: string; line?: number; col?: number };
+    if (pe && typeof pe.line === "number") return { line: pe.line, col: pe.col ?? 0, msg: pe.message ?? "Runtime error" };
+    return { line: 0, col: 0, msg: `Runtime check failed: ${(e as Error)?.message ?? e}` };
+  }
+  return null;
+}
+
 // ── static walker ────────────────────────────────────────────────────────
 function walkBody(body: Stmt[], ctx: Ctx, scope: Set<string>, boolVars: Set<string>, inFunc: boolean): void {
   for (const st of body) walkStmt(st, ctx, scope, boolVars, inFunc);
 }
 
+function inScope(name: string, ctx: Ctx, scope: Set<string>): boolean {
+  return scope.has(name) || ctx.globals.has(name);
+}
+
 function walkStmt(st: Stmt, ctx: Ctx, scope: Set<string>, boolVars: Set<string>, inFunc: boolean): void {
   switch (st.k) {
     case "varDecl": {
-      walkExpr(st.init, ctx, scope, boolVars, inFunc, st.line, st.col);
-      // input extraction
+      walkExpr(st.init, ctx, scope, boolVars);
       const init: Expr = st.init;
       if (init.k === "call") {
         const p = memberPath(init.callee);
-        const m = /^input\.(\w+)$/.exec(p);
-        if (m && INPUT_FUNCS.has(m[1])) {
+        const m = /^input(?:\.(\w+))?$/.exec(p);
+        if (m) {
+          const kind0 = m[1] ?? "input";
           const named = (nm: string) => init.args.find((a) => a.name === nm);
-          const defvalArg = init.args[0];
+          const posArgs = init.args.filter((a) => !a.name);
+          const defArg = named("defval") ?? posArgs[0];
           const defval =
-            defvalArg?.e.k === "num" ? defvalArg.e.v
-            : defvalArg?.e.k === "bool" ? defvalArg.e.v
-            : defvalArg?.e.k === "str" ? defvalArg.e.v
-            : defvalArg?.e.k === "color" ? defvalArg.e.v
+            defArg?.e.k === "num" ? defArg.e.v
+            : defArg?.e.k === "bool" ? defArg.e.v
+            : defArg?.e.k === "str" ? defArg.e.v
+            : defArg?.e.k === "color" ? defArg.e.v
+            : defArg?.e.k === "ident" ? defArg.e.name
             : 0;
-          const kind = m[1] === "source" ? "source" : m[1];
-          if (["int", "float", "bool", "string", "color", "source"].includes(kind)) {
+          let kind = kind0;
+          if (kind === "input") kind = typeof defval === "boolean" ? "bool" : typeof defval === "string" ? (defArg?.e.k === "ident" ? "source" : "string") : "float";
+          if (["int", "float", "bool", "string", "color", "source", "timeframe", "session", "symbol", "price", "time", "text_area", "enum"].includes(kind)) {
+            const opt = named("options");
             ctx.meta.inputs.push({
               id: st.name,
               kind,
-              title: litStr(named("title")) ?? litStr(init.args[1]) ?? st.name,
+              title: litStr(named("title")) ?? litStr(posArgs[1]) ?? st.name,
               defval: defval as number | boolean | string,
-              minval: litNum(named("minval")) ?? litNum(init.args[2]),
-              maxval: litNum(named("maxval")) ?? litNum(init.args[3]),
+              minval: litNum(named("minval")) ?? (kind === "int" || kind === "float" ? litNum(posArgs[2]) : undefined),
+              maxval: litNum(named("maxval")) ?? (kind === "int" || kind === "float" ? litNum(posArgs[3]) : undefined),
               step: litNum(named("step")),
-              options: named("options") && named("options")!.e.k === "call" ? undefined : undefined,
+              options: opt && opt.e.k === "arrlit" ? opt.e.items.map((x) => (x.k === "num" ? x.v : x.k === "str" ? x.v : "")) : undefined,
               group: litStr(named("group")),
             });
           }
         }
       }
       if (!inFunc) {
-        // global declarations: track bool-ness in declaration order
-        if (inferBool(st.init, boolVars)) boolVars.add(st.name);
+        if (inferBool(st.init, boolVars) || st.type === "bool") boolVars.add(st.name);
         else boolVars.delete(st.name);
       }
       scope.add(st.name);
       break;
     }
     case "reassign":
-      walkExpr(st.e, ctx, scope, boolVars, inFunc, st.line, st.col);
-      if (!scope.has(st.name) && !BUILTIN_VARS.has(st.name)) {
-        ctx.err(`"${st.name}" is assigned with := before being declared. Declare it first (e.g. name = value).`, st.line, st.col);
+      walkExpr(st.e, ctx, scope, boolVars);
+      if (st.target.k === "member") {
+        walkExpr(st.target.obj, ctx, scope, boolVars);
+      } else if (!inScope(st.name, ctx, scope)) {
+        ctx.err(`"${st.name}" is assigned with := before being declared. Declare it first (e.g. ${st.name} = value).`, st.line, st.col);
       }
       break;
     case "tuple": {
-      walkExpr(st.init, ctx, scope, boolVars, inFunc, st.line, st.col);
-      // ta.supertrend destructure: [st, dir] — the direction is a signal candidate
-      if (st.init.k === "call" && memberPath(st.init.callee) === "ta.supertrend" && st.names.length === 2) {
-        boolVars.add(st.names[1]);
-      }
+      walkExpr(st.init, ctx, scope, boolVars);
+      if (st.init.k === "call" && memberPath(st.init.callee) === "ta.supertrend" && st.names.length === 2) boolVars.add(st.names[1]);
       for (const nm of st.names) {
         if (st.isDecl) scope.add(nm);
-        else if (!scope.has(nm)) ctx.err(`"${nm}" is assigned before being declared.`, st.line, st.col);
+        else if (!inScope(nm, ctx, scope)) ctx.err(`"${nm}" is assigned before being declared.`, st.line, st.col);
       }
       break;
     }
     case "if":
       for (const br of st.branches) {
-        if (br.cond) walkExpr(br.cond, ctx, scope, boolVars, inFunc, br.cond.line, br.cond.col);
+        if (br.cond) walkExpr(br.cond, ctx, scope, boolVars);
         walkBody(br.body, ctx, new Set(scope), boolVars, inFunc);
       }
       break;
     case "for": {
-      walkExpr(st.from, ctx, scope, boolVars, inFunc, st.from.line, st.from.col);
-      walkExpr(st.to, ctx, scope, boolVars, inFunc, st.to.line, st.to.col);
-      if (st.step) walkExpr(st.step, ctx, scope, boolVars, inFunc, st.step.line, st.step.col);
+      walkExpr(st.from, ctx, scope, boolVars);
+      walkExpr(st.to, ctx, scope, boolVars);
+      if (st.step) walkExpr(st.step, ctx, scope, boolVars);
       walkBody(st.body, ctx, new Set([...scope, st.varName]), boolVars, inFunc);
       break;
     }
+    case "forin": {
+      walkExpr(st.iter, ctx, scope, boolVars);
+      const s2 = new Set([...scope, st.itemName]);
+      if (st.idxName) s2.add(st.idxName);
+      walkBody(st.body, ctx, s2, boolVars, inFunc);
+      break;
+    }
     case "while":
-      walkExpr(st.cond, ctx, scope, boolVars, inFunc, st.cond.line, st.cond.col);
+      walkExpr(st.cond, ctx, scope, boolVars);
       walkBody(st.body, ctx, new Set(scope), boolVars, inFunc);
       break;
     case "func": {
-      walkFunc(st.params, st.body, ctx, scope, boolVars);
-      ctx.funcs.push(st.name);
-      scope.add(st.name);
+      const fs = new Set<string>();
+      for (const p of st.params) {
+        if (p.def) walkExpr(p.def, ctx, scope, boolVars);
+        fs.add(p.name);
+      }
+      walkBody(st.body, ctx, fs, boolVars, true);
       break;
     }
+    case "typeDecl":
+      for (const f of st.fields) if (f.def) walkExpr(f.def, ctx, scope, boolVars);
+      break;
     case "expr":
-      walkExpr(st.e, ctx, scope, boolVars, inFunc, st.e.line, st.e.col);
+      walkExpr(st.e, ctx, scope, boolVars);
       break;
     default:
       break;
   }
 }
 
-function walkFunc(params: string[], body: Stmt[], ctx: Ctx, outerScope: Set<string>, boolVars: Set<string>): void {
-  // Pine: function bodies may reference globals declared BEFORE the function
-  walkBody(body, ctx, new Set([...outerScope, ...params]), boolVars, true);
-}
-
-function walkExpr(
-  e: Expr,
-  ctx: Ctx,
-  scope: Set<string>,
-  boolVars: Set<string>,
-  inFunc: boolean,
-  line: number,
-  col: number
-): void {
+function walkExpr(e: Expr, ctx: Ctx, scope: Set<string>, boolVars: Set<string>): void {
   switch (e.k) {
     case "ident": {
-      if (scope.has(e.name) || BUILTIN_VARS.has(e.name) || ctx.funcs.includes(e.name)) return;
-      const p = e.name;
-      if (p.includes(".")) {
-        const ns = p.slice(0, p.indexOf("."));
-        if (BANNED_NS.has(ns)) {
-          ctx.err(`${ns}.* (external data requests) is not supported — the HALO compiler works offline on the chart feed.`, e.line, e.col);
-          return;
-        }
-        if (ns === "ta" || ns === "strategy") {
-          // used as a value (e.g. strategy.position_size)
-          const member = p.slice(ns.length + 1);
-          if (ns === "ta") {
-            ctx.err(`ta.${member} must be called as a function, e.g. ta.${member}(close, 14).`, e.line, e.col);
-          } else if (!STRATEGY_FUNCS.has(member)) {
-            ctx.err(`strategy.${member} is not supported.`, e.line, e.col);
-          }
-          return;
-        }
-        if (CONST_NS.has(ns)) {
-          const member = p.slice(ns.length + 1);
-          if (ns === "math" && !MATH_FUNCS.has(member)) {
-            ctx.err(`math.${member} is not supported.`, e.line, e.col);
-          }
-          return;
-        }
-        ctx.err(`"${p}" is not available in the HALO Pine runtime.`, e.line, e.col);
+      const n = e.name;
+      if (inScope(n, ctx, scope) || isKnownVarPath(n, ctx.version)) return;
+      if (ctx.funcs.has(n) || FUNC_NAMES.has(n)) {
+        ctx.err(`"${n}" is a function — call it with parentheses, e.g. ${n}(…).`, e.line, e.col);
         return;
       }
-      ctx.err(`Unknown identifier "${e.name}" — declare it before use, or check the spelling.`, e.line, e.col);
+      if (ctx.types.has(n) || ctx.enums.has(n)) return;
+      ctx.err(`Undeclared identifier "${n}" — declare it before use, or check the spelling.`, e.line, e.col);
       return;
     }
     case "unary":
-      walkExpr(e.e, ctx, scope, boolVars, inFunc, line, col);
+      walkExpr(e.e, ctx, scope, boolVars);
       return;
     case "bin": {
-      // left-spine iterative walk — a 10,000-term and/or condition (common in
-      // very large scripts) must not recurse one frame per term
       const spine: Expr[] = [];
       let cur: Expr = e;
       while (cur.k === "bin") {
         spine.push((cur as Bin).r);
         cur = (cur as Bin).l;
       }
-      walkExpr(cur, ctx, scope, boolVars, inFunc, line, col);
-      for (let i = spine.length - 1; i >= 0; i--) {
-        walkExpr(spine[i], ctx, scope, boolVars, inFunc, line, col);
-      }
+      walkExpr(cur, ctx, scope, boolVars);
+      for (let i = spine.length - 1; i >= 0; i--) walkExpr(spine[i], ctx, scope, boolVars);
       return;
     }
     case "ternary":
-      walkExpr(e.c, ctx, scope, boolVars, inFunc, line, col);
-      walkExpr(e.a, ctx, scope, boolVars, inFunc, line, col);
-      walkExpr(e.b, ctx, scope, boolVars, inFunc, line, col);
+      walkExpr(e.c, ctx, scope, boolVars);
+      walkExpr(e.a, ctx, scope, boolVars);
+      walkExpr(e.b, ctx, scope, boolVars);
       return;
     case "ifexpr":
       for (const br of e.branches) {
-        if (br.cond) walkExpr(br.cond, ctx, scope, boolVars, inFunc, line, col);
-        walkBody(br.body, ctx, new Set(scope), boolVars, inFunc);
+        if (br.cond) walkExpr(br.cond, ctx, scope, boolVars);
+        walkBody(br.body, ctx, new Set(scope), boolVars, true);
       }
       return;
+    case "switch":
+      if (e.subject) walkExpr(e.subject, ctx, scope, boolVars);
+      for (const cs of e.cases) {
+        if (cs.cond) walkExpr(cs.cond, ctx, scope, boolVars);
+        walkBody(cs.body, ctx, new Set(scope), boolVars, true);
+      }
+      return;
+    case "loopexpr":
+      walkStmt(e.stmt, ctx, scope, boolVars, true);
+      return;
     case "hist":
-      walkExpr(e.e, ctx, scope, boolVars, inFunc, line, col);
-      walkExpr(e.n, ctx, scope, boolVars, inFunc, line, col);
+      walkExpr(e.e, ctx, scope, boolVars);
+      walkExpr(e.n, ctx, scope, boolVars);
       return;
     case "arrlit":
-      for (const it of e.items) walkExpr(it, ctx, scope, boolVars, inFunc, line, col);
+      for (const it of e.items) walkExpr(it, ctx, scope, boolVars);
       return;
     case "member": {
-      // namespace chains (strategy.long, color.red, ta.ema as a call target…)
-      // resolve statically — only walk into real expressions (method-style)
-      const isChain = e.obj.k === "ident" || e.obj.k === "member";
-      if (!isChain) {
-        walkExpr(e.obj, ctx, scope, boolVars, inFunc, line, col);
+      const root = rootName(e);
+      const isChain = root !== null && (e.obj.k === "ident" || e.obj.k === "member");
+      if (!isChain || inScope(root!, ctx, scope)) {
+        walkExpr(e.obj, ctx, scope, boolVars);
         return;
       }
       const p = memberPath(e);
-      if (!p.includes(".")) return;
-      const ns = p.slice(0, p.indexOf("."));
-      const member = p.slice(ns.length + 1);
-      if (BANNED_NS.has(ns)) {
-        ctx.err(`${ns}.* (external data requests) is not supported — the HALO compiler works offline on the chart feed.`, e.line, e.col);
+      const en = ctx.enums.get(root!);
+      if (en) {
+        if (e.obj.k === "ident" && !en.has(e.name)) ctx.err(`Enum ${root} has no field "${e.name}".`, e.line, e.col);
         return;
       }
-      if (ns === "ta") {
-        ctx.err(`ta.${member} must be called as a function, e.g. ta.${member}(close, 14).`, e.line, e.col);
+      if (ctx.imports.has(root!)) {
+        ctx.err(`"${p}" comes from the imported library "${ctx.imports.get(root!)}". The HALO compiler cannot download TradingView libraries — paste the library's functions into the script.`, e.line, e.col);
         return;
       }
-      if (ns === "strategy") {
-        if (!STRATEGY_FUNCS.has(member)) ctx.err(`strategy.${member} is not supported.`, e.line, e.col);
+      if (isKnownVarPath(p, ctx.version)) return;
+      if (root === "ta") {
+        const m = p.slice(3);
+        if (TA_SIGS[m] && !TA_VARS.includes(m)) ctx.err(`ta.${m} must be called as a function, e.g. ta.${m}(close, 14).`, e.line, e.col);
+        else ctx.err(`"${p}" is not a TradingView variable.`, e.line, e.col);
         return;
       }
-      if (ns === "math" && !MATH_FUNCS.has(member)) {
-        ctx.err(`math.${member} is not supported.`, e.line, e.col);
+      if (root === "color") {
+        ctx.err(`"${p}" is not a TradingView color — use color.red, color.new(…), color.rgb(…) or a #hex literal.`, e.line, e.col);
         return;
       }
-      if (!CONST_NS.has(ns) && ns !== "barstate" && ns !== "syminfo" && ns !== "timeframe") {
-        ctx.err(`"${p}" is not available in the HALO Pine runtime.`, e.line, e.col);
+      if (FUNC_NAMES.has(p)) {
+        ctx.err(`"${p}" is a function — call it with parentheses.`, e.line, e.col);
+        return;
       }
+      ctx.err(`"${p}" is not available in the HALO Pine runtime.`, e.line, e.col);
       return;
     }
     case "call": {
-      const p = memberPath(e.callee);
-      if (e.callee.k === "member" && e.callee.obj.k !== "ident") {
-        // method-style: obj.f(...)
-        walkExpr(e.callee.obj, ctx, scope, boolVars, inFunc, line, col);
-        walkArgs(e.args, ctx, scope, boolVars, inFunc);
-        return;
-      }
-      const ns = p.includes(".") ? p.slice(0, p.indexOf(".")) : "";
-      const fn = p.includes(".") ? p.slice(p.indexOf(".") + 1) : p;
-      if (BANNED_NS.has(ns)) {
-        ctx.err(`${ns}.${fn} (external data requests) is not supported — the HALO compiler works offline on the chart feed.`, e.line, e.col);
-        return;
-      }
-      if (ns === "ta") {
-        if (!TA_FUNCS.has(fn)) {
-          ctx.err(`ta.${fn} is not supported yet.`, e.line, e.col);
-        }
-      } else if (ns === "math") {
-        if (!MATH_FUNCS.has(fn)) ctx.err(`math.${fn} is not supported.`, e.line, e.col);
-      } else if (ns === "str") {
-        if (!STR_FUNCS.has(fn)) ctx.err(`str.${fn} is not supported.`, e.line, e.col);
-      } else if (ns === "array") {
-        if (!ARR_FUNCS.has(fn)) ctx.err(`array.${fn} is not supported.`, e.line, e.col);
-      } else if (ns === "input") {
-        if (!INPUT_FUNCS.has(fn)) ctx.err(`input.${fn} is not supported.`, e.line, e.col);
-      } else if (ns === "strategy") {
-        if (!STRATEGY_FUNCS.has(fn)) {
-          ctx.err(`strategy.${fn} is not supported.`, e.line, e.col);
-        } else if (fn === "entry") {
-          const idArg = e.args[0];
-          if (idArg && idArg.e.k === "str") ctx.meta.entryIds.push(idArg.e.v);
-          const dirArg = e.args[1];
-          if (dirArg) {
-            // direction may be direct (strategy.long) or conditional
-            // (fireDir == -1 ? strategy.short : strategy.long) — scan the subtree
-            const scan = (x: Expr): void => {
-              if (x.k === "member") {
-                const dp = memberPath(x);
-                if (dp === "strategy.long") ctx.meta.hasLong = true;
-                if (dp === "strategy.short") ctx.meta.hasShort = true;
-              }
-              if (x.k === "ternary") { scan(x.a); scan(x.b); }
-              if (x.k === "bin") { scan(x.l); scan(x.r); }
-              if (x.k === "unary") scan(x.e);
-            };
-            scan(dirArg.e);
-            if (dirArg.e.k === "num" && dirArg.e.v === 1) ctx.meta.hasLong = true;
-            if (dirArg.e.k === "num" && dirArg.e.v === -1) ctx.meta.hasShort = true;
-          }
-        } else if (fn === "exit") {
-          if (e.args.some((a) => (a.name === "stop" || a.name === "limit"))) ctx.meta.hasExitSLTP = true;
-        } else if (fn === "close" || fn === "close_all") {
-          ctx.meta.hasClose = true;
-        }
-      } else if (ns === "color" || ns === "timeframe" || ns === "line" || ns === "label" || ns === "box") {
-        if (ns === "line" || ns === "label" || ns === "box") {
-          if (!ctx.notes.includes("Drawing objects (line/label/box) run for script logic but are NOT rendered on the HALO chart."))
-            ctx.notes.push("Drawing objects (line/label/box) run for script logic but are NOT rendered on the HALO chart.");
-        }
-      } else if (ns === "barstate" || ns === "syminfo") {
-        ctx.err(`${ns}.${fn} is a value, not a function — drop the parentheses.`, e.line, e.col);
-        return;
-      } else if (ns !== "") {
-        ctx.err(`"${p}()" is not available in the HALO Pine runtime.`, e.line, e.col);
-        return;
-      } else {
-        // global function
-        if (!ctx.funcs.includes(fn) && !GLOBAL_FUNCS.has(fn)) {
-          ctx.err(`Unknown function "${fn}()" — declare it above its first use, or check the supported list.`, e.line, e.col);
+      const callee = e.callee;
+      // report call errors at the START of the function name (like TradingView)
+      let head: Expr = callee;
+      while (head.k === "member") head = head.obj;
+      const at = { line: head.line, col: head.col };
+      e = { ...e, line: at.line, col: at.col };
+      if (callee.k === "ident") {
+        const fn = callee.name;
+        if (!(ctx.funcs.has(fn) || FUNC_NAMES.has(fn) || CAST_FUNCS.has(fn) || V4_ALIASES[fn] !== undefined)) {
+          if (inScope(fn, ctx, scope)) ctx.err(`"${fn}" is a variable, not a function.`, e.line, e.col);
+          else ctx.err(`Could not find function "${fn}()" — declare it, or check the spelling.`, e.line, e.col);
           return;
         }
-        if (fn === "plot") {
-          const title = litStr(e.args.find((a) => a.name === "title")) ?? litStr(e.args[1]) ?? `Plot ${ctx.meta.plots.length + 1}`;
-          const style = e.args.find((a) => a.name === "style");
-          ctx.meta.plots.push({
-            key: `plot${ctx.meta.plots.length}`,
-            title,
-            style: style && style.e.k === "member" ? style.e.name.replace(/^style_/, "") : "line",
-            color: e.args.find((a) => a.name === "color" && (a.e.k === "color" || a.e.k === "str" || a.e.k === "member" && memberPath(a.e).startsWith("color.")))
-              ? undefined : undefined,
-            lineWidth: litNum(e.args.find((a) => a.name === "linewidth")),
-          });
-        } else if (fn === "plotshape" || fn === "plotchar") {
-          const title = litStr(e.args.find((a) => a.name === "title")) ?? litStr(e.args[1]) ?? `${fn} ${ctx.meta.shapes.length + 1}`;
-          const styleArg = e.args.find((a) => a.name === "style");
-          ctx.meta.shapes.push({
-            key: `shape${ctx.meta.shapes.length}`,
-            title,
-            style: styleArg && styleArg.e.k === "member" ? styleArg.e.name.replace(/^shape_/, "") : fn === "plotchar" ? "circle" : "triangleup",
-            color: undefined,
-            location: "abovebar",
-            text: litStr(e.args.find((a) => a.name === "text")) ?? "",
-          });
-        } else if (fn === "hline") {
-          const price = litNum(e.args[0]);
-          if (price !== undefined) {
-            ctx.meta.hlines.push({
-              price,
-              title: litStr(e.args.find((a) => a.name === "title")) ?? litStr(e.args[1]) ?? "",
-            });
-          }
-        }
+        if (!ctx.funcs.has(fn)) extractCallMeta(fn, e, ctx);
+        else if (fn !== "security") void 0;
+        if (fn === "security" || V4_ALIASES[fn] === "request.security") securityNotes(e, ctx);
+        walkArgs(e.args, ctx, scope, boolVars);
+        return;
       }
-      walkArgs(e.args, ctx, scope, boolVars, inFunc);
+      if (callee.k === "member") {
+        const root = rootName(callee);
+        const isChain = root !== null && (callee.obj.k === "ident" || callee.obj.k === "member");
+        if (!isChain || inScope(root!, ctx, scope)) {
+          // method call on a value
+          walkExpr(callee.obj, ctx, scope, boolVars);
+          walkArgs(e.args, ctx, scope, boolVars);
+          return;
+        }
+        const p = memberPath(callee);
+        const objPath = memberPath(callee.obj);
+        if (ctx.types.has(objPath) && (callee.name === "new" || callee.name === "copy")) {
+          walkArgs(e.args, ctx, scope, boolVars);
+          return;
+        }
+        if (ctx.imports.has(root!)) {
+          ctx.err(`"${p}()" comes from the imported library "${ctx.imports.get(root!)}". The HALO compiler cannot download TradingView libraries — paste the library's functions into the script.`, e.line, e.col);
+          return;
+        }
+        if (!FUNC_NAMES.has(p)) {
+          if (root === "ta") ctx.err(`ta.${p.slice(3)} is not a TradingView function.`, e.line, e.col);
+          else if (isKnownVarPath(p, ctx.version)) ctx.err(`${p} is a value, not a function — drop the parentheses.`, e.line, e.col);
+          else ctx.err(`Could not find function "${p}()" — it is not a TradingView built-in (or not available in the HALO runtime).`, e.line, e.col);
+          return;
+        }
+        extractCallMeta(p, e, ctx);
+        walkArgs(e.args, ctx, scope, boolVars);
+        return;
+      }
+      walkExpr(callee, ctx, scope, boolVars);
+      walkArgs(e.args, ctx, scope, boolVars);
       return;
     }
     default:
@@ -610,8 +555,77 @@ function walkExpr(
   }
 }
 
-function walkArgs(args: Arg[], ctx: Ctx, scope: Set<string>, boolVars: Set<string>, inFunc: boolean): void {
-  for (const a of args) {
-    walkExpr(a.e, ctx, scope, boolVars, inFunc, a.e.line, a.e.col);
+function walkArgs(args: Arg[], ctx: Ctx, scope: Set<string>, boolVars: Set<string>): void {
+  for (const a of args) walkExpr(a.e, ctx, scope, boolVars);
+}
+
+function securityNotes(e: { args: Arg[] }, ctx: Ctx): void {
+  const posArgs = e.args.filter((a) => !a.name);
+  const sym = e.args.find((a) => a.name === "symbol") ?? posArgs[0];
+  if (sym) {
+    const p = memberPath(sym.e);
+    const isChart = p === "syminfo.tickerid" || p === "syminfo.ticker" || (sym.e.k === "str" && sym.e.v === "");
+    if (!isChart) ctx.note("request.security() on another symbol reads the chart symbol's data — HALO's feed carries one symbol per chart.");
+  }
+  ctx.note("request.security() on a higher timeframe runs the script on candles built from the chart feed (TradingView's non-repainting behaviour); lower timeframes use the chart timeframe.");
+}
+
+function extractCallMeta(fnRaw: string, e: { args: Arg[]; line: number; col: number }, ctx: Ctx): void {
+  const fn = V4_ALIASES[fnRaw] && !FUNC_NAMES.has(fnRaw) ? V4_ALIASES[fnRaw] : fnRaw;
+  const named = (n: string) => e.args.find((a) => a.name === n);
+  const posArgs = e.args.filter((a) => !a.name);
+  if (fn === "request.security") securityNotes(e, ctx);
+  else if (/^request\.(financial|quandl|economic|dividends|earnings|splits|seed)$/.test(fn)) ctx.note(`${fn}() needs TradingView's external data and returns na on HALO.`);
+  else if (fn === "strategy.entry" || fn === "strategy.order") {
+    const idArg = named("id") ?? posArgs[0];
+    if (idArg && idArg.e.k === "str") ctx.meta.entryIds.push(idArg.e.v);
+    const dirArg = named("direction") ?? posArgs[1];
+    if (dirArg) {
+      const scan = (x: Expr): void => {
+        if (x.k === "member") {
+          const dp = memberPath(x);
+          if (dp === "strategy.long") ctx.meta.hasLong = true;
+          if (dp === "strategy.short") ctx.meta.hasShort = true;
+        }
+        if (x.k === "bool") { if (x.v) ctx.meta.hasLong = true; else ctx.meta.hasShort = true; }
+        if (x.k === "ternary") { scan(x.a); scan(x.b); }
+        if (x.k === "bin") { scan(x.l); scan(x.r); }
+        if (x.k === "unary") scan(x.e);
+        if (x.k === "num") { if (x.v === 1) ctx.meta.hasLong = true; if (x.v === -1) ctx.meta.hasShort = true; }
+      };
+      scan(dirArg.e);
+    }
+  } else if (fn === "strategy.exit") {
+    if (e.args.some((a) => a.name === "stop" || a.name === "limit" || a.name === "profit" || a.name === "loss") || posArgs.length >= 6) ctx.meta.hasExitSLTP = true;
+    if (e.args.some((a) => a.name?.startsWith("trail_"))) ctx.note("strategy.exit trailing stops (trail_*) are accepted; the HALO simulator applies the fixed stop/limit only.");
+  } else if (fn === "strategy.close" || fn === "strategy.close_all") {
+    ctx.meta.hasClose = true;
+  } else if (/^(line|label|box|polyline|linefill)\./.test(fn)) {
+    ctx.note(NOTE_DRAW);
+  } else if (/^table\./.test(fn) || fn === "bgcolor" || fn === "barcolor" || fn === "fill") {
+    ctx.note(NOTE_TABLE);
+  } else if (fn === "plot") {
+    const title = litStr(named("title")) ?? litStr(posArgs[1]) ?? `Plot ${ctx.meta.plots.length + 1}`;
+    const style = named("style") ?? posArgs[4];
+    ctx.meta.plots.push({
+      key: `plot${ctx.meta.plots.length}`,
+      title,
+      style: style && style.e.k === "member" ? style.e.name.replace(/^style_/, "") : "line",
+      lineWidth: litNum(named("linewidth")),
+    });
+  } else if (fn === "plotshape" || fn === "plotchar" || fn === "plotarrow") {
+    const title = litStr(named("title")) ?? litStr(posArgs[1]) ?? `${fn} ${ctx.meta.shapes.length + 1}`;
+    const styleArg = named("style") ?? (fn === "plotshape" ? posArgs[2] : undefined);
+    const locArg = named("location") ?? (fn !== "plotarrow" ? posArgs[3] : undefined);
+    ctx.meta.shapes.push({
+      key: `shape${ctx.meta.shapes.length}`,
+      title,
+      style: styleArg && styleArg.e.k === "member" ? styleArg.e.name.replace(/^shape_/, "") : fn === "plotchar" ? "circle" : fn === "plotarrow" ? "arrow" : "xcross",
+      location: locArg && locArg.e.k === "member" ? locArg.e.name : "abovebar",
+      text: litStr(named("text")) ?? "",
+    });
+  } else if (fn === "hline") {
+    const price = litNum(named("price") ?? posArgs[0]);
+    if (price !== undefined) ctx.meta.hlines.push({ price, title: litStr(named("title")) ?? litStr(posArgs[1]) ?? "" });
   }
 }

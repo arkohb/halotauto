@@ -148,7 +148,7 @@ console.log("\n═══ ⑥ honest errors ═══");
 const b1 = compilePine(BAD_UNKNOWN);
 ok(!b1.meta.ok && b1.meta.diagnostics.some((d) => /ta\.doesnotexist/.test(d.msg)), "unknown ta function → clear error", JSON.stringify(b1.meta.diagnostics.slice(0, 1)));
 const b2 = compilePine(BAD_REQUEST);
-ok(!b2.meta.ok && b2.meta.diagnostics.some((d) => /not supported/.test(d.msg)), "request.security rejected", JSON.stringify(b2.meta.diagnostics.slice(0, 1)));
+ok(b2.meta.ok && b2.meta.notes.some((n) => /request\.security/.test(n)), "request.security compiles (higher-timeframe context)", JSON.stringify(b2.meta.diagnostics.slice(0, 1)));
 const b3 = compilePine(BAD_UNDECLARED);
 ok(!b3.meta.ok && b3.meta.diagnostics.some((d) => /before being declared/.test(d.msg)), ":= before declaration rejected", JSON.stringify(b3.meta.diagnostics.slice(0, 1)));
 const b4 = compilePine("indicator(\"x\")\nx = ");

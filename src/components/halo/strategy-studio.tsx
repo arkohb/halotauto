@@ -65,6 +65,8 @@ interface PreviewRes {
   stats?: { trades: number; closed: number; wins: number; losses: number; winRate: number | null; netPips: number };
   booleanSeries?: string[];
   notes?: string[];
+  drawings?: import("@/lib/pine/drawings").PineDrawings;
+  overlay?: boolean;
 }
 
 // ── starter templates (real, compile-ready Pine v5) ──────────────────────
@@ -228,6 +230,32 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
     srcRef.current?.focus();
   }, []);
 
+  // ── preview over real history ─────────────────────────────────────────
+  const runPreview = useCallback(
+    async (id: string) => {
+      setBusy("preview");
+      try {
+        const r = await fetch(`/api/strategies/${id}/preview?symbol=${state.symbol}&tf=${state.tf}&limit=400`, { cache: "no-store" });
+        const j = (await r.json()) as PreviewRes & { candles?: { time: number; open: number; high: number; low: number; close: number }[] };
+        if (j.ok) {
+          setPreview(j);
+          // the preview endpoint doesn't return raw candles — pull them for the chart
+          const cr = await fetch(`/api/market/candles?symbol=${state.symbol}&tf=${state.tf}&limit=400`, { cache: "no-store" });
+          const cj = (await cr.json()) as { candles?: { time: number; open: number; high: number; low: number; close: number }[] };
+          setPreviewCandles(cj.candles ?? []);
+        } else {
+          setPreview(j);
+          notify("Preview failed", j.error, true);
+        }
+      } catch (e) {
+        notify("Preview failed", (e as Error).message, true);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [state.symbol, state.tf, notify]
+  );
+
   // ── save + compile ────────────────────────────────────────────────────
   const save = useCallback(async () => {
     setBusy("save");
@@ -259,33 +287,8 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
     } finally {
       setBusy(null);
     }
-  }, [editingId, editor, risk, sigMap, notify, loadList]);
+  }, [editingId, editor, risk, sigMap, notify, loadList, runPreview]);
 
-  // ── preview over real history ─────────────────────────────────────────
-  const runPreview = useCallback(
-    async (id: string) => {
-      setBusy("preview");
-      try {
-        const r = await fetch(`/api/strategies/${id}/preview?symbol=${state.symbol}&tf=${state.tf}&limit=400`, { cache: "no-store" });
-        const j = (await r.json()) as PreviewRes & { candles?: { time: number; open: number; high: number; low: number; close: number }[] };
-        if (j.ok) {
-          setPreview(j);
-          // the preview endpoint doesn't return raw candles — pull them for the chart
-          const cr = await fetch(`/api/market/candles?symbol=${state.symbol}&tf=${state.tf}&limit=400`, { cache: "no-store" });
-          const cj = (await cr.json()) as { candles?: { time: number; open: number; high: number; low: number; close: number }[] };
-          setPreviewCandles(cj.candles ?? []);
-        } else {
-          setPreview(j);
-          notify("Preview failed", j.error, true);
-        }
-      } catch (e) {
-        notify("Preview failed", (e as Error).message, true);
-      } finally {
-        setBusy(null);
-      }
-    },
-    [state.symbol, state.tf, notify]
-  );
 
   // ── activation ────────────────────────────────────────────────────────
   const activate = useCallback(
@@ -379,7 +382,7 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
         className="col-span-full"
         icon={Braces}
         title="STRATEGY STUDIO"
-        sub="Paste your Pine Script v5 → HALO compiles it into a real indicator on the chart and auto-trades its signals — same execution path, same risk controls as the built-in engine."
+        sub="Paste any TradingView Pine Script (v4, v5 or v6) → HALO compiles it into a real indicator on the chart and auto-trades its signals — same execution path, same risk controls as the built-in engine."
         right={
           selected ? (
             <Pill tone={selected.kind === "pine" ? "live" : "info"} pulse={selected.kind === "pine"}>
@@ -795,7 +798,7 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
 
           {preview?.ok && (
             <>
-              <PinePreviewChart candles={previewCandles} plots={preview.plots ?? []} markers={preview.markers ?? []} hlines={preview.hlines ?? []} height={340} />
+              <PinePreviewChart candles={previewCandles} plots={preview.plots ?? []} markers={preview.markers ?? []} hlines={preview.hlines ?? []} drawings={preview.drawings} overlay={preview.overlay} height={340} />
               <div className="mt-2 flex flex-wrap items-center gap-2 text-[9px]" style={{ color: C.muted }}>
                 <span>
                   {preview.bars} confirmed bars · feed: <span style={{ color: C.cyan }}>{preview.source}</span>

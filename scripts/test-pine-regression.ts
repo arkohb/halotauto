@@ -134,7 +134,10 @@ if ta.crossunder(delta, 0)
     // find the decl box whose series matches close shifted by exactly 1 bar
     let matched: string | null = null;
     let badVal: number | null | undefined;
-    for (const [k, box] of rt.declBoxes) {
+    for (const [k0, b0] of rt.rootCx.st) {
+      const box = b0 as { at?: (bar: number) => unknown };
+      if (!box || typeof box.at !== "function") continue;
+      const k = String(k0);
       const got = box.at(last);
       if (typeof got === "number" && Math.abs(got - candles[last - 1].close) < 1e-9) {
         matched = k;
