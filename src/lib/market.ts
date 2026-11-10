@@ -1,13 +1,13 @@
 // ════════════════════════════════════════════════════════════════════════
 //  MARKET DATA · multi-source candle fetcher with simulator fallback
-//  FOREX/METALS/INDICES: your broker via the HALO Bridge EA (when online)
-//                → OANDA practice (when configured) → Yahoo Finance → simulator
+//  FOREX/METALS/INDICES: Exness ONLY (HALO Bridge EA / Exness API); a feed
+//                outage keeps serving the cached Exness bars
+//  SYNTHETICS  : Deriv public feed → simulator
 //  CRYPTO      : Binance → Bybit → OKX → Coinbase → built-in simulator
 // ════════════════════════════════════════════════════════════════════════
 
 import { Candle } from "./halo/types";
 import { decimalsOf, getSymbolMeta, isSimOnlyGroup, simStyleOf, tfSec, YAHOO_INDEX_MAP, type SymbolMeta } from "./market-symbols";
-import { fetchOandaCandles, oandaConfig, oandaInstrument } from "./oanda-feed";
 import { brokerCandles, brokerFeedCovers } from "./exness-feed";
 import { fetchDerivCandles } from "./deriv-feed";
 
@@ -118,141 +118,20 @@ export function yahooTicker(sym: string): string {
   return g === "CRYPTO" ? sym : `${sym}=X`;
 }
 
-interface YahooChart {
-  chart?: {
-    result?: Array<{
-      timestamp?: number[];
-      indicators?: {
-        quote?: Array<{
-          open?: (number | null)[];
-          high?: (number | null)[];
-          low?: (number | null)[];
-          close?: (number | null)[];
-          volume?: (number | null)[];
-        }>;
-      };
-    }>;
-    error?: { description?: string } | null;
-  };
-}
-
-/** aggregate n consecutive base bars into one (3m→1m×3, 2h→30m×4, 4h→1h×4) */
-function aggregate(src: Candle[], mult: number): Candle[] {
-  if (mult <= 1) return src;
-  const out: Candle[] = [];
-  for (let i = 0; i + mult <= src.length; i += mult) {
-    const chunk = src.slice(i, i + mult);
-    out.push({
-      time: chunk[0].time,
-      open: chunk[0].open,
-      high: Math.max(...chunk.map((c) => c.high)),
-      low: Math.min(...chunk.map((c) => c.low)),
-      close: chunk[chunk.length - 1].close,
-      volume: chunk.reduce((a, c) => a + (c.volume || 0), 0),
-    });
-  }
-  return out;
-}
-
-// Yahoo throttles bursts: the scanners refresh dozens of pairs × timeframes
-// at once, and unbounded parallel requests time out (12 s) and drop symbols
-// to the simulator. A small gate keeps at most YAHOO_MAX requests in flight;
-// the timeout only starts once a request actually leaves.
-const YAHOO_MAX = 4;
+// symbols a trader is looking at (chart) or the bot trades get priority on
+// the broker feed (fresher EA polls)
 const PRIORITY_MS = 5 * 60_000;
-interface YahooGate {
+interface PriorityGate {
   active: number;
   queue: Array<() => void>;
   hot: Map<string, number>;
 }
-const gYq = globalThis as unknown as { __haloYahooGateV2?: YahooGate };
-const yGate: YahooGate = (gYq.__haloYahooGateV2 ??= { active: 0, queue: [], hot: new Map<string, number>() });
+const gYq = globalThis as unknown as { __haloYahooGateV2?: PriorityGate };
+const yGate: PriorityGate = (gYq.__haloYahooGateV2 ??= { active: 0, queue: [], hot: new Map<string, number>() });
 
 /** symbols a trader is looking at (chart) or the bot trades jump the queue */
 export function markPrioritySymbol(sym: string): void {
   yGate.hot.set(sym, Date.now());
-}
-
-async function yahooSlot<T>(fn: () => Promise<T>, hot = false): Promise<T> {
-  if (yGate.active >= YAHOO_MAX) {
-    await new Promise<void>((r) => (hot ? yGate.queue.unshift(r) : yGate.queue.push(r)));
-  }
-  yGate.active++;
-  try {
-    return await fn();
-  } finally {
-    yGate.active--;
-    yGate.queue.shift()?.();
-  }
-}
-
-/** short history range for small refreshes (native intervals only — aggregated
- *  3m/2h/4h bars must keep the same range or their grouping would shift) */
-const SHORT_RANGE: Record<string, string> = { "1m": "5d", "5m": "5d", "15m": "5d", "30m": "5d", "1h": "5d", "1d": "1mo" };
-
-function fYahoo(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
-  const hot = Date.now() - (yGate.hot.get(sym) ?? 0) < PRIORITY_MS;
-  return yahooSlot(() => fYahooNow(sym, tf, limit), hot);
-}
-
-async function fYahooNow(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
-  const ticker = yahooTicker(sym);
-  // (interval, range, aggregate-mult) — Yahoo has no native 3m/2h/4h FX bars
-  const plan: Record<string, [string, string, number]> = {
-    "1m": ["1m", "5d", 1],
-    "3m": ["1m", "5d", 3],
-    "5m": ["5m", "1mo", 1],
-    "15m": ["15m", "1mo", 1],
-    "30m": ["30m", "1mo", 1],
-    "1h": ["1h", "3mo", 1],
-    "2h": ["30m", "1mo", 4],
-    "4h": ["1h", "1y", 4],
-    "1d": ["1d", "2y", 1],
-  };
-  const [iv, fullRange, mult] = plan[tf] ?? ["5m", "1mo", 1];
-  const range = limit <= 20 && mult === 1 && SHORT_RANGE[tf] ? SHORT_RANGE[tf] : fullRange;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${iv}&range=${range}&includePrePost=false`;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const r = await fetch(url, {
-      signal: ctrl.signal,
-      cache: "no-store",
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        Accept: "application/json",
-      },
-    });
-    if (!r.ok) throw new Error(`yahoo HTTP ${r.status}`);
-    const j = (await r.json()) as YahooChart;
-    const res = j.chart?.result?.[0];
-    const q = res?.indicators?.quote?.[0];
-    const ts = res?.timestamp;
-    if (!res || !q || !ts || !ts.length) throw new Error(j.chart?.error?.description ?? "yahoo empty");
-    const rows: Row[] = [];
-    for (let i = 0; i < ts.length; i++) {
-      const o = q.open?.[i];
-      const h = q.high?.[i];
-      const l = q.low?.[i];
-      const c = q.close?.[i];
-      if (o == null || h == null || l == null || c == null) continue; // skip null slots
-      rows.push([ts[i] * 1000, o, h, l, c, q.volume?.[i] ?? 0]);
-    }
-    const base = toCandles(rows, "asc");
-    // Yahoo appends a "last trade snapshot" bar stamped at the CURRENT MINUTE
-    // (not aligned to the interval grid) to intraday series. Merging it by
-    // exact timestamp would append a new degenerate flat bar on every 30s
-    // poll, poisoning the cache (1h windows filling with 1m flat bars).
-    // Keep only bars that sit on the interval grid (skip daily — exchange
-    // sessions stamp those off-grid legitimately).
-    const IV_MS: Record<string, number> = { "1m": 60e3, "5m": 300e3, "15m": 900e3, "30m": 1800e3, "1h": 3600e3 };
-    const stepMs = IV_MS[iv];
-    const clean = stepMs ? base.filter((c) => c.time % stepMs === 0) : base;
-    if (clean.length < 10) throw new Error("yahoo too few bars");
-    return { candles: aggregate(clean, mult).slice(-limit), source: "yahoo" };
-  } finally {
-    clearTimeout(t);
-  }
 }
 
 async function fetchFromSources(sym: string, tf: string, limit: number): Promise<{ candles: Candle[]; source: string }> {
@@ -271,35 +150,17 @@ async function fetchFromSources(sym: string, tf: string, limit: number): Promise
     }
     return { candles: simGet(sym, tf, limit, Date.now()), source: "simulator" };
   }
-  // forex / metals / stock indices / energy: real OHLC from Yahoo Finance's
-  // chart API (majors, crosses, exotics, XAU/XAG, ^DJI, CL=F …) — falls
-  // through to the simulator when blocked.
-  // the broker you trade (HALO Bridge EA in its MT5) comes first: candles at
-  // exactly the prices your orders fill at
+  // forex / metals / indices: EXNESS ONLY — candles at exactly the prices
+  // your orders fill at (HALO Bridge EA / Exness cloud API). No Yahoo / OANDA
+  // fallback: mixing a second feed put its differently-anchored, differently-
+  // priced bars beside the broker's and the chart printed double candles.
   if (brokerFeedCovers(sym)) {
-    try {
-      const hot = Date.now() - (yGate.hot.get(sym) ?? 0) < PRIORITY_MS; // chart / bot symbol
-      const candles = await brokerCandles(sym, tf, limit, hot);
-      if (candles.length > 0) return { candles, source: "exness" };
-    } catch {
-      // EA offline / symbol not in MT5 → next source
-    }
+    const hot = Date.now() - (yGate.hot.get(sym) ?? 0) < PRIORITY_MS; // chart / bot symbol
+    const candles = await brokerCandles(sym, tf, limit, hot);
+    if (candles.length > 0) return { candles, source: "exness" };
+    throw new Error("Exness feed returned no candles");
   }
-  // OANDA practice comes first for forex + metals: the same BID prices
-  // TradingView charts as OANDA:XAUUSD (spot), instead of Yahoo's futures.
-  if (oandaConfig() && oandaInstrument(sym)) {
-    try {
-      const candles = await fetchOandaCandles(sym, tf, limit);
-      if (candles.length > 0) return { candles, source: "oanda" };
-    } catch {
-      // fall through to Yahoo
-    }
-  }
-  if (getSymbolMeta(sym).group !== "CRYPTO") {
-    // Yahoo keeps its own gate: its timeout only starts once a request leaves
-    // the queue, so no outer deadline here (it would cut off queued requests)
-    return await fYahoo(sym, tf, limit);
-  }
+  if (getSymbolMeta(sym).group !== "CRYPTO") throw new Error(`no live candle source for ${sym}`);
   const cryptoChain = async (): Promise<{ candles: Candle[]; source: string }> => {
     const sources: Array<[string, () => Promise<Candle[]>]> = [
       ["binance", () => fBinance(sym, tf, limit)],
@@ -482,10 +343,21 @@ function simGet(sym: string, tf: string, limit: number, now: number): Candle[] {
 
 // ───────────────────────── PUBLIC API ─────────────────────────
 
-function mergeInto(target: Candle[], fresh: Candle[]): void {
+/** merge fresh bars into the cache window, keyed by the timeframe's grid slot:
+ *  a bar stamped off-grid (another feed's bucket anchor, a snapshot bar) folds
+ *  into its slot instead of becoming a second candle beside it */
+function mergeInto(target: Candle[], fresh: Candle[], tf?: string): void {
+  const sec = tf ? tfSec(tf) : 0;
+  const ms = sec > 0 && sec < 86400 ? sec * 1000 : 0;
+  const slot = (t: number) => (ms ? Math.floor(t / ms) * ms : t);
   const map = new Map<number, Candle>();
-  for (const c of target) map.set(c.time, c);
-  for (const c of fresh) map.set(c.time, c);
+  for (const c of target) {
+    const k = slot(c.time);
+    const prev = map.get(k);
+    // an existing off-grid duplicate loses to the bar that sits ON the grid
+    if (!prev || c.time === k) map.set(k, { ...c, time: k });
+  }
+  for (const c of fresh) map.set(slot(c.time), { ...c, time: slot(c.time) });
   const merged = [...map.values()].sort((a, b) => a.time - b.time);
   target.length = 0;
   for (const c of merged.slice(-MAX_BARS)) target.push(c);
@@ -512,7 +384,7 @@ async function fullFetch(sym: string, tf: string, key: string, want: number, now
       const r = await fetchFromSources(sym, tf, want);
       const entry = cache.get(key);
       if (entry && entry.source !== "simulator") {
-        mergeInto(entry.candles, r.candles);
+        mergeInto(entry.candles, r.candles, tf);
         entry.source = r.source;
         entry.at = Date.now();
       } else {
@@ -520,7 +392,14 @@ async function fullFetch(sym: string, tf: string, key: string, want: number, now
       }
       return { candles: r.candles, source: r.source };
     } catch (e) {
-      // fall back to simulator; mark the feed so the UI can warn
+      // a transient broker-feed hiccup keeps serving the REAL bars already
+      // cached (never swaps them for simulated ones mid-chart)
+      const prev = cache.get(key);
+      if (prev && prev.source !== "simulator" && prev.candles.length > 0) {
+        console.error(`[market] ${sym}:${tf} live feed failed — serving cached ${prev.source} bars:`, (e as Error).message);
+        return { candles: prev.candles.slice(), source: prev.source };
+      }
+      // nothing real cached yet → simulator; the source stamp lets the UI warn
       console.error(`[market] ${sym}:${tf} live feed failed — simulator fallback:`, (e as Error).message);
       const sim = simGet(sym, tf, want, Date.now());
       cache.set(key, { candles: sim.slice(), source: "simulator", at: Date.now() });
@@ -593,7 +472,7 @@ export async function getKlines(
   if (entry && entry.candles.length >= Math.min(want, 50)) {
     try {
       const freshBars = await fetchFromSources(sym, tf, 3);
-      if (freshBars.candles.length) mergeInto(entry.candles, freshBars.candles);
+      if (freshBars.candles.length) mergeInto(entry.candles, freshBars.candles, tf);
       entry.source = freshBars.source;
       entry.at = now;
       return { candles: entry.candles.slice(-want), source: freshBars.source };

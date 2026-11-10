@@ -91,6 +91,12 @@ interface LiveSub {
   derivSubId: string | null;
   requested: boolean;
   history: LiveBar[];
+  /** Deriv tick-stream subscription id (bid/ask feed for the BID view) */
+  tickSubId?: string | null;
+  /** BID view: the latest mid bar waiting for its same-second tick (exact spread) */
+  pendBar?: LiveBar | null;
+  pendEpoch?: number;
+  pendTimer?: ReturnType<typeof setTimeout> | null;
   /** server-relayed stream: which source the server chose (broker EA or OANDA) */
   src?: LiveFeedKind;
 }
@@ -123,6 +129,10 @@ interface DerivConn {
   subs: Map<string, LiveSub>;
   /** normalized display name / raw symbol → deriv code */
   names: Map<string, string>;
+  /** deriv code → half spread (mid − bid) from the live tick stream */
+  half: Map<string, number>;
+  /** deriv code → last tick epoch (s) and its exact half spread */
+  lastTick: Map<string, { epoch: number; half: number }>;
   /** internal id → resolved code (null = not available on Deriv) */
   resolved: Map<string, string | null>;
   namesLoaded: boolean;
@@ -141,6 +151,8 @@ function newDerivConn(): DerivConn {
     byStream: new Map(),
     subs: new Map(),
     names: new Map(),
+    half: new Map(),
+    lastTick: new Map(),
     resolved: new Map(),
     namesLoaded: false,
     backoff: 1000,
@@ -158,7 +170,12 @@ const g = globalThis as unknown as {
 };
 
 function deriv(): DerivConn {
-  return (g.__haloLiveFeedDeriv ??= newDerivConn());
+  const c = (g.__haloLiveFeedDeriv ??= newDerivConn());
+  // a connection created by an older build (hot reload keeps globalThis) may
+  // predate newer fields — fill them in instead of crashing the chart
+  c.half ??= new Map();
+  c.lastTick ??= new Map();
+  return c;
 }
 
 function allSubs(): Map<string, LiveSub> {
@@ -201,6 +218,114 @@ function derivResolveCode(conn: DerivConn, symbol: string): string | null {
   }
   conn.resolved.set(symbol, code);
   return code;
+}
+
+// ───────────────────────── price basis (BID / MID) ─────────────────────────
+// Deriv quotes three prices per tick: bid, ask and the mid "quote". Candles
+// (ticks_history / ohlc) are built on the MID — what Deriv's web trading
+// chart shows. The Deriv MT5 terminal draws BID candles, half a spread lower.
+// In BID view every Deriv bar is shifted down by the live half-spread taken
+// from the tick stream, so HALO's chart sits exactly on the MT5 chart.
+export type DerivPriceBasis = "bid" | "mid";
+const BASIS_KEY = "halo.deriv.basis.v1";
+const viewListeners = new Set<() => void>();
+const gBasis = globalThis as unknown as { __haloDerivBasis?: DerivPriceBasis };
+
+export function getDerivPriceBasis(): DerivPriceBasis {
+  if (!gBasis.__haloDerivBasis) {
+    let b: DerivPriceBasis = "bid";
+    try {
+      const v = typeof localStorage !== "undefined" ? localStorage.getItem(BASIS_KEY) : null;
+      if (v === "mid" || v === "bid") b = v;
+    } catch {
+      // storage blocked — default BID
+    }
+    gBasis.__haloDerivBasis = b;
+  }
+  return gBasis.__haloDerivBasis;
+}
+
+function notifyView(): void {
+  for (const fn of viewListeners) {
+    try {
+      fn();
+    } catch {
+      // listener errors never break the feed
+    }
+  }
+}
+
+/** subscribe to BID/MID basis or half-spread changes (useSyncExternalStore) */
+export function subscribeDerivView(fn: () => void): () => void {
+  viewListeners.add(fn);
+  return () => {
+    viewListeners.delete(fn);
+  };
+}
+
+/** price amount to SUBTRACT from mid prices for this symbol's current view (0 = no shift) */
+export function derivViewOffset(symbol: string): number {
+  if (getDerivPriceBasis() !== "bid") return 0;
+  for (const sub of allSubs().values()) {
+    if (sub.symbol === symbol && sub.kind === "deriv" && sub.code) {
+      const h = deriv().half.get(sub.code);
+      if (h && h > 0) return h;
+    }
+  }
+  return 0;
+}
+
+function shiftBar(b: LiveBar, off: number): LiveBar {
+  return off ? { time: b.time, open: b.open - off, high: b.high - off, low: b.low - off, close: b.close - off } : b;
+}
+
+function derivOff(sub: LiveSub): number {
+  if (getDerivPriceBasis() !== "bid" || !sub.code) return 0;
+  return deriv().half.get(sub.code) ?? 0;
+}
+
+function emitHistory(sub: LiveSub, only?: LiveHandlers): void {
+  const off = derivOff(sub);
+  const bars = sub.history.map((b) => shiftBar(b, off));
+  for (const h of only ? [only] : sub.cbs) {
+    try {
+      h.onHistory?.(bars.slice());
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function emitUpdate(sub: LiveSub, bar: LiveBar, off: number): void {
+  const shown = shiftBar(bar, off);
+  for (const h of sub.cbs) {
+    try {
+      h.onUpdate?.(shown);
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/** re-draw every Deriv chart after the basis or a half-spread changed */
+function reemitDeriv(code?: string): void {
+  for (const sub of deriv().subs.values()) {
+    if (sub.kind !== "deriv" || !sub.active || sub.history.length === 0) continue;
+    if (code && sub.code !== code) continue;
+    emitHistory(sub);
+  }
+}
+
+export function setDerivPriceBasis(b: DerivPriceBasis): void {
+  if (getDerivPriceBasis() === b) return;
+  gBasis.__haloDerivBasis = b;
+  try {
+    localStorage.setItem(BASIS_KEY, b);
+  } catch {
+    // storage blocked — the choice lasts for this tab
+  }
+  reemitDeriv();
+  notifyView();
 }
 
 function derivStatus(sub: LiveSub, active: boolean, note?: string): void {
@@ -252,12 +377,18 @@ function derivRequestSub(conn: DerivConn, sub: LiveSub): void {
         .filter((b) => isFinite(b.time) && isFinite(b.close));
       if (sub.derivSubId) conn.byStream.set(`${sub.code}|${sub.sec}`, sub.key);
       derivStatus(sub, true);
-      for (const h of sub.cbs) {
-        try {
-          h.onHistory?.(sub.history.slice());
-        } catch {
-          // ignore
-        }
+      emitHistory(sub);
+      // bid/ask feed for the BID view — the ohlc stream carries the mid only
+      if (!sub.tickSubId) {
+        const tickReq = ++conn.reqId;
+        sub.tickSubId = "pending";
+        conn.pending.set(tickReq, (tm) => {
+          conn.pending.delete(tickReq);
+          const tsub = tm.subscription as { id?: string } | undefined;
+          sub.tickSubId = tsub?.id ?? null;
+          if (tm.tick) derivTick(conn, tm.tick as DerivTick);
+        });
+        derivSend(conn, { ticks: sub.code, subscribe: 1, req_id: tickReq });
       }
     }
     conn.pending.delete(reqId);
@@ -272,6 +403,40 @@ function derivRequestSub(conn: DerivConn, sub: LiveSub): void {
     subscribe: 1,
     req_id: reqId,
   });
+}
+
+interface DerivTick {
+  symbol?: string;
+  quote?: number;
+  bid?: number;
+  ask?: number;
+  pip_size?: number;
+}
+
+/** learn the live half-spread (mid − bid) for a code; re-draw when it changes */
+function derivTick(conn: DerivConn, t: DerivTick): void {
+  if (!t.symbol || !isFinite(Number(t.quote)) || !isFinite(Number(t.bid))) return;
+  const dp = Math.max(0, Math.min(8, Number(t.pip_size) || 0));
+  const f = 10 ** (dp + 2);
+  const half = Math.max(0, Math.round((Number(t.quote) - Number(t.bid)) * f) / f);
+  const ep = Number((t as { epoch?: number }).epoch) || 0;
+  conn.lastTick.set(t.symbol, { epoch: ep, half });
+  // release any bar held for this exact tick
+  for (const sub of conn.subs.values()) {
+    if (sub.code !== t.symbol || !sub.pendBar || sub.pendEpoch !== ep) continue;
+    if (sub.pendTimer) clearTimeout(sub.pendTimer);
+    sub.pendTimer = null;
+    const b = sub.pendBar;
+    sub.pendBar = null;
+    emitUpdate(sub, b, getDerivPriceBasis() === "bid" ? half : 0);
+  }
+  // the VIEW offset (history + engine overlays) only re-draws when the
+  // spread moves meaningfully — live ticks above already use the exact one
+  const prev = conn.half.get(t.symbol);
+  if (prev !== undefined && Math.abs(half - prev) <= Math.max(prev * 0.2, 1e-9)) return;
+  conn.half.set(t.symbol, half);
+  if (getDerivPriceBasis() === "bid") reemitDeriv(t.symbol);
+  notifyView();
 }
 
 function derivOpen(conn: DerivConn): void {
@@ -312,6 +477,14 @@ function derivOpen(conn: DerivConn): void {
         for (const [sym, code] of [...conn.resolved.entries()]) {
           if (code && !DERIV_WS_CODE[sym]) conn.resolved.delete(sym);
         }
+        // subs still waiting for a code (name-hint symbols) start now
+        for (const sub of conn.subs.values()) {
+          if (sub.code || sub.requested) continue;
+          conn.resolved.delete(sub.symbol);
+          sub.code = derivResolveCode(conn, sub.symbol);
+          if (sub.code) derivRequestSub(conn, sub);
+          else if (sub.cbs.size > 0) derivStatus(sub, false, "not listed on Deriv");
+        }
       }
       conn.pending.delete(reqId);
     });
@@ -325,6 +498,10 @@ function derivOpen(conn: DerivConn): void {
     }
     for (const sub of conn.subs.values()) {
       sub.requested = false;
+      // a sub that joined while the socket was closed has no code yet —
+      // resolve it now (explicit map / frx rule); hint-only symbols resolve
+      // once the catalog lands (below)
+      if (!sub.code) sub.code = derivResolveCode(conn, sub.symbol);
       derivRequestSub(conn, sub);
     }
   };
@@ -338,6 +515,15 @@ function derivOpen(conn: DerivConn): void {
     }
     if (msg.msg_type === "ping") {
       derivSend(conn, { ping: (msg.ping as number) ?? 1 });
+      return;
+    }
+    if (msg.msg_type === "tick" && msg.tick && !msg.error) {
+      const reqT = msg.req_id as number | undefined;
+      if (reqT && conn.pending.has(reqT)) {
+        conn.pending.get(reqT)!(msg);
+        return;
+      }
+      derivTick(conn, msg.tick as DerivTick);
       return;
     }
     const reqId = msg.req_id as number | undefined;
@@ -361,11 +547,34 @@ function derivOpen(conn: DerivConn): void {
       if (!isFinite(bar.time) || !isFinite(bar.close)) return;
       if (o.id && !sub.derivSubId) sub.derivSubId = o.id;
       sub.updates++;
-      for (const h of sub.cbs) {
-        try {
-          h.onUpdate?.(bar);
-        } catch {
-          // ignore
+      // keep the history current so a BID/MID re-draw never loses newer bars
+      const last = sub.history[sub.history.length - 1];
+      if (last && last.time === bar.time) sub.history[sub.history.length - 1] = bar;
+      else if (!last || bar.time > last.time) {
+        sub.history.push(bar);
+        if (sub.history.length > 1000) sub.history.splice(0, sub.history.length - 1000);
+      }
+      if (getDerivPriceBasis() !== "bid") {
+        emitUpdate(sub, bar, 0);
+      } else {
+        // BID = mid − THIS tick's half spread. The ohlc frame and the tick
+        // frame for the same second can arrive in either order: use the tick
+        // if it is already here, otherwise hold the bar until it lands
+        // (≤150 ms fallback to the last known spread).
+        const ep = Number((o as { epoch?: number }).epoch) || 0;
+        const lt = conn.lastTick.get(sub.code ?? "");
+        if (lt && ep && lt.epoch === ep) {
+          emitUpdate(sub, bar, lt.half);
+        } else {
+          if (sub.pendTimer) clearTimeout(sub.pendTimer);
+          sub.pendBar = bar;
+          sub.pendEpoch = ep;
+          sub.pendTimer = setTimeout(() => {
+            sub.pendTimer = null;
+            const b = sub.pendBar;
+            sub.pendBar = null;
+            if (b) emitUpdate(sub, b, derivOff(sub));
+          }, 150);
         }
       }
     }
@@ -387,6 +596,7 @@ function derivOpen(conn: DerivConn): void {
     for (const sub of conn.subs.values()) {
       sub.requested = false;
       sub.derivSubId = null;
+      sub.tickSubId = null;
       if (sub.cbs.size > 0) derivStatus(sub, false, "reconnecting…");
     }
     if (hadSubs) derivScheduleReconnect(conn);
@@ -434,6 +644,14 @@ function derivUnsubscribe(sub: LiveSub): void {
       // socket dying anyway
     }
   }
+  if (sub.tickSubId && sub.tickSubId !== "pending" && conn.ws && conn.ws.readyState === WebSocket.OPEN) {
+    try {
+      conn.ws.send(JSON.stringify({ forget: sub.tickSubId }));
+    } catch {
+      // socket dying anyway
+    }
+  }
+  sub.tickSubId = null;
   if (sub.code) conn.byStream.delete(`${sub.code}|${sub.sec}`);
   if (conn.subs.size === 0 && !conn.reconnectTimer) {
     conn.idleTimer = setTimeout(() => {
@@ -668,13 +886,15 @@ function oandaOpen(sub: LiveSub): void {
 }
 
 function oandaFallback(sub: LiveSub): void {
-  if (DERIV_GRANULARITIES.has(sub.sec)) {
-    sub.kind = "deriv";
-    derivSubscribe(sub);
-  } else {
-    sub.kind = null;
-    sub.note = "no live stream for this timeframe";
-  }
+  // Exness only for forex / metals / indices: never fall back to Deriv's
+  // prices (a different feed → candles that disagree with the broker's).
+  // Keep retrying the Exness relay; the polled Exness candles drive the
+  // chart meanwhile.
+  oandaStatus(sub, false, "waiting for the Exness feed…");
+  setTimeout(() => {
+    const conns = g.__haloLiveFeedOanda;
+    if (sub.cbs.size > 0 && sub.kind === "oanda" && !conns?.has(sub.key)) oandaOpen(sub);
+  }, 5000);
 }
 
 function oandaClose(sub: LiveSub): void {
@@ -739,7 +959,7 @@ export function subscribeLiveBars(symbol: string, tf: string, handlers: LiveHand
     }
   } else if (sub.active && sub.kind) {
     handlers.onStatus?.({ active: true, kind: sub.kind });
-    if (sub.kind === "deriv" && sub.history.length > 0) handlers.onHistory?.(sub.history.slice());
+    if (sub.kind === "deriv" && sub.history.length > 0) emitHistory(sub, handlers);
   }
 
   return () => {

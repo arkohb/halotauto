@@ -24,7 +24,9 @@ export async function GET(req: Request) {
   }
   const inst = oandaInstrument(symbol);
   const broker = await brokerFeedSource(symbol);
-  const source: "exness" | "oanda" | null = broker ? "exness" : oandaConfig() && inst ? "oanda" : null;
+  // Exness only (HALO Bridge EA / Exness API) — no OANDA relay
+  const source: "exness" | "oanda" | null = broker ? "exness" : null;
+  void oandaConfig;
   if (!source) {
     return NextResponse.json({ error: "no live stream for this symbol (broker EA offline, OANDA not configured)" }, { status: 404 });
   }
