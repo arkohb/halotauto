@@ -38,8 +38,6 @@ env:
   #   firebase apphosting:secrets:set HALO_CRON_SECRET
   #   firebase apphosting:secrets:set ANTHROPIC_API_KEY
   #   firebase apphosting:secrets:set METAAPI_TOKEN
-  #   firebase apphosting:secrets:set OANDA_PRACTICE_TOKEN
-  #   firebase apphosting:secrets:set OANDA_PRACTICE_ACCOUNT
   #   firebase apphosting:secrets:set EXNESS_API_KEY / EXNESS_API_SECRET / EXNESS_GATEWAY_URL / EXNESS_ACCOUNT_ID
   #   firebase apphosting:secrets:set HALO_DATA_KEY
   - variable: DATABASE_URL
@@ -49,19 +47,14 @@ env:
     secret: HALO_CRON_SECRET
     availability: [RUNTIME]
   # Claude — HALO's conversation brain (voice + chat replies, journal insights)
-  - variable: ANTHROPIC_API_KEY
-    secret: ANTHROPIC_API_KEY
-    availability: [RUNTIME]
+  # (uncomment after `firebase apphosting:secrets:set ANTHROPIC_API_KEY` —
+  #  a listed secret that does not exist fails the build)
+  # - variable: ANTHROPIC_API_KEY
+  #   secret: ANTHROPIC_API_KEY
+  #   availability: [RUNTIME]
   # MetaApi platform token — MT4/MT5 connectivity (never stored in source)
   - variable: METAAPI_TOKEN
     secret: METAAPI_TOKEN
-    availability: [RUNTIME]
-  # OANDA practice account — live forex/metals price feed only (no trading)
-  - variable: OANDA_PRACTICE_TOKEN
-    secret: OANDA_PRACTICE_TOKEN
-    availability: [RUNTIME]
-  - variable: OANDA_PRACTICE_ACCOUNT
-    secret: OANDA_PRACTICE_ACCOUNT
     availability: [RUNTIME]
   # Exness Trader API — live price feed from the trading account (market data only)
   - variable: EXNESS_API_KEY
