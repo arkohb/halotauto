@@ -13,6 +13,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  // HALO_DIST_DIR lets a verification build run beside the live one without
+  // overwriting the .next/standalone build the server is running from
+  distDir: process.env.HALO_DIST_DIR || ".next",
   poweredByHeader: false,
   /* config options here */
   typescript: {

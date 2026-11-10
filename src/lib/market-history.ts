@@ -406,21 +406,24 @@ interface YahooPlan {
   chunkDays: number; // request-window size (0 = single request)
 }
 
+// Yahoo rejects a window that reaches EXACTLY its limit ("the requested range
+// must be within the last 60 days" for a 60-day 15m window), so every window
+// stays one day inside the published limit (60 → 59 days, 730 → 729 days).
 const YAHOO_PLAN: Record<string, YahooPlan> = {
-  "1m": { iv: "1m", mult: 1, backDays: 30, chunkDays: 7 },
-  "2m": { iv: "1m", mult: 2, backDays: 30, chunkDays: 7 },
-  "3m": { iv: "1m", mult: 3, backDays: 30, chunkDays: 7 },
-  "5m": { iv: "5m", mult: 1, backDays: 60, chunkDays: 30 },
-  "10m": { iv: "5m", mult: 2, backDays: 60, chunkDays: 30 },
-  "15m": { iv: "15m", mult: 1, backDays: 60, chunkDays: 60 },
-  "30m": { iv: "30m", mult: 1, backDays: 60, chunkDays: 60 },
-  "1h": { iv: "60m", mult: 1, backDays: 730, chunkDays: 365 },
-  "2h": { iv: "60m", mult: 2, backDays: 730, chunkDays: 365 },
-  "3h": { iv: "60m", mult: 3, backDays: 730, chunkDays: 365 },
-  "4h": { iv: "60m", mult: 4, backDays: 730, chunkDays: 365 },
-  "6h": { iv: "60m", mult: 6, backDays: 730, chunkDays: 365 },
-  "8h": { iv: "60m", mult: 8, backDays: 730, chunkDays: 365 },
-  "12h": { iv: "60m", mult: 12, backDays: 730, chunkDays: 365 },
+  "1m": { iv: "1m", mult: 1, backDays: 29, chunkDays: 7 },
+  "2m": { iv: "1m", mult: 2, backDays: 29, chunkDays: 7 },
+  "3m": { iv: "1m", mult: 3, backDays: 29, chunkDays: 7 },
+  "5m": { iv: "5m", mult: 1, backDays: 59, chunkDays: 30 },
+  "10m": { iv: "5m", mult: 2, backDays: 59, chunkDays: 30 },
+  "15m": { iv: "15m", mult: 1, backDays: 59, chunkDays: 59 },
+  "30m": { iv: "30m", mult: 1, backDays: 59, chunkDays: 59 },
+  "1h": { iv: "60m", mult: 1, backDays: 729, chunkDays: 365 },
+  "2h": { iv: "60m", mult: 2, backDays: 729, chunkDays: 365 },
+  "3h": { iv: "60m", mult: 3, backDays: 729, chunkDays: 365 },
+  "4h": { iv: "60m", mult: 4, backDays: 729, chunkDays: 365 },
+  "6h": { iv: "60m", mult: 6, backDays: 729, chunkDays: 365 },
+  "8h": { iv: "60m", mult: 8, backDays: 729, chunkDays: 365 },
+  "12h": { iv: "60m", mult: 12, backDays: 729, chunkDays: 365 },
   "1d": { iv: "1d", mult: 1, backDays: 0, chunkDays: 0 },
   "3d": { iv: "1d", mult: 3, backDays: 0, chunkDays: 0 },
   "1w": { iv: "1d", mult: 99, backDays: 0, chunkDays: 0 },

@@ -1,5 +1,5 @@
 // Client-safe helpers for the HALO 3EL Autotrader UI
-import type { EngineSnapshot, HaloConfig } from "./types";
+import type { EngineSnapshot, HaloConfig, TradeSnapshot } from "./types";
 
 /** Voice activity of the HALO AI core — driven by the JARVIS console, mirrored onto the orb. */
 export type VoiceState = "idle" | "listening" | "processing" | "speaking";
@@ -129,6 +129,9 @@ export interface PineOverlayData {
    *  the chart rail so the trader sees the exact settings it trades with */
   inputs?: PineOverlayInput[];
   name: string;
+  /** line/box/label/table/fill/bgcolor objects drawn on the chart canvas */
+  drawings?: import("@/lib/pine/drawings").PineDrawings;
+  overlay?: boolean;
 }
 
 export interface BotStateRes {
@@ -174,19 +177,58 @@ export function fmtPips(p: number): string {
   return `${s}${Math.abs(p).toFixed(1)}`;
 }
 
-export function runPips(state: BotStateRes): number | null {
+/**
+ * THE running trade, wherever it lives: the chart bot's own engine trade, or
+ * — when the chart bot is flat — the trade a Scanner Bot / Market Scanner /
+ * sweep / TradingView fire is running (the global trade lock). Every
+ * dashboard panel reads this so a scanner-fired trade never shows "FLAT".
+ */
+export function openTrade(state: BotStateRes): (TradeSnapshot & { source?: string; symbol?: string; tf?: string }) | null {
   const t = state.engine.trade;
+  if (t && t.traded !== false) return t;
+  const l = state.scanLock;
+  if (l && l.sl > 0 && l.tp > 0) {
+    const meta = l.symbol === state.symbol ? state.mintick : 0;
+    const pip = (meta || state.mintick) * (state.config.pipMult || 10);
+    const risk = Math.abs(l.entry - l.sl);
+    return {
+      dir: l.dir === -1 ? -1 : 1,
+      entry: l.entry,
+      sl: l.sl,
+      tp: l.tp,
+      risk,
+      riskPips: pip > 0 ? risk / pip : 0,
+      rewardPips: pip > 0 ? Math.abs(l.tp - l.entry) / pip : 0,
+      entryTime: l.openedAt,
+      ext: l.entry,
+      levelTop: l.entry,
+      levelBot: l.entry,
+      trigger: l.entry,
+      slModeLabel: `${l.source === "SCAN" ? "Scanner" : l.source === "SWEEP" ? "Sweep" : l.source === "TV" ? "TradingView" : "EA"} ${l.tf}`,
+      traded: true,
+      source: l.source,
+      symbol: l.symbol,
+      tf: l.tf,
+    };
+  }
+  return t ?? null;
+}
+
+export function runPips(state: BotStateRes): number | null {
+  const t = openTrade(state);
   if (!t || !state.feed.price) return null;
+  // the feed price is the chart symbol's — only valid for a trade on it
+  if (t.symbol && t.symbol !== state.symbol) return null;
   return ((state.feed.price - t.entry) * t.dir) / (state.mintick * state.config.pipMult);
 }
 
 export type StatusTone = "scan" | "wait" | "enterSell" | "enterBuy" | "runSell" | "runBuy";
 
 export function statusOf(state: BotStateRes): { text: string; tone: StatusTone } {
-  const t = state.engine.trade;
+  const t = openTrade(state);
   if (t) {
     const dirTxt = t.dir === -1 ? "SELL" : "BUY";
-    if (t.entryTime > state.engine.lastBarTime) {
+    if (!t.source && t.entryTime > state.engine.lastBarTime) {
       return { text: `ENTER ${dirTxt} NOW @ ${fmtPx(t.entry, state.mintick)}`, tone: t.dir === -1 ? "enterSell" : "enterBuy" };
     }
     return { text: `${t.dir === -1 ? "▼ SELL" : "▲ BUY"} RUNNING`, tone: t.dir === -1 ? "runSell" : "runBuy" };

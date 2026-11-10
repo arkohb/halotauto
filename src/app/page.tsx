@@ -13,7 +13,7 @@
 //  feeds as before. Trading behaviour, engine and endpoints untouched.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import { Activity, Bell, BookOpen, BookOpenCheck, FlaskConical, Globe, Landmark, Mic, Radar, ScrollText, Settings, ShieldCheck, Sparkles, SunMedium, TrendingUp } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
@@ -120,8 +120,13 @@ export default function Page() {
           if (!alive) return;
           const sig = JSON.stringify(j);
           if (sig === lastStateSig.current) return;
+          const first = lastStateSig.current === "";
           lastStateSig.current = sig;
-          setState(j);
+          // the 2 s poll re-renders the whole dashboard — as a transition
+          // React renders it in slices, so the chart's live ticks and the
+          // live price paint between slices instead of waiting it out
+          if (first) setState(j);
+          else startTransition(() => setState(j));
         }
       } catch {
         // keep last state on network hiccups
@@ -166,6 +171,46 @@ export default function Page() {
       clearInterval(id);
     };
   }, [symbol, tf, candleNonce]);
+
+  // ── INSTANT TRADE PUSH · don't wait for the 2 s poll ──
+  // The server announces every fire and TP/SL close on the bot event stream
+  // the moment it happens. Pull the state right away so the chart-follow
+  // below switches to the fired pair + timeframe and draws the running trade
+  // within a fraction of a second (urgent update, not a transition).
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let inflight = false;
+    const pull = async () => {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const r = await fetch("/api/bot/state", { cache: "no-store" });
+        if (r.ok) {
+          const j = (await r.json()) as BotStateRes;
+          lastStateSig.current = JSON.stringify(j);
+          setState(j);
+        }
+      } catch {
+        // the regular poll catches up
+      } finally {
+        inflight = false;
+      }
+    };
+    try {
+      es = new EventSource("/api/bot/events");
+      es.addEventListener("bot", (m) => {
+        try {
+          const kind = (JSON.parse((m as MessageEvent).data) as { kind?: string }).kind;
+          if (kind === "fire" || kind === "win" || kind === "loss") void pull();
+        } catch {
+          // malformed frame — ignore
+        }
+      });
+    } catch {
+      // SSE unavailable — the 2 s poll still follows the trade
+    }
+    return () => es?.close();
+  }, []);
 
   // ── LIVE-TRADE CHART FOLLOW · the main chart belongs to the running trade ──
   // When any executor fires (Scanner Bot row, sweep, Market Scanner, TV

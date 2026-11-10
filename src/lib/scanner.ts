@@ -12,10 +12,12 @@ import type { EngineEvent, Side } from "./halo/types";
 import { getKlines, getSymbolMeta, tfSec } from "./market";
 import { clampConfig } from "./bot";
 import { DEFAULT_CONFIG, type HaloConfig } from "./halo/types";
+import { isTradableSymbol } from "./trading-universe";
 import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } from "./execution";
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { rowPositionHooks } from "./runtime-positions";
 import { liveTradeManager } from "./edge/settings";
 import { applyManageLive } from "./edge/trade-manager";
 
@@ -30,16 +32,8 @@ registerLockParticipant({
     for (const row of rt().rows.values()) n += row.engine.clearArmedLevels(time);
     return n;
   },
-  forceClose: async () => {
-    let closed = false;
-    for (const row of rt().rows.values()) {
-      if (!row.openTradeDbId || !row.engine.snapshot().trade) continue;
-      const px = row.lastPrice || row.engine.snapshot().trade!.entry;
-      await handleEvents(row, row.engine.forceClose(px, Date.now()));
-      closed = true;
-    }
-    return closed;
-  },
+  // forceClose + the running trade's book/close/amend hooks (Trading Activity)
+  ...rowPositionHooks("SCAN", () => rt().rows.values(), (row, ev) => handleEvents(row, ev)),
 });
 
 interface ScannerRow {
@@ -184,7 +178,8 @@ export async function ensureScanner(): Promise<ScannerRuntime> {
 /** Tick a couple of rows per slice to spread the feed load. */
 async function scannerSlice(): Promise<void> {
   const R = rt();
-  const enabled = [...R.rows.values()].filter((r) => r.enabled);
+  // trading universe only (gold for now) — other watchlist rows stay listed but idle
+  const enabled = [...R.rows.values()].filter((r) => r.enabled && isTradableSymbol(r.symbol));
   if (enabled.length === 0) return;
   const batch = 2;
   for (let i = 0; i < batch; i++) {
@@ -426,9 +421,15 @@ export async function scannerState(): Promise<{
     const meta = getSymbolMeta(row.symbol);
     let status = "SCANNING";
     if (!row.enabled) status = "PAUSED";
+    // outside the trading universe (HALO trades gold only for now) the row
+    // is never ticked — say so instead of showing WARMING forever
+    else if (!isTradableSymbol(row.symbol)) status = "NOT TRADED";
     else if (row.lastError) status = "ERROR";
     else if (!row.bootstrapped) status = "WARMING";
-    else if (row.engine.snapshot().trade) status = "RUNNING";
+    // RUNNING only for a trade this row actually executed; an engine
+    // position with no trade behind it (auto-trade off / refused) is a
+    // tracked SIGNAL, never money at risk
+    else if (row.engine.snapshot().trade) status = row.openTradeDbId ? "RUNNING" : "SIGNAL";
     else if (row.nearest && row.nearest.distAtr <= 0.6) status = "C3 WATCH";
     return {
       id: row.dbId,

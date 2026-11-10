@@ -79,7 +79,7 @@ async function main() {
   // ── 2. Super Administrator ──
   const adminEmail = (argOf("--admin-email") || process.env.ADMIN_EMAIL || "").trim().toLowerCase();
   const adminPassword = argOf("--admin-password") || process.env.ADMIN_PASSWORD || "";
-  const existingOwner = await db.user.findFirst({ where: { email: "bismark@halotrader.com" } });
+  const existingOwner = await db.user.findFirst({ where: { email: "beamark54@gmail.com" } });
 
   if (adminEmail) {
     let password = adminPassword;
@@ -128,7 +128,7 @@ async function main() {
   // ── 3. Port the legacy owner license (preserves owner access) ──
   // The legacy single-row gate key is REUSED verbatim so the owner's records
   // stay consistent; it becomes a complimentary ULTIMATE license.
-  const LEGACY = { key: "HALO-98C4-R4T6-4R5P-DHD6", holder: "bismark@halotrader.com" };
+  const LEGACY = { key: "HALO-98C4-R4T6-4R5P-DHD6", holder: "beamark54@gmail.com" };
   const ownerUser = await db.user.findUnique({ where: { email: LEGACY.holder } });
   const existingLegacy = await db.license.findUnique({ where: { key: LEGACY.key } });
   if (!existingLegacy) {

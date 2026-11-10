@@ -36,14 +36,14 @@ const g = globalThis as typeof globalThis & { __haloBoot?: HaloBoot };
 /** Where a next build leaves its BUILD_ID (standalone copies keep ../). */
 async function detectBuildId(): Promise<string | null> {
   const candidates = [
-    path.join(process.cwd(), ".next", "BUILD_ID"),
-    path.join(process.cwd(), "..", ".next", "BUILD_ID"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), ".next", "BUILD_ID"),
+    path.join(/*turbopackIgnore: true*/ process.cwd(), "..", ".next", "BUILD_ID"),
   ];
   for (const p of candidates) {
     try {
-      const s = await stat(p);
+      const s = await stat(/*turbopackIgnore: true*/ p);
       if (!s.isFile()) continue;
-      const id = (await readFile(p, "utf8")).trim();
+      const id = (await readFile(/*turbopackIgnore: true*/ p, "utf8")).trim();
       if (id) return id;
     } catch {
       // no build id here — dev server or unusual layout, fall through

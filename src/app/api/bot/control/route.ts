@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { botState, resetBot, startBot, stopBot, closeOpenTrade, setPauseNew } from "@/lib/bot";
+import { botState, resetBot, startBot, stopBot, closeAnyRunningTrade, setPauseNew } from "@/lib/bot";
 import { requireTradingAccess } from "@/lib/license";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export async function POST(req: Request) {
     if (action === "start") await startBot();
     else if (action === "stop") await stopBot();
     else if (action === "reset") await resetBot();
-    else if (action === "close") await closeOpenTrade();
+    else if (action === "close") await closeAnyRunningTrade();
     else if (action === "pauseNew") await setPauseNew(true);
     else if (action === "resumeNew") await setPauseNew(false);
     else return NextResponse.json({ ok: false, error: "unknown action" }, { status: 400 });

@@ -108,10 +108,10 @@ export function QuickActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "close-all" }),
       });
-      const j = (await res.json()) as { ok?: boolean; paper?: boolean; error?: string };
+      const j = (await res.json()) as { ok?: boolean; paper?: boolean; error?: string; closed?: number };
       if (j.ok) {
-        setResult({ ok: true, text: j.paper ? "Paper EA trade closed through the engine." : "Close-all accepted by the broker — the book refreshes in a moment." });
-        notify("Close-all verified", "All open positions were market-closed at the broker.");
+        setResult({ ok: true, text: j.paper ? "Paper trades closed at market through the engine that holds them — results booked to the demo balance." : "Close-all accepted by the broker — the book refreshes in a moment." });
+        notify("Close-all verified", j.paper ? "Every running paper trade was closed and booked." : "All open positions were market-closed at the broker.");
       } else {
         setResult({ ok: false, text: j.error ?? "Broker refused the close-all request." });
         voiceEnergy.errorPulse();
@@ -174,10 +174,10 @@ export function QuickActions({
           tp: hasTp ? tpNum : null,
         }),
       });
-      const j = (await res.json()) as { ok?: boolean; error?: string };
+      const j = (await res.json()) as { ok?: boolean; error?: string; paper?: boolean };
       if (j.ok) {
-        setResult({ ok: true, text: "SL/TP amendment accepted by the broker." });
-        notify("SL/TP updated", "The broker confirmed the amended levels.");
+        setResult({ ok: true, text: j.paper ? "SL/TP moved on the running trade — the engine, trade book and chart now use the new levels." : "SL/TP amendment accepted by the broker." });
+        notify("SL/TP updated", j.paper ? "The EA now manages the trade with the new levels." : "The broker confirmed the amended levels.");
         setModOpen(false);
       } else {
         setResult({ ok: false, text: j.error ?? "The broker refused the SL/TP amendment." });
@@ -243,7 +243,7 @@ export function QuickActions({
             <AlertDialogHeader>
               <AlertDialogTitle className="text-[13px]" style={{ color: C.txt }}>Close ALL open positions?</AlertDialogTitle>
               <AlertDialogDescription className="text-[11px]" style={{ color: C.label }}>
-                {positions.length} position{positions.length === 1 ? "" : "s"} will be market-closed at the broker right now — including any manual trades.
+                {positions.length} position{positions.length === 1 ? "" : "s"} will be market-closed right now{live ? " at the broker — including any manual trades" : " at the current price and booked to the demo balance"}.
                 This cannot be undone. The EA stays {state.enabled ? "running" : "stopped"}.
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -302,7 +302,7 @@ export function QuickActions({
         ) : acctErr ? (
           "Broker book unreachable — actions stay disabled-safe and retry continues."
         ) : (
-          "Paper mode: the EA manages one simulated position; broker-wide actions activate on a live account."
+          "Paper mode: these actions act on the running paper trade (EA bot, Scanner Bot, scanner or sweep) — on a live account they go to the broker."
         )}
       </div>
 

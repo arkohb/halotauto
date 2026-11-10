@@ -20,7 +20,7 @@
 //  ⚠ Presentation layer only — the live strategy / EA is never touched.
 // ════════════════════════════════════════════════════════════════════════
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CandlestickSeries,
@@ -42,10 +42,20 @@ import {
 import type { Candle, HaloConfig, LevelSnapshot, TradeSnapshot } from "@/lib/halo/types";
 import { C, fmtPx, type PineOverlayData } from "@/lib/halo/ui-helpers";
 import type { LogEntry } from "@/lib/halo/types";
-import { subscribeLiveBars, type LiveBar, type LiveFeedKind } from "@/lib/halo/live-feed";
+import {
+  derivViewOffset,
+  getDerivPriceBasis,
+  setDerivPriceBasis,
+  subscribeDerivView,
+  subscribeLiveBars,
+  type DerivPriceBasis,
+  type LiveBar,
+  type LiveFeedKind,
+} from "@/lib/halo/live-feed";
 import { publishLivePrice } from "@/lib/halo/live-price";
 import { SYMBOL_GROUPS, symbolsByGroup, tfSec, TIMEFRAMES, VENUES, venueGroupLabel, symbolsByVenueGroup, type Venue } from "@/lib/market-symbols";
 import { ZoneOverlay, type ZoneRectSpec } from "./lwc-zone";
+import { PineDrawOverlay } from "./lwc-pine";
 import { TvChart } from "./tv-chart";
 import { TvSignalOverlay } from "./tv-signal-overlay";
 import { IndicatorRail } from "./indicator-rail";
@@ -98,6 +108,59 @@ interface LevelLines {
   priceLines: IPriceLine[];
 }
 
+/** a trade that just hit TP / SL — its position boxes are frozen at the exit bar */
+interface ClosedTrade {
+  t: TradeSnapshot;
+  symbol: string;
+  tf: string;
+  /** open time (ms) of the candle the trade closed on */
+  exitTime: number;
+  hit: "TP" | "SL" | "CLOSED";
+}
+
+/** open time of the candle that contains `ms` (trades fire mid-candle; the
+ * box must anchor to a real bar or lightweight-charts can't place it) */
+function barAtOrBefore(candles: Candle[], ms: number): number {
+  if (candles.length === 0 || ms <= candles[0].time) return candles.length > 0 ? Math.max(ms, candles[0].time) : ms;
+  let lo = 0;
+  let hi = candles.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (candles[mid].time <= ms) lo = mid;
+    else hi = mid - 1;
+  }
+  return candles[lo].time;
+}
+
+/** TradingView-style position tool: profit box entry→TP, risk box entry→SL,
+ * from the entry candle to `t2` (the live candle, or the exit candle once closed) */
+function positionRects(t: TradeSnapshot, t1: number, t2: number, closed: boolean): ZoneRectSpec[] {
+  const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129"; // SELL profits below entry
+  const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69"; // risk sits the other way
+  const fillA = closed ? "0.08" : "0.13";
+  const lineA = closed ? "0.25" : "0.35";
+  return [
+    { t1, t2, capAtLastBar: true, p1: Math.min(t.entry, t.tp), p2: Math.max(t.entry, t.tp), fill: `rgba(${profitCol},${fillA})`, border: `rgba(${profitCol},${lineA})`, dashed: closed },
+    { t1, t2, capAtLastBar: true, p1: Math.min(t.entry, t.sl), p2: Math.max(t.entry, t.sl), fill: `rgba(${riskCol},${fillA})`, border: `rgba(${riskCol},${lineA})`, dashed: closed },
+  ];
+}
+
+function exitMarker(c: ClosedTrade): SeriesMarker<Time> | null {
+  if (c.hit === "CLOSED") {
+    return { time: (c.exitTime / 1000) as UTCTimestamp, position: "inBar", shape: "square", text: "CLOSED", color: "#8A97AD", size: 1.5 };
+  }
+  const tpSide = c.t.dir === -1 ? "belowBar" : "aboveBar";
+  const slSide = c.t.dir === -1 ? "aboveBar" : "belowBar";
+  return {
+    time: (c.exitTime / 1000) as UTCTimestamp,
+    position: c.hit === "TP" ? tpSide : slSide,
+    shape: "square",
+    text: c.hit === "TP" ? `TP HIT +${c.t.rewardPips.toFixed(0)}p` : `SL HIT −${c.t.riskPips.toFixed(0)}p`,
+    color: c.hit === "TP" ? "#089981" : "#F23645",
+    size: 1.5,
+  };
+}
+
 function sideColor(side: number, alpha: string): string {
   const rgb = side === -1 ? "242,54,69" : "8,153,129";
   return `rgba(${rgb},${alpha})`;
@@ -122,7 +185,89 @@ const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator
 const VENUE_KEY = "halo3el.chartvenue.v1"; // broker filter for the pair picker
 const LEVELS_KEY = "halo3el.chartlevels.v2"; // "current" (default) | "all"
 
+// ── PRICE BASIS · BID (Deriv MT5) or MID (Deriv web trader) ─────────────
+// Deriv candles are built on the MID quote; the MT5 terminal draws BID.
+// In BID view the live stream already shifts its bars (live-feed.ts); this
+// wrapper shifts everything else the chart draws from engine data by the
+// same half-spread — polled candles, levels, trade lines, price — so lines
+// stay on the wicks they came from. Display only: orders, the journal and
+// the engine keep Deriv's mid prices.
+interface BasisProps {
+  priceBasis: DerivPriceBasis;
+  /** amount subtracted from mid prices in this view (0 = none) */
+  basisShift: number;
+}
+
+function shiftTrade(t: TradeSnapshot | null, d: number): TradeSnapshot | null {
+  if (!t || !d) return t;
+  return {
+    ...t,
+    entry: t.entry - d,
+    sl: t.sl - d,
+    tp: t.tp - d,
+    ext: t.ext - d,
+    levelTop: t.levelTop - d,
+    levelBot: t.levelBot - d,
+    trigger: t.trigger - d,
+    ...(t.origSl != null ? { origSl: t.origSl - d } : {}),
+  };
+}
+
+
+/** one candle per timeframe slot: a bar stamped off the grid (a second feed
+ *  anchoring its buckets a minute later) folds into its slot instead of being
+ *  drawn as a second candle beside the real one */
+function gridCandles<T extends { time: number; open: number; high: number; low: number; close: number }>(bars: T[], tf: string): T[] {
+  const ms = tfSec(tf) * 1000;
+  if (!(ms > 0) || ms >= 86_400_000) return bars;
+  const out: T[] = [];
+  for (const b of bars) {
+    const t = Math.floor(b.time / ms) * ms;
+    const prev = out[out.length - 1];
+    if (prev && prev.time === t) {
+      // keep the on-grid bar's open, widen the range, latest close
+      out[out.length - 1] = { ...prev, high: Math.max(prev.high, b.high), low: Math.min(prev.low, b.low), close: b.close };
+    } else if (!prev || t > prev.time) {
+      out.push({ ...b, time: t });
+    }
+  }
+  return out;
+}
+
 export default function ChartPanel(props: ChartProps) {
+  const priceBasis = useSyncExternalStore(subscribeDerivView, getDerivPriceBasis, () => "mid" as DerivPriceBasis);
+  const d = useSyncExternalStore(subscribeDerivView, () => derivViewOffset(props.symbol), () => 0);
+  const { candles, drawings, trade, price, pinePosition, scanLock } = props;
+  const sCandles = useMemo(
+    () => (d ? candles.map((c) => ({ ...c, open: c.open - d, high: c.high - d, low: c.low - d, close: c.close - d })) : candles),
+    [candles, d]
+  );
+  const sDrawings = useMemo(
+    () => (d ? drawings.map((l) => ({ ...l, top: l.top - d, bot: l.bot - d, ext: l.ext - d, c1Close: l.c1Close - d, c2Open: l.c2Open - d })) : drawings),
+    [drawings, d]
+  );
+  const sTrade = useMemo(() => shiftTrade(trade, d), [trade, d]);
+  const sPine = useMemo(
+    () => (d && pinePosition ? { ...pinePosition, entry: pinePosition.entry - d, sl: pinePosition.sl != null ? pinePosition.sl - d : null, tp: pinePosition.tp != null ? pinePosition.tp - d : null } : pinePosition),
+    [pinePosition, d]
+  );
+  const sLock = useMemo(() => (d && scanLock ? { ...scanLock, entry: scanLock.entry - d, sl: scanLock.sl - d, tp: scanLock.tp - d } : scanLock), [scanLock, d]);
+  return (
+    <ChartPanelView
+      {...props}
+      candles={sCandles}
+      drawings={sDrawings}
+      trade={sTrade}
+      price={d && price > 0 ? price - d : price}
+      pinePosition={sPine}
+      scanLock={sLock}
+      priceBasis={priceBasis}
+      basisShift={d}
+    />
+  );
+}
+
+function ChartPanelView(props: ChartProps & BasisProps) {
   const {
     candles, drawings, log, trade: engineTrade, mintick, symbol, tf, source, statusLine, routing,
     enabled, autoAttach, busy, onToggleBot, onSymbol, onTf, cfg, atr, price, pineStrategy, pinePosition, scanLock,
@@ -212,6 +357,12 @@ export default function ChartPanel(props: ChartProps) {
   // the position tool also draws a replayed / untraded SIGNAL position (labelled
   // as such); every "open position" readout uses the booked trade only
   const bookedTrade = trade && trade.traded !== false ? trade : null;
+  // LAST CLOSED TRADE — when the running trade hits TP or SL its position
+  // boxes FREEZE at the exit candle (they stop following the candles) and
+  // stay on the chart until the next trade fires or the chart moves to
+  // another symbol / timeframe.
+  const [closedTrade, setClosedTrade] = useState<ClosedTrade | null>(null);
+  const [openSeen, setOpenSeen] = useState<{ key: string; t: TradeSnapshot; symbol: string; tf: string } | null>(null);
   const liveCandle = candles.length > 0 ? candles[candles.length - 1] : undefined;
   const forming = useMemo(() => c3FormCheck(liveCandle, freshLevels, atr, cfg), [liveCandle, freshLevels, atr, cfg]);
   const bestForm = bestC3Form(forming);
@@ -367,7 +518,11 @@ export default function ChartPanel(props: ChartProps) {
       const now = Date.now();
       if (!force && now - lastPush < 400) return;
       lastPush = now;
-      setLiveBar({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 });
+      // low priority: the price above must paint on THIS tick; the chart's
+      // own re-render (overlays, rail, timer) is heavy and must never ride
+      // along in the price's synchronous update — it measured ~170 ms per
+      // tick of added price lag before this
+      startTransition(() => setLiveBar({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close, volume: 0 }));
     };
     // ── frame-coalesced candle drawing ──
     // the trade stream can push dozens of updates per second; drawing the
@@ -421,7 +576,7 @@ export default function ChartPanel(props: ChartProps) {
         const chart = chartRef.current;
         if (!s || !chart) return;
         s.setData(
-          bars.map((b) => ({
+          gridCandles(bars, tf).map((b) => ({
             time: (b.time / 1000) as UTCTimestamp,
             open: b.open,
             high: b.high,
@@ -463,7 +618,7 @@ export default function ChartPanel(props: ChartProps) {
     const chart = chartRef.current;
     if (!s || !chart || candles.length === 0) return;
     s.setData(
-      candles.map((c) => ({
+      gridCandles(candles, tf).map((c) => ({
         time: (c.time / 1000) as UTCTimestamp,
         open: c.open,
         high: c.high,
@@ -526,6 +681,29 @@ export default function ChartPanel(props: ChartProps) {
     if (px > 0) applyLiveMark(liveMarkRef.current, px);
   }, [bookedTrade, liveBar, liveStat.active, price, mintick, cfg.pipMult, mode]);
 
+  // ── trade open → closed: freeze the position boxes at the exit candle ──
+  // (React "adjust state while rendering" — no effect round-trip.) A new
+  // trade replaces the frozen one (its boxes follow the candles again).
+  // Moving to another symbol / tf while a trade is open is NOT a close —
+  // the trade is simply drawn on its own chart.
+  const openKey = bookedTrade ? `${symbol}|${tf}|${bookedTrade.entryTime}|${bookedTrade.entry}|${bookedTrade.sl}|${bookedTrade.tp}` : null;
+  if (openKey && openSeen?.key !== openKey && bookedTrade) {
+    setOpenSeen({ key: openKey, t: bookedTrade, symbol, tf });
+  } else if (!openKey && openSeen) {
+    setOpenSeen(null);
+    if (openSeen.symbol === symbol && openSeen.tf === tf) {
+      const t = openSeen.t;
+      const px = liveBar?.close ?? (price > 0 ? price : liveCandle?.close ?? 0);
+      const dTp = Math.abs(px - t.tp);
+      const dSl = Math.abs(px - t.sl);
+      const near = Math.abs(t.entry - t.sl) * 0.35; // within ~⅓R of a level = hit
+      const hit: ClosedTrade["hit"] = px > 0 && Math.min(dTp, dSl) <= near ? (dTp <= dSl ? "TP" : "SL") : "CLOSED";
+      const exitTime = Math.max(seriesWin?.last ?? 0, liveCandle?.time ?? 0) || Date.now();
+      setClosedTrade({ t, symbol, tf, exitTime, hit });
+    }
+  }
+  const frozen = closedTrade && closedTrade.symbol === symbol && closedTrade.tf === tf ? closedTrade : null;
+
   // overlays: level zones + trigger lines + position tool + markers
   useEffect(() => {
     if (mode !== "3el") return;
@@ -551,12 +729,16 @@ export default function ChartPanel(props: ChartProps) {
     if (pineOverlayActive) {
       const t = trade && trade.traded !== false ? trade : null;
       const rects: ZoneRectSpec[] = [];
+      const pineMarkers: SeriesMarker<Time>[] = [];
+      if (!t && frozen) {
+        const t1 = barAtOrBefore(candles, frozen.t.entryTime);
+        rects.push(...positionRects(frozen.t, t1, Math.max(frozen.exitTime, t1), true));
+        const m = exitMarker(frozen);
+        if (m && inWin(frozen.exitTime)) pineMarkers.push(m);
+      }
       if (t) {
-        const liveT = Math.max(win.last, t.entryTime);
-        const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129";
-        const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69";
-        rects.push({ t1: t.entryTime, t2: liveT, capAtLastBar: true, p1: Math.min(t.entry, t.tp), p2: Math.max(t.entry, t.tp), fill: `rgba(${profitCol},0.13)`, border: `rgba(${profitCol},0.35)` });
-        rects.push({ t1: t.entryTime, t2: liveT, capAtLastBar: true, p1: Math.min(t.entry, t.sl), p2: Math.max(t.entry, t.sl), fill: `rgba(${riskCol},0.13)`, border: `rgba(${riskCol},0.35)` });
+        const t1 = barAtOrBefore(candles, t.entryTime);
+        rects.push(...positionRects(t, t1, Math.max(win.last, t1), false));
         overlayRef.current.priceLines.push(
           cs.createPriceLine({ price: t.entry, color: C.gold, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title: `ENTRY ${fmtPx(t.entry, mintick)}` }),
           cs.createPriceLine({ price: t.sl, color: C.red, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: `SL −${t.riskPips.toFixed(0)}p` }),
@@ -565,7 +747,7 @@ export default function ChartPanel(props: ChartProps) {
       }
       zone.rects = rects;
       zone.requestUpdate();
-      mk.setMarkers([]);
+      mk.setMarkers(pineMarkers);
       return;
     }
 
@@ -692,29 +874,16 @@ export default function ChartPanel(props: ChartProps) {
     // current (forming) bar and advances as each new candle opens —
     // covering that candle fully (capAtLastBar) — but never stretches
     // into the empty future space right of the last bar.
+    // Once the trade hits TP / SL the boxes FREEZE at the exit candle
+    // (dashed, dimmer) until the next trade fires.
     const t = shownTrade;
+    if (!t && frozen) {
+      const t1 = barAtOrBefore(candles, frozen.t.entryTime);
+      zoneRects.push(...positionRects(frozen.t, t1, Math.max(frozen.exitTime, t1), true));
+    }
     if (t) {
-      const liveT = Math.max(win.last, t.entryTime);
-      const profitCol = t.dir === -1 ? "242,54,69" : "8,153,129"; // SELL profits below entry
-      const riskCol = t.dir === -1 ? "8,153,129" : "242,54,69"; // risk sits the other way
-      zoneRects.push({
-        t1: t.entryTime,
-        t2: liveT,
-        capAtLastBar: true,
-        p1: Math.min(t.entry, t.tp),
-        p2: Math.max(t.entry, t.tp),
-        fill: `rgba(${profitCol},0.13)`,
-        border: `rgba(${profitCol},0.35)`,
-      });
-      zoneRects.push({
-        t1: t.entryTime,
-        t2: liveT,
-        capAtLastBar: true,
-        p1: Math.min(t.entry, t.sl),
-        p2: Math.max(t.entry, t.sl),
-        fill: `rgba(${riskCol},0.13)`,
-        border: `rgba(${riskCol},0.35)`,
-      });
+      const t1 = barAtOrBefore(candles, t.entryTime);
+      zoneRects.push(...positionRects(t, t1, Math.max(win.last, t1), false));
       overlayRef.current.priceLines.push(
         cs.createPriceLine({
           price: t.entry,
@@ -819,9 +988,15 @@ export default function ChartPanel(props: ChartProps) {
       }
     }
 
+    // ── 6. exit marker on the candle where the frozen trade hit TP / SL ──
+    if (!shownTrade && frozen && !allLevels && inWin(frozen.exitTime)) {
+      const m = exitMarker(frozen);
+      if (m) markers.push(m);
+    }
+
     markers.sort((a, b) => (a.time as number) - (b.time as number));
     mk.setMarkers(markers);
-  }, [drawings, log, trade, pineOverlayActive, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin, allLevels]);
+  }, [drawings, log, trade, pineOverlayActive, mintick, candles, mode, forming, bestForm, liveCandle, seriesWin, allLevels, frozen]);
 
   // ── PINE STRATEGY OVERLAY · the active custom indicator draws itself here ──
   // loaded overlay, keyed by the strategy/symbol/tf it belongs to — a switch
@@ -833,6 +1008,7 @@ export default function ChartPanel(props: ChartProps) {
   const pineSeriesRef = useRef<Array<ISeriesApi<"Line"> | ISeriesApi<"Histogram">>>([]);
   const pineMarkersRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const pinePriceLinesRef = useRef<Array<{ s: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | ISeriesApi<"Candlestick">; pl: IPriceLine }>>([]);
+  const pineDrawRef = useRef<{ s: ISeriesApi<"Line"> | ISeriesApi<"Histogram"> | ISeriesApi<"Candlestick">; prim: PineDrawOverlay } | null>(null);
 
   // Primitive deps only — the parent re-creates the pineStrategy object on
   // every state poll, and the (expensive, 400-bar) preview must NOT refetch
@@ -855,9 +1031,9 @@ export default function ChartPanel(props: ChartProps) {
       }
       try {
         const r = await fetch(`/api/strategies/${pineId}/preview?symbol=${symbol}&tf=${tf}&limit=400`, { cache: "no-store" });
-        const j = (await r.json()) as { ok: boolean; plots?: PineOverlayData["plots"]; markers?: PineOverlayData["markers"]; hlines?: PineOverlayData["hlines"]; inputs?: PineOverlayData["inputs"]; name?: string };
+        const j = (await r.json()) as { ok: boolean; plots?: PineOverlayData["plots"]; markers?: PineOverlayData["markers"]; hlines?: PineOverlayData["hlines"]; inputs?: PineOverlayData["inputs"]; name?: string; drawings?: PineOverlayData["drawings"]; overlay?: boolean };
         if (stale) return;
-        setPineData(loadKey, j.ok ? { plots: j.plots ?? [], markers: j.markers ?? [], hlines: j.hlines ?? [], inputs: j.inputs ?? [], name: j.name ?? pineName } : null);
+        setPineData(loadKey, j.ok ? { plots: j.plots ?? [], markers: j.markers ?? [], hlines: j.hlines ?? [], inputs: j.inputs ?? [], name: j.name ?? pineName, drawings: j.drawings, overlay: j.overlay } : null);
         // success → refresh on the next candles poll cycle; failure (cold feed /
         // transient 5xx) → quick retry so the attached indicator appears as
         // soon as the feed warms. 20 s keeps the indicator's last bars close
@@ -896,6 +1072,14 @@ export default function ChartPanel(props: ChartProps) {
       }
     }
     pinePriceLinesRef.current = [];
+    if (pineDrawRef.current) {
+      try {
+        pineDrawRef.current.s.detachPrimitive(pineDrawRef.current.prim as unknown as ISeriesPrimitive<Time>);
+      } catch {
+        // series already removed
+      }
+      pineDrawRef.current = null;
+    }
     if (pineMarkersRef.current) {
       pineMarkersRef.current.setMarkers([]);
     }
@@ -977,6 +1161,21 @@ export default function ChartPanel(props: ChartProps) {
     }));
     if (!pineMarkersRef.current) pineMarkersRef.current = createSeriesMarkers(cs, []);
     pineMarkersRef.current.setMarkers(mkPine);
+
+    // Pine drawings (line / box / label / table / fill / bgcolor) on a canvas
+    // primitive: overlay scripts on the price pane, pane scripts on their pane
+    const dr = pineData.drawings;
+    const hasDrawings = !!dr && (dr.lines.length + dr.boxes.length + dr.labels.length + dr.linefills.length + dr.polylines.length + dr.tables.length + dr.bgcolors.length + dr.fills.length > 0);
+    const drawTarget = pineData.overlay === false ? firstPaneSeries : cs;
+    if (hasDrawings && drawTarget) {
+      const prim = new PineDrawOverlay();
+      prim.data = dr!;
+      prim.setPlots(pineData.plots);
+      prim.topInset = drawTarget === cs ? 44 : 0;
+      prim.getBars = () => cs.data().map((b) => b.time as number);
+      drawTarget.attachPrimitive(prim as unknown as ISeriesPrimitive<Time>);
+      pineDrawRef.current = { s: drawTarget, prim };
+    }
   }, [pineData, candles, mode, pineStrategy]);
 
   const heightCls = "h-[380px] sm:h-[440px] xl:h-[540px]";
@@ -1119,6 +1318,33 @@ export default function ChartPanel(props: ChartProps) {
           >
             {allLevels ? "ALL LEVELS" : "CURRENT"}
           </button>
+          {liveStat.kind === "deriv" && (
+            <div
+              className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95"
+              title={
+                props.priceBasis === "bid"
+                  ? `BID — matches the Deriv MT5 chart (mid − ${props.basisShift || "half spread"}). Orders and the journal use Deriv's mid price.`
+                  : "MID — matches Deriv's web trading chart (the mid quote)."
+              }
+            >
+              {(["bid", "mid"] as DerivPriceBasis[]).map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setDerivPriceBasis(b)}
+                  aria-pressed={props.priceBasis === b}
+                  aria-label={b === "bid" ? "Show bid prices, like the Deriv MT5 chart" : "Show mid prices, like Deriv's web trading chart"}
+                  className="px-2 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+                  style={{
+                    color: props.priceBasis === b ? C.navy : C.muted,
+                    background: props.priceBasis === b ? C.cyan : "transparent",
+                  }}
+                >
+                  {b.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur">
             {(
               [

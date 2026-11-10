@@ -26,10 +26,12 @@ import { DEFAULT_CONFIG, type HaloConfig } from "./halo/types";
 import { getKlines, getSymbolMeta, tfSec } from "./market";
 import { clampConfig } from "./bot";
 import { SYMBOLS, decimalsOf } from "./market-symbols";
+import { isTradableSymbol } from "./trading-universe";
 import { executeFire, loadExecSettings, resolveBroker, closeBrokerPosition } from "./execution";
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant, type TradeLockState } from "./trade-lock";
+import { rowPositionHooks } from "./runtime-positions";
 import { liveTradeManager } from "./edge/settings";
 import { applyManageLive } from "./edge/trade-manager";
 
@@ -108,16 +110,8 @@ registerLockParticipant({
     for (const row of rt().rows.values()) n += row.engine.clearArmedLevels(time);
     return n;
   },
-  forceClose: async () => {
-    let closed = false;
-    for (const row of rt().rows.values()) {
-      if (!row.openTradeDbId || !row.engine.snapshot().trade) continue;
-      const px = row.lastPrice || row.engine.snapshot().trade!.entry;
-      await handleEvents(row, row.engine.forceClose(px, Date.now()));
-      closed = true;
-    }
-    return closed;
-  },
+  // forceClose + the running trade's book/close/amend hooks (Trading Activity)
+  ...rowPositionHooks("SWEEP", () => rt().rows.values(), (row, ev) => handleEvents(row, ev)),
 });
 
 async function loadSweepConfig(): Promise<{ enabled: boolean; autoTrade: boolean }> {
@@ -185,6 +179,7 @@ function makeRow(symbol: string, tf: string, cfg: HaloConfig, hash: string): Swe
 function buildOrder(): string[] {
   const out: string[] = [];
   for (const s of SYMBOLS) {
+    if (!isTradableSymbol(s.id)) continue; // trading universe only (gold for now)
     for (const tf of SWEEP_TFS) out.push(rowKey(s.id, tf));
   }
   return out;

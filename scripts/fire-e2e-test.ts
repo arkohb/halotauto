@@ -13,6 +13,9 @@ const dir = mkdtempSync(path.join(tmpdir(), "halo-fire-"));
 const dbFile = path.join(dir, "test.db");
 copyFileSync(path.join(process.cwd(), "db/custom.db"), dbFile);
 process.env.DATABASE_URL = `file:${dbFile}`;
+// gold is the live trading universe, but its market is closed at weekends —
+// the fire tests run on V75 (Deriv, 24/7); V10 stays OUTSIDE to test refusal
+process.env.HALO_TRADING_SYMBOLS = "XAUUSD,V75";
 
 let fails = 0;
 const ok = (c: boolean, m: string, extra?: unknown) => {
@@ -74,6 +77,20 @@ async function main() {
   ok(c?.status === "LOSS" && Math.abs((c?.resultPips ?? 0) - 125) < 1e-6, "a price far past SL is bounded at the SL: −125 pips", c);
   await db.trade.updateMany({ where: { id: { in: ["tv_a", "tv_b", "tv_c"] } }, data: { pnlBooked: true } });
   await db.paperAccount.deleteMany({});
+
+  // ── 1b · trading universe ────────────────────────────────────────────
+  console.log("\n— 1b · trading universe —");
+  const uni = await import("../src/lib/trading-universe");
+  ok(uni.isTradableSymbol("XAUUSD") && !uni.isTradableSymbol("EURUSD"), `universe is ${uni.tradingUniverseLabel()} — EURUSD is not traded`);
+  const { executeFire } = await import("../src/lib/execution");
+  const kv = await getKlines("V10", "1m", 5, { fresh: true });
+  const pv = kv.candles[kv.candles.length - 1].close;
+  const refused = await executeFire({
+    source: "SCAN", symbol: "V10", tf: "1m", levelTop: pv, levelBot: pv, slModeLabel: "test", exec: await loadExecSettings(),
+    fire: { type: "fire", dir: 1, entry: pv, sl: pv * 0.998, tp: pv * 1.006, risk: pv * 0.002, riskPips: 10, rewardPips: 30, levelTop: pv, levelBot: pv, ext: pv, time: Date.now(), message: "universe test" },
+  });
+  const v10Rows = await db.trade.count({ where: { symbol: "V10", createdAt: { gte: new Date(Date.now() - 60_000) } } });
+  ok(refused === null && v10Rows === 0 && lockMod.getTradeLock() === null, "a fire outside the universe is refused: no trade row, no lock");
 
   // ── 2 · Scanner Bot fire ─────────────────────────────────────────────
   console.log("\n— 2 · Scanner Bot fire (V75 1m, real Deriv prices) —");

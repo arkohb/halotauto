@@ -1,11 +1,11 @@
 "use client";
 
 import { TrendingUp } from "lucide-react";
-import { C, fmtPx, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { C, fmtPx, fmtPips, runPips, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { PanelCard } from "./panel";
 
 export function TradeCard({ state }: { state: BotStateRes }) {
-  const t = state.engine.trade;
+  const t = openTrade(state);
   const rp = runPips(state);
   const pip = state.mintick * state.config.pipMult;
 
@@ -33,7 +33,7 @@ export function TradeCard({ state }: { state: BotStateRes }) {
           <span className="rounded px-2 py-0.5 text-xs font-bold text-white" style={{ background: dirBg }}>
             {t.dir === -1 ? "SELL ▼" : "BUY ▲"}
           </span>
-          <span className="text-xs" style={{ color: C.muted }}>{t.slModeLabel} stop</span>
+          <span className="text-xs" style={{ color: C.muted }}>{t.source ? `${t.slModeLabel} trade` : `${t.slModeLabel} stop`}</span>
           <span className="text-xs font-mono" style={{ color: runCol }}>
             RUN {rp === null ? "—" : fmtPips(rp)} pips
           </span>
@@ -54,10 +54,14 @@ export function TradeCard({ state }: { state: BotStateRes }) {
           sub={`+${t.rewardPips.toFixed(1)} pips`}
           color={C.green}
         />
-        <Cell label="LEVEL ZONE" value={`${fmtPx(t.levelBot, state.mintick)} → ${fmtPx(t.levelTop, state.mintick)}`} small />
+        {t.source ? (
+          <Cell label="FIRED BY" value={`${t.slModeLabel.split(" ")[0]} · ${t.symbol ?? ""} ${(t.tf ?? "").toUpperCase()}`} small />
+        ) : (
+          <Cell label="LEVEL ZONE" value={`${fmtPx(t.levelBot, state.mintick)} → ${fmtPx(t.levelTop, state.mintick)}`} small />
+        )}
         <Cell
           label="RISK : REWARD"
-          value={`1 : ${state.config.rrMult.toFixed(1)}`}
+          value={`1 : ${(t.riskPips > 0 ? t.rewardPips / t.riskPips : state.config.rrMult).toFixed(1)}`}
           sub={pip ? `${t.risk.toFixed(state.mintick >= 0.01 ? 2 : 4)} risk` : undefined}
           color={C.gold}
         />

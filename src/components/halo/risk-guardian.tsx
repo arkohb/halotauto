@@ -9,7 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { ShieldCheck } from "lucide-react";
-import { A, C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPips, runPips, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { CheckRow, PanelCard, Pill, StatCell } from "./panel";
 import { RiskShield, type ShieldLevel } from "./risk-shield";
 
@@ -152,8 +152,8 @@ export function RiskGuardian({ state }: { state: BotStateRes }) {
           />
           <StatCell
             label="Run P/L"
-            value={state.engine.trade && rp !== null ? fmtPips(rp) : "—"}
-            color={state.engine.trade && rp !== null ? (rp >= 0 ? C.green : C.red) : C.muted}
+            value={openTrade(state) && rp !== null ? fmtPips(rp) : "—"}
+            color={openTrade(state) && rp !== null ? (rp >= 0 ? C.green : C.red) : C.muted}
           />
           <StatCell
             label="Routing"

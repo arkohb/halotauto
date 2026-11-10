@@ -77,3 +77,57 @@ export async function applyManageLive(ev: ManageEvent, opts: { tradeDbId: string
     return { broker: "failed", note: (e as Error).message.slice(0, 240) };
   }
 }
+
+/**
+ * Operator SL/TP amendment (Quick Actions → MODIFY SL/TP) for a trade an EA
+ * runtime holds. Checks the new levels against the live price, writes the
+ * book, mirrors to the broker on live trades (MT5 / OANDA), and only then
+ * lets the caller move the engine's stops.
+ */
+export function validateStops(
+  dir: -1 | 1,
+  price: number,
+  cur: { sl: number; tp: number },
+  sl: number | null,
+  tp: number | null
+): { ok: true; sl: number; tp: number } | { ok: false; error: string } {
+  const nsl = sl ?? cur.sl;
+  const ntp = tp ?? cur.tp;
+  if (!(nsl > 0) || !(ntp > 0) || !isFinite(nsl) || !isFinite(ntp)) return { ok: false, error: "Enter a valid SL and/or TP price." };
+  if (price > 0) {
+    if (dir === 1 && !(nsl < price && ntp > price)) return { ok: false, error: `For a BUY the SL must be below and the TP above the current price (${price}).` };
+    if (dir === -1 && !(nsl > price && ntp < price)) return { ok: false, error: `For a SELL the SL must be above and the TP below the current price (${price}).` };
+  } else if (dir === 1 ? !(nsl < ntp) : !(nsl > ntp)) {
+    return { ok: false, error: "SL and TP are on the wrong sides for this trade." };
+  }
+  return { ok: true, sl: nsl, tp: ntp };
+}
+
+export async function applyStopsAmend(opts: {
+  tradeDbId: string;
+  broker: ActiveBroker | null;
+  symbol: string;
+  dir: -1 | 1;
+  sl: number;
+  tp: number;
+}): Promise<{ ok: boolean; error?: string; broker: string }> {
+  const b = opts.broker;
+  if (b) {
+    const adapter = getAdapter(b.kind);
+    if (!adapter.modifyPosition) return { ok: false, error: `${b.label} has no SL/TP amend API here`, broker: "failed" };
+    try {
+      const creds = parseCreds(b.credsJson);
+      const positions = (await adapter.getPositions(creds, opts.symbol)).filter((p) => p.side === opts.dir);
+      const targets = positions.some((p) => p.ea) ? positions.filter((p) => p.ea) : positions;
+      if (targets.length === 0) return { ok: false, error: "no matching open position found at the broker", broker: "failed" };
+      for (const p of targets) {
+        const r = await adapter.modifyPosition(creds, p.id, { sl: opts.sl, tp: opts.tp });
+        if (!r.ok) return { ok: false, error: r.error ?? "the broker refused the amendment", broker: "failed" };
+      }
+    } catch (e) {
+      return { ok: false, error: (e as Error).message.slice(0, 240), broker: "failed" };
+    }
+  }
+  await db.trade.update({ where: { id: opts.tradeDbId }, data: { sl: opts.sl, tp: opts.tp } });
+  return { ok: true, broker: b ? `sent to ${b.label}` : "paper" };
+}

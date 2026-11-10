@@ -2,7 +2,7 @@
 import { chromium } from "playwright";
 
 const URL = process.env.HALO_URL ?? "http://localhost:3000";
-const EMAIL = process.env.HALO_E2E_EMAIL ?? "bismark@halotrader.com";
+const EMAIL = process.env.HALO_E2E_EMAIL ?? "beamark54@gmail.com";
 const PASSWORD = process.env.HALO_E2E_PASSWORD ?? "HALO-cJE4-SnYV-26";
 
 const loginRes = await fetch(`${URL}/api/auth/login`, {

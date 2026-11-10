@@ -24,6 +24,11 @@ const PING_MS = 25_000;
 const MAX_COUNT = 5_000; // Deriv's per-request candle cap
 const SKIP_MS = 15 * 60_000; // unknown symbol → don't ask again for 15 min
 const CATALOG_TTL_MS = 30 * 60_000;
+// live candle subscriptions held in memory (bot / chart / scanner hot keys):
+// reads are instant and every Deriv tick lands here the moment it arrives
+const MAX_LIVE_SERIES = 24;
+const LIVE_IDLE_MS = 120_000;
+const LIVE_SEED = 600;
 
 type Msg = Record<string, unknown>;
 
@@ -41,12 +46,23 @@ interface DerivServerConn {
   resolved: Map<string, string>;
   /** internal id → skip-until epoch ms */
   skip: Map<string, number>;
+  /** `${code}|${sec}` → live subscribed candle series */
+  series: Map<string, LiveSeries>;
+  /** deriv code → tick listeners (push wake-ups) */
+  listeners: Map<string, Set<() => void>>;
+  sweep: ReturnType<typeof setInterval> | null;
+}
+
+interface LiveSeries {
+  bars: Candle[];
+  subId: string | null;
+  lastUse: number;
 }
 
 const g = globalThis as unknown as { __haloDerivServer?: DerivServerConn };
 
 function conn(): DerivServerConn {
-  return (g.__haloDerivServer ??= {
+  const c = (g.__haloDerivServer ??= {
     ws: null,
     opening: null,
     reqId: 0,
@@ -57,7 +73,28 @@ function conn(): DerivServerConn {
     catalogLoading: null,
     resolved: new Map(),
     skip: new Map(),
+    series: new Map(),
+    listeners: new Map(),
+    sweep: null,
   });
+  // a connection created by an older build (dev hot reload keeps globalThis)
+  // may predate newer fields — fill them in so reads never throw into the
+  // simulator fallback
+  if (!c.series) {
+    // older build: its socket carries the old message handler, which drops
+    // live candle updates — close it so the next read opens a fresh one
+    try {
+      c.ws?.close();
+    } catch {
+      // already closed
+    }
+    c.ws = null;
+    c.opening = null;
+  }
+  c.series ??= new Map();
+  c.listeners ??= new Map();
+  c.sweep ??= null;
+  return c;
 }
 
 function norm(s: string): string {
@@ -117,6 +154,11 @@ function open(c: DerivServerConn): Promise<WebSocket> {
       } catch {
         return;
       }
+      if (m.msg_type === "ohlc" && m.ohlc && !m.error) {
+        onOhlc(c, m.ohlc as OhlcMsg);
+        const pid = m.req_id as number | undefined;
+        if (!pid || !c.pending.has(pid)) return; // stream update — the first frame still resolves its request
+      }
       const id = m.req_id as number | undefined;
       if (!id) return;
       const p = c.pending.get(id);
@@ -144,6 +186,7 @@ function open(c: DerivServerConn): Promise<WebSocket> {
         c.ping = null;
       }
       failAll(c, "deriv: socket closed");
+      c.series.clear(); // subscriptions died with the socket — re-made on the next read
     };
   });
   return c.opening;
@@ -227,6 +270,92 @@ export async function derivCodeOf(symbol: string): Promise<string | null> {
   return null;
 }
 
+interface OhlcMsg {
+  symbol?: string;
+  granularity?: number;
+  open_time?: number;
+  open?: string | number;
+  high?: string | number;
+  low?: string | number;
+  close?: string | number;
+}
+
+function onOhlc(c: DerivServerConn, o: OhlcMsg): void {
+  if (!o.symbol || !o.granularity) return;
+  const s = c.series.get(`${o.symbol}|${o.granularity}`);
+  if (s) {
+    const bar: Candle = { time: Number(o.open_time) * 1000, open: Number(o.open), high: Number(o.high), low: Number(o.low), close: Number(o.close) };
+    if (isFinite(bar.time) && isFinite(bar.close)) {
+      const last = s.bars[s.bars.length - 1];
+      if (last && last.time === bar.time) s.bars[s.bars.length - 1] = bar;
+      else if (!last || bar.time > last.time) {
+        s.bars.push(bar);
+        if (s.bars.length > MAX_COUNT) s.bars.splice(0, s.bars.length - MAX_COUNT);
+      }
+    }
+  }
+  const ls = c.listeners.get(o.symbol);
+  if (ls) for (const fn of ls) {
+    try {
+      fn();
+    } catch {
+      // a listener must never break the feed
+    }
+  }
+}
+
+function forgetSeries(c: DerivServerConn, key: string): void {
+  const s = c.series.get(key);
+  c.series.delete(key);
+  if (s?.subId && c.ws && c.ws.readyState === WebSocket.OPEN) {
+    try {
+      c.ws.send(JSON.stringify({ forget: s.subId }));
+    } catch {
+      // socket dying anyway
+    }
+  }
+}
+
+function ensureSweep(c: DerivServerConn): void {
+  if (c.sweep) return;
+  c.sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [k, s] of [...c.series.entries()]) if (now - s.lastUse > LIVE_IDLE_MS) forgetSeries(c, k);
+  }, 30_000);
+  (c.sweep as unknown as { unref?: () => void }).unref?.();
+}
+
+function toCandles(rows: Array<{ epoch: number; open: number; high: number; low: number; close: number }>): Candle[] {
+  const out: Candle[] = [];
+  for (const r of rows) {
+    const bar = { time: Number(r.epoch) * 1000, open: Number(r.open), high: Number(r.high), low: Number(r.low), close: Number(r.close) };
+    if (isFinite(bar.time) && isFinite(bar.open) && isFinite(bar.high) && isFinite(bar.low) && isFinite(bar.close)) out.push(bar);
+  }
+  return out;
+}
+
+/**
+ * Wake `fn` on every Deriv tick of this symbol (any timeframe it streams).
+ * Used by the bot so the engine reacts the moment Deriv moves instead of on
+ * its next 2 s poll. Returns an unsubscribe.
+ */
+export function onDerivTick(symbol: string, fn: () => void): () => void {
+  const c = conn();
+  let code: string | null = null;
+  let dead = false;
+  void derivCodeOf(symbol).then((cd) => {
+    if (dead || !cd) return;
+    code = cd;
+    let set = c.listeners.get(cd);
+    if (!set) c.listeners.set(cd, (set = new Set()));
+    set.add(fn);
+  });
+  return () => {
+    dead = true;
+    if (code) c.listeners.get(code)?.delete(fn);
+  };
+}
+
 /**
  * Real OHLC candles for a Deriv synthetic index. Throws on any failure
  * (unreachable, unknown symbol, unsupported timeframe) so the caller can
@@ -243,10 +372,43 @@ export async function fetchDerivCandles(symbol: string, tf: string, limit: numbe
     c.skip.set(symbol, Date.now() + SKIP_MS);
     throw new Error("deriv: symbol not listed");
   }
+  const want = Math.max(1, Math.min(Math.round(limit), MAX_COUNT));
+  const key = `${code}|${sec}`;
+  const live = c.series.get(key);
+  // 1 · live subscription in memory — instant, current to the last tick
+  if (live && c.ws && c.ws.readyState === WebSocket.OPEN && live.bars.length >= Math.min(want, LIVE_SEED)) {
+    live.lastUse = Date.now();
+    if (want <= live.bars.length) return live.bars.slice(-want);
+  }
+  // 2 · open a live subscription for this key (LRU-capped)
+  if (!live) {
+    if (c.series.size >= MAX_LIVE_SERIES) {
+      const oldest = [...c.series.entries()].sort((x, y) => x[1].lastUse - y[1].lastUse)[0];
+      if (oldest) forgetSeries(c, oldest[0]);
+    }
+    const seed = Math.max(want, LIVE_SEED);
+    const sm = await call({ ticks_history: code, adjust_start_time: 1, count: seed, end: "latest", style: "candles", granularity: sec, subscribe: 1 });
+    const serr = sm.error as { code?: string; message?: string } | undefined;
+    if (!serr && Array.isArray(sm.candles) && sm.candles.length > 0) {
+      const bars = toCandles(sm.candles as Array<{ epoch: number; open: number; high: number; low: number; close: number }>);
+      const subId = (sm.subscription as { id?: string } | undefined)?.id ?? null;
+      if (bars.length > 0) {
+        c.series.set(key, { bars, subId, lastUse: Date.now() });
+        ensureSweep(c);
+        return bars.slice(-want);
+      }
+    }
+    if (serr && (serr.code === "InvalidSymbol" || serr.code === "InputValidationFailed")) {
+      c.skip.set(symbol, Date.now() + SKIP_MS);
+      throw new Error(`deriv: ${serr.code} ${serr.message ?? ""}`.trim());
+    }
+    // subscribe refused (e.g. market closed) — fall through to a one-shot read
+  }
+  // 3 · one-shot read (deeper than the live window, or no subscription)
   const m = await call({
     ticks_history: code,
     adjust_start_time: 1,
-    count: Math.max(1, Math.min(Math.round(limit), MAX_COUNT)),
+    count: want,
     end: "latest",
     style: "candles",
     granularity: sec,
@@ -270,5 +432,11 @@ export async function fetchDerivCandles(symbol: string, tf: string, limit: numbe
     if (isFinite(bar.time) && isFinite(bar.open) && isFinite(bar.high) && isFinite(bar.low) && isFinite(bar.close)) out.push(bar);
   }
   if (out.length === 0) throw new Error("deriv: no valid candles");
+  const held = c.series.get(key);
+  if (held) {
+    held.lastUse = Date.now();
+    const lastT = out[out.length - 1].time;
+    for (const b of held.bars) if (b.time > lastT) out.push(b);
+  }
   return out;
 }

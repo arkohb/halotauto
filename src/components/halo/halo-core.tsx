@@ -25,7 +25,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useRef, useState } from "react";
 import { Bot, Globe2, Radar, Radio, Settings2, Mic, Waves } from "lucide-react";
-import { A, C, fmtPx, type BotStateRes, type VoiceState } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPx, type BotStateRes, type VoiceState, openTrade } from "@/lib/halo/ui-helpers";
 import { PanelCard, TelemetryRow } from "./panel";
 import { useHaloVoice, type WakeState } from "./voice-provider";
 import { voiceEnergy } from "@/lib/halo/voice-energy";
@@ -100,9 +100,9 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
     const degraded = state.feed.source === "simulator" || note.includes("slow") || note.includes("error") || note.includes("unreachable");
     if (degraded) core = "warning";
     else if (!state.enabled) core = "standby";
-    else if (state.engine.trade) {
+    else if (openTrade(state)) {
       core = "managing";
-      dir = state.engine.trade.dir === -1 ? -1 : 1;
+      dir = openTrade(state)!.dir === -1 ? -1 : 1;
     } else if (state.engine.levels.length > 0) core = "evaluating";
     else core = "scanning";
   }
@@ -170,7 +170,7 @@ export function HaloCore({ state }: { state: BotStateRes | null }) {
 
   const monitor = (() => {
     if (!st) return "—";
-    if (core === "managing" && st.engine.trade) return `${st.engine.trade.dir === -1 ? "SELL" : "BUY"} live`;
+    if (core === "managing" && openTrade(st)) return `${openTrade(st)!.dir === -1 ? "SELL" : "BUY"} live`;
     if (core === "evaluating") return `${st.engine.levels.length} armed`;
     if (core === "scanning") return "Hunting C1/C2";
     return meta.label;

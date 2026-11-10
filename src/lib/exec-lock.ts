@@ -26,7 +26,8 @@ import type { BrokerKind, OrderLookup } from "@/lib/brokers/types";
 import { sendAlert } from "@/lib/alerts";
 import { getKlines } from "@/lib/market";
 import { getSymbolMeta, tfSec } from "@/lib/market-symbols";
-import { engageTradeLock, getTradeLock, maybeReleaseLock, type TradeLockSource } from "@/lib/trade-lock";
+import { engageTradeLock, getTradeLock, maybeReleaseLock, registerLockParticipant, updateTradeLockStops, type RunningPosition, type TradeLockSource } from "@/lib/trade-lock";
+import { validateStops } from "@/lib/edge/trade-manager";
 
 const LOCK_ID = "global";
 export type IntentState = "PENDING" | "SUBMITTING" | "OPEN" | "REJECTED" | "UNCERTAIN" | "CLOSED" | "ABANDONED";
@@ -127,7 +128,7 @@ export async function lockHolder(): Promise<{ intentId: string; state: string; s
 
 // ─────────────────────────── restart reconciliation ───────────────────────────
 
-const gRec = globalThis as unknown as { __haloExecReconciled?: Promise<void>; __haloExecWatch?: ReturnType<typeof setInterval> };
+const gRec = globalThis as unknown as { __haloExecReconciled?: Promise<void>; __haloExecWatch?: ReturnType<typeof setInterval>; __haloWatched?: { intentId: string; price: number } | null };
 
 /** run once per process (idempotent); call before the first new order and at boot */
 export function ensureReconciled(): Promise<void> {
@@ -285,6 +286,7 @@ async function watchOpen(intentId: string): Promise<void> {
     });
   }
   if (gRec.__haloExecWatch) clearInterval(gRec.__haloExecWatch);
+  gRec.__haloWatched = { intentId, price: gRec.__haloWatched?.intentId === intentId ? gRec.__haloWatched.price : 0 };
   const tick = async (): Promise<void> => {
     const cur = await db.executionIntent.findUnique({ where: { id: intentId } });
     if (!cur || cur.state !== "OPEN") {
@@ -298,6 +300,8 @@ async function watchOpen(intentId: string): Promise<void> {
       // the trade's own SL/TP on candles since entry (same-bar SL+TP = SL, like the engine)
       const k = await getKlines(cur.symbol, cur.timeframe, 500).catch(() => null);
       if (!k || k.source === "simulator") return;
+      const lastC = k.candles[k.candles.length - 1];
+      if (lastC && gRec.__haloWatched?.intentId === intentId) gRec.__haloWatched.price = lastC.close;
       const tfMs = tfSec(cur.timeframe) * 1000;
       for (const c of k.candles) {
         if (c.time + tfMs <= cur.createdAt.getTime()) continue;
@@ -327,6 +331,7 @@ async function watchOpen(intentId: string): Promise<void> {
 
 async function closeWatched(intentId: string, symbol: string, tf: string, result: "win" | "loss", pips: number): Promise<void> {
   if (gRec.__haloExecWatch) clearInterval(gRec.__haloExecWatch);
+  if (gRec.__haloWatched?.intentId === intentId) gRec.__haloWatched = null;
   const lock = getTradeLock();
   if (lock && lock.symbol === symbol) maybeReleaseLock(lock.source, symbol, lock.tf, result, pips);
   await transition(intentId, "CLOSED", "closed (restart monitor)");
@@ -354,4 +359,83 @@ export async function resolveUncertain(intentId: string, outcome: "not_executed"
   await transition(intent.id, "OPEN", `resolved by ${actor}: confirmed executed`, { tradeId: t.id });
   await watchOpen(intent.id);
   return { ok: true };
+}
+
+// ── RESTART-ADOPTED TRADE · visible, closable and amendable ──────────────
+// A paper trade that was running when HALO restarted is watched here (no
+// engine holds it any more). Registering it lets Trading Activity list it
+// and Quick Actions / Control Deck close it or move its SL/TP — the watch
+// loop reads SL/TP from the intent, so an amendment takes effect at once.
+async function watchedOpen() {
+  const w = gRec.__haloWatched;
+  if (!w) return null;
+  const cur = await db.executionIntent.findUnique({ where: { id: w.intentId } });
+  if (!cur || cur.state !== "OPEN" || !cur.tradeId) return null;
+  return { cur, price: w.price };
+}
+
+async function livePrice(symbol: string, tf: string, fallback: number): Promise<number> {
+  const k = await getKlines(symbol, tf, 5).catch(() => null);
+  const c = k && k.source !== "simulator" ? k.candles[k.candles.length - 1] : null;
+  return c?.close || fallback;
+}
+
+registerLockParticipant({
+  key: "restart-monitor",
+  clearLevels: () => 0,
+  positions: (): RunningPosition[] => {
+    const lock = getTradeLock();
+    const w = gRec.__haloWatched;
+    if (!w || !lock?.tradeDbId) return [];
+    const pip = (getSymbolMeta(lock.symbol).mintick || 0.01) * 10;
+    return [{
+      dbId: lock.tradeDbId,
+      source: lock.source,
+      symbol: lock.symbol,
+      tf: lock.tf,
+      dir: lock.dir,
+      entry: lock.entry,
+      sl: lock.sl,
+      tp: lock.tp,
+      price: w.price,
+      riskPips: Math.abs(lock.entry - lock.sl) / pip,
+      rewardPips: Math.abs(lock.tp - lock.entry) / pip,
+      entryTime: lock.openedAt,
+      slModeLabel: "restored after restart",
+      exec: "PAPER",
+    }];
+  },
+  forceClose: async () => {
+    const lock = getTradeLock();
+    return lock?.tradeDbId ? closeWatchedTrade(lock.tradeDbId) : false;
+  },
+  closeTrade: (dbId) => closeWatchedTrade(dbId),
+  amendStops: async (dbId, sl, tp) => {
+    const o = await watchedOpen();
+    if (!o || o.cur.tradeId !== dbId) return null;
+    if (o.cur.execMode !== "PAPER") return { ok: false, error: "This live trade was restored after a restart — amend its SL/TP at the broker." };
+    const price = await livePrice(o.cur.symbol, o.cur.timeframe, o.price);
+    const v = validateStops(o.cur.direction === -1 ? -1 : 1, price, o.cur, sl, tp);
+    if (!v.ok) return { ok: false, error: v.error };
+    await db.executionIntent.update({ where: { id: o.cur.id }, data: { sl: v.sl, tp: v.tp } });
+    await db.trade.update({ where: { id: dbId }, data: { sl: v.sl, tp: v.tp } });
+    updateTradeLockStops(dbId, v.sl, v.tp);
+    return { ok: true, broker: "paper" };
+  },
+});
+
+async function closeWatchedTrade(dbId: string): Promise<boolean> {
+  const o = await watchedOpen();
+  if (!o || o.cur.tradeId !== dbId || o.cur.execMode !== "PAPER") return false;
+  const cur = o.cur;
+  const t = await db.trade.findUnique({ where: { id: dbId } });
+  if (!t || t.status !== "OPEN") return false;
+  const price = await livePrice(cur.symbol, cur.timeframe, o.price || cur.entry);
+  const pips = ((price - cur.entry) * cur.direction) / ((getSymbolMeta(cur.symbol).mintick || 0.01) * 10);
+  await db.trade.update({
+    where: { id: dbId },
+    data: { status: pips >= 0 ? "WIN" : "LOSS", resultPips: Math.abs(pips), closedAt: new Date(), note: `${t.note} | closed manually at ${price}`.slice(0, 250) },
+  });
+  await closeWatched(cur.id, cur.symbol, cur.timeframe, pips >= 0 ? "win" : "loss", Math.abs(pips));
+  return true;
 }

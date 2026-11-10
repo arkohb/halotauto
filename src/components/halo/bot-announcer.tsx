@@ -48,8 +48,19 @@ const LINE_WATCHDOG_MS = 25_000; // a stuck line must never wedge the queue
 const DRAIN_GAP_MS = 350; // small breath between spoken lines
 
 export function BotAnnouncer(): null {
-  const { speak, pushBotMsg } = useHaloVoice();
-  const { toast } = useToast();
+  const voice = useHaloVoice();
+  const { toast: toastFn } = useToast();
+  // the voice provider hands out new function identities on every render —
+  // read them through refs so the event stream opens ONCE instead of being
+  // torn down and reconnected on each render (events in the gap were lost)
+  const speakRef = useRef(voice.speak);
+  const pushRef = useRef(voice.pushBotMsg);
+  const toastRef = useRef(toastFn);
+  useEffect(() => {
+    speakRef.current = voice.speak;
+    pushRef.current = voice.pushBotMsg;
+    toastRef.current = toastFn;
+  });
 
   const qRef = useRef<Envelope[]>([]);
   const busyRef = useRef(false);
@@ -59,6 +70,9 @@ export function BotAnnouncer(): null {
 
   useEffect(() => {
     let es: EventSource | null = null;
+    const speak: typeof voice.speak = (...a) => speakRef.current(...a);
+    const pushBotMsg: typeof voice.pushBotMsg = (...a) => pushRef.current(...a);
+    const toast: typeof toastFn = (...a) => toastRef.current(...a);
 
     const clearWatchdog = (): void => {
       if (wdRef.current !== null) {
@@ -164,7 +178,8 @@ export function BotAnnouncer(): null {
       busyRef.current = false;
       curKindRef.current = "";
     };
-  }, [speak, toast, pushBotMsg]);
+    // opened once per mount — callbacks are read through refs above
+  }, []);
 
   return null;
 }

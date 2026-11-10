@@ -43,7 +43,7 @@ async function main() {
     return i >= 0 ? args[i + 1] : undefined;
   };
 
-  const email = (argOf("--email") || process.env.ADMIN_EMAIL || "bismark@halotrader.com").trim().toLowerCase();
+  const email = (argOf("--email") || process.env.ADMIN_EMAIL || "beamark54@gmail.com").trim().toLowerCase();
 
   if (args.includes("--reset-2fa")) {
     // lost phone AND recovery codes: only someone with server access can do this

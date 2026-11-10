@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
-import { A, C, fmtPx, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPx, statusOf, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { PanelCard, Pill } from "./panel";
 
 function activeSessions(now: Date): string[] {
@@ -66,7 +66,7 @@ export function DailyBriefing({ state }: { state: BotStateRes }) {
   const { text } = statusOf(state);
   const sessions = activeSessions(new Date());
   const levels = state.engine.levels;
-  const t = state.engine.trade;
+  const t = openTrade(state);
   const bullish = t ? t.dir === 1 : null;
   const nextEvent = useNextHighImpact();
 

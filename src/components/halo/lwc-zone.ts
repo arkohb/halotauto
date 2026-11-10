@@ -66,9 +66,29 @@ export class ZoneOverlay {
     this.param?.requestUpdate();
   }
 
-  private xOf(ts: ITimeScaleApi<Time>, tSec: number, visL: number | null, visR: number | null, W: number): number | null {
+  /** time → x. A time that is not exactly a bar (a trade filled mid-candle,
+   * or an entry older than the loaded history) snaps to the candle that
+   * contains it / the first loaded candle, so the box is never dropped. */
+  private xOf(ts: ITimeScaleApi<Time>, tSec: number, visL: number | null, visR: number | null, W: number, bars: readonly number[]): number | null {
     const c = ts.timeToCoordinate(tSec as UTCTimestamp);
     if (c !== null) return c;
+    if (bars.length > 0) {
+      let snap: number;
+      if (tSec <= bars[0]) snap = bars[0];
+      else if (tSec >= bars[bars.length - 1]) snap = bars[bars.length - 1];
+      else {
+        let lo = 0;
+        let hi = bars.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (bars[mid] <= tSec) lo = mid;
+          else hi = mid - 1;
+        }
+        snap = bars[lo];
+      }
+      const cs = ts.timeToCoordinate(snap as UTCTimestamp);
+      if (cs !== null) return cs;
+    }
     if (visL !== null && tSec <= visL) return 0;
     if (visR !== null && tSec >= visR) return W;
     return null;
@@ -85,20 +105,23 @@ export class ZoneOverlay {
       const vis = ts.getVisibleRange();
       const visL = vis ? (vis.from as number) : null;
       const visR = vis ? (vis.to as number) : null;
+      const bars = p.series.data().map((b) => b.time as number);
       context.save();
       context.beginPath();
       context.rect(0, 0, W, H);
       context.clip();
       for (const r of this.rects) {
-        const x1 = r.t1 === null ? 0 : this.xOf(ts, r.t1 / 1000, visL, visR, W);
-        let x2: number | null = r.t2 === null ? W : this.xOf(ts, r.t2 / 1000, visL, visR, W);
+        // ended before the first loaded candle — nothing of it is on the chart
+        if (r.t2 !== null && bars.length > 0 && r.t2 / 1000 < bars[0]) continue;
+        const x1 = r.t1 === null ? 0 : this.xOf(ts, r.t1 / 1000, visL, visR, W, bars);
+        let x2: number | null = r.t2 === null ? W : this.xOf(ts, r.t2 / 1000, visL, visR, W, bars);
         // capAtLastBar — never draw right of the current candle: cap x2 at
         // the bar's centre coordinate + half a bar width (= its right wick).
         // timeToCoordinate(t2) is exact for the last data bar; the half-bar
         // extension only covers the candle itself, not the right offset.
         if (r.capAtLastBar && r.t2 !== null && x2 !== null) {
-          const xCap = ts.timeToCoordinate((r.t2 / 1000) as UTCTimestamp);
-          if (xCap !== null) x2 = Math.min(x2, xCap + (ts.options().barSpacing || 0) / 2);
+          const xCap = this.xOf(ts, r.t2 / 1000, null, null, W, bars);
+          if (xCap !== null) x2 = xCap + (ts.options().barSpacing || 0) / 2;
         }
         const yA = p.series.priceToCoordinate(r.p1);
         const yB = p.series.priceToCoordinate(r.p2);

@@ -18,7 +18,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { A, C, fmtPips, runPips, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, fmtPips, runPips, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { PanelCard, StateFrame, StatCell } from "./panel";
 import { usePwa } from "./pwa";
 
@@ -72,7 +72,7 @@ export function ControlDeck({ state, busy, view, onView, onControl, onExecMode }
   const disabled = busy !== null;
   const running = state.enabled;
   const live = state.exec.executionMode === "live";
-  const hasTrade = Boolean(state.engine.trade);
+  const hasTrade = Boolean(openTrade(state));
 
   // ── scanner badge: watchlist size + live signal count ──
   useEffect(() => {

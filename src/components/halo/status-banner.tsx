@@ -1,13 +1,18 @@
 "use client";
 
-import { C, fmtPx, runPips, statusOf, toneClasses, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { C, fmtPx, runPips, statusOf, toneClasses, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
+import { isLiveFor, useLivePrice } from "@/lib/halo/live-price";
 
 export function StatusBanner({ state }: { state: BotStateRes }) {
   const { text, tone } = statusOf(state);
   const { bg, fg } = toneClasses(tone);
-  const t = state.engine.trade;
+  const t = openTrade(state);
   const rp = runPips(state);
   const pulse = tone === "enterSell" || tone === "enterBuy";
+  // the chart's live tick (same price, same basis as the candle) — the state
+  // poll trails it by seconds and stays only as the fallback
+  const live = useLivePrice();
+  const px = isLiveFor(live, state.symbol) ? live.px : state.feed.price;
 
   return (
     <div
@@ -25,7 +30,7 @@ export function StatusBanner({ state }: { state: BotStateRes }) {
       </div>
       <div className="text-right shrink-0">
         <div className="font-mono text-sm sm:text-base font-semibold" style={{ color: fg }}>
-          {state.feed.price ? fmtPx(state.feed.price, state.mintick) : "—"}
+          {px ? fmtPx(px, state.mintick) : "—"}
         </div>
         {t && rp !== null && (
           <div className="text-[11px] font-mono" style={{ color: rp >= 0 ? C.green : C.red }}>

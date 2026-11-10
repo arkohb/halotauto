@@ -137,13 +137,14 @@ const gm = globalThis as unknown as { __haloHealth?: Memory };
 const mem: Memory = (gm.__haloHealth ??= { checks: [], at: 0, lastAlert: new Map(), brokerCache: { at: 0, ok: null, error: "", label: "", live: false } });
 
 function newestBackup(): { newest: number | null; where: string } {
-  const dirs = [path.join(process.cwd(), "db"), path.join(os.homedir(), "HALO-backups")];
+  const dirs = [path.join(/*turbopackIgnore: true*/ process.cwd(), "db"), path.join(/*turbopackIgnore: true*/ os.homedir(), "HALO-backups")];
   let newest: number | null = null;
   for (const d of dirs) {
     try {
-      for (const f of fs.readdirSync(d)) {
+      for (const f of fs.readdirSync(/*turbopackIgnore: true*/ d)) {
         if (!/backup|\.bundle$|^HALO-/i.test(f)) continue;
-        const t = fs.statSync(path.join(d, f)).mtimeMs;
+        const full = `${d}${path.sep}${f}`;
+        const t = fs.statSync(/*turbopackIgnore: true*/ full).mtimeMs;
         if (newest === null || t > newest) newest = t;
       }
     } catch {

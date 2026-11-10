@@ -12,11 +12,12 @@ import { getAdapter, parseCreds } from "./brokers";
 import type { BrokerKind } from "./brokers/types";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf, getSymbolMeta } from "./market-symbols";
-import { engageTradeLock, getTradeLock, type TradeLockSource } from "./trade-lock";
+import { engageTradeLock, entriesPaused, getTradeLock, type TradeLockSource } from "./trade-lock";
 import { gateOrder } from "./edge/gate";
 import type { SignalGrade } from "./edge/quality";
 import { getEdgeSync } from "./edge/settings";
 import { verifyOrderPrice } from "./price-guard";
+import { isTradableSymbol, tradingUniverseLabel } from "./trading-universe";
 import { beginIntent, ensureReconciled, markOpen, markRejected, markSubmitting, markUncertain } from "./exec-lock";
 
 /** errors after which the broker MAY have executed the order (no reliable answer) */
@@ -120,6 +121,25 @@ export interface FireJob {
  */
 export async function executeFire(job: FireJob): Promise<string | null> {
   const { fire } = job;
+  // ── TRADING UNIVERSE: for now HALO trades gold only — every source (bot,
+  // scanners, sweep, Pine, TradingView) is refused here on anything else ──
+  if (!isTradableSymbol(job.symbol)) {
+    void sendAlert({
+      kind: "status",
+      title: `HALO 3EL · ORDER REFUSED — ${job.symbol} NOT TRADED YET`,
+      body: `${job.source} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: HALO currently trades only ${tradingUniverseLabel()}.`,
+    });
+    return null;
+  }
+  // ── OPERATOR PAUSE (Quick Actions → PAUSE NEW ENTRIES) — every source ──
+  if (entriesPaused()) {
+    void sendAlert({
+      kind: "status",
+      title: "HALO 3EL · FIRE SKIPPED — NEW ENTRIES PAUSED",
+      body: `${job.source} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: new entries are paused. Resume from Quick Actions.`,
+    });
+    return null;
+  }
   if (getTradeLock()) {
     // defensive: single-trade rule — the callers gate too, this is the backstop
     void sendAlert({

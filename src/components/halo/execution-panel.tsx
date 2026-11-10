@@ -9,7 +9,7 @@ import { Route } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { A, C, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { PanelCard, StateFrame } from "./panel";
 
 interface BrokerRow {
@@ -38,7 +38,7 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
   const [sizeFixed, setSizeFixed] = useState(String(state.exec.sizeFixed));
   const [sizePercent, setSizePercent] = useState(String(state.exec.sizePercent));
   const [busy, setBusy] = useState(false);
-  const openTrade = Boolean(state.engine.trade);
+  const hasOpenTrade = Boolean(openTrade(state));
 
   useEffect(() => {
     setMode(state.exec.executionMode);
@@ -224,7 +224,7 @@ export function ExecutionPanel({ state, onSaved, onError }: Props) {
         {busy ? "…" : "APPLY ROUTING"}
       </Button>
 
-      {openTrade && (
+      {hasOpenTrade && (
         <Button
           onClick={closeNow}
           disabled={busy}

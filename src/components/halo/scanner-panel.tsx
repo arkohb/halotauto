@@ -87,9 +87,11 @@ function statusTone(s: string): PillTone {
   switch (s) {
     case "RUNNING": return "err";
     case "C3 WATCH": return "gold";
+    case "SIGNAL": return "gold";
     case "ERROR": return "err";
     case "PAUSED": return "muted";
     case "WARMING": return "muted";
+    case "NOT TRADED": return "muted";
     default: return "ok";
   }
 }

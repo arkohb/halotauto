@@ -12,12 +12,12 @@
 
 import { useEffect, useState } from "react";
 import { Activity, Crosshair, Radar } from "lucide-react";
-import { A, C, decimalsOf, fmtPips, fmtPx, signedPips, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { A, C, decimalsOf, fmtPips, fmtPx, signedPips, statusOf, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { PanelCard, Pill, StateFrame } from "./panel";
 
 /* ───────────────────────── latest signal ───────────────────────── */
 export function LatestSignal({ state }: { state: BotStateRes }) {
-  const t = state.engine.trade;
+  const t = openTrade(state);
   const levels = state.engine.levels;
   const dec = decimalsOf(state.mintick);
   const active = state.enabled;

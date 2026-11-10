@@ -4,6 +4,7 @@ import { getAdapter, isBrokerKind, parseCreds } from "@/lib/brokers";
 import type { AccountInfo } from "@/lib/brokers/types";
 import { mtCancelOrder, mtModifyPosition } from "@/lib/brokers/metaapi-core";
 import { ensureBoot, getBot, closeOpenTrade } from "@/lib/bot";
+import { amendRunningTrade, closeRunningTrade, forceCloseRunningTrades, getTradeLock, listRunningPositions } from "@/lib/trade-lock";
 import { loadExecSettings } from "@/lib/execution";
 import { getSymbolMeta } from "@/lib/market-symbols";
 import { guardTrading } from "@/lib/api-guard";
@@ -273,43 +274,76 @@ async function buildPayload(): Promise<Payload> {
   }
 
   // ── PAPER account (engine-synthesized, mirrors the EA in real time) ────
-  const price = bot.lastPrice || 0;
-  const t = booked;
-  const pip = (meta.mintick ?? 0.01) * ((bot.cfg.pipMult ?? 10) || 10);
-
+  // EVERY running trade is listed — the chart bot's, the Scanner Bot's, the
+  // Market Scanner's and the sweep's (each runtime reports through the
+  // trade-lock registry) — plus a TradingView / Pine trade known only to
+  // the global trade lock. Floating P&L uses the same volume formula the
+  // close booking uses (paperVolumeOf × the trade's EDGE size multiplier).
   await syncPaperBookings(); // book any trade that closed since the last poll
   const demoBalance = (await getPaperAccount()).balance;
-  const volume = paperVolumeOf(exec, t ? t.riskPips : 50, demoBalance);
+  const pipMult = (bot.cfg.pipMult ?? 10) || 10;
+  const running = listRunningPositions().filter((r) => r.exec === "PAPER");
+  const lock = getTradeLock();
+  if (lock?.tradeDbId && !running.some((r) => r.dbId === lock.tradeDbId)) {
+    running.push({
+      dbId: lock.tradeDbId,
+      source: lock.source,
+      symbol: lock.symbol,
+      tf: lock.tf,
+      dir: lock.dir,
+      entry: lock.entry,
+      sl: lock.sl,
+      tp: lock.tp,
+      price: lock.symbol === bot.symbol ? bot.lastPrice || 0 : 0,
+      riskPips: 0,
+      rewardPips: 0,
+      entryTime: lock.openedAt,
+      slModeLabel: `${lock.source} trade`,
+      exec: "PAPER",
+    });
+  }
+  const rows = running.length
+    ? await db.trade.findMany({ where: { id: { in: running.map((r) => r.dbId) } }, select: { id: true, sizeMult: true, riskPips: true, execMode: true, status: true } })
+    : [];
+  const rowOf = new Map(rows.map((r) => [r.id, r]));
 
   let floating = 0;
+  let marginSum = 0;
   const positions: LivePos[] = [];
-  if (t && bot.openTradeExec === "PAPER" && price > 0) {
-    const pips = ((price - t.entry) * t.dir) / (pip || 1);
-    floating = pips * PIP_VALUE_PER_LOT * volume;
+  for (const r of running) {
+    const row = rowOf.get(r.dbId);
+    if (!row || row.execMode !== "PAPER" || row.status !== "OPEN") continue;
+    const m = getSymbolMeta(r.symbol);
+    const pip = (m.mintick ?? 0.01) * pipMult;
+    // the chart bot's price is tick-fresh when it watches the same symbol
+    const price = r.symbol === bot.symbol && bot.lastPrice > 0 ? bot.lastPrice : r.price;
+    const volume = Math.round(paperVolumeOf(exec, row.riskPips || r.riskPips || 50, demoBalance) * (row.sizeMult > 0 ? row.sizeMult : 1) * 100) / 100;
+    const pips = price > 0 ? ((price - r.entry) * r.dir) / (pip || 1) : 0;
+    const pnl = pips * PIP_VALUE_PER_LOT * volume;
+    floating += pnl;
+    if (price > 0) marginSum += (price * volume * 100_000) / 500;
+    const who = r.source === "BOT" ? "EA bot" : r.source === "SCAN" ? "Scanner Bot" : r.source === "SWEEP" ? "Sweep" : "TradingView";
     positions.push({
-      id: `ea-${bot.openTradeDbId ?? "paper"}`,
-      symbol: meta.label.split("·")[0].trim() || bot.symbol,
-      side: t.dir,
+      id: `ea-${r.dbId}`,
+      symbol: m.label.split("·")[0].trim() || r.symbol,
+      side: r.dir,
       volume,
-      entryPrice: t.entry,
-      currentPrice: price,
-      sl: t.sl,
-      tp: t.tp,
-      pnl: Math.round(floating * 100) / 100,
+      entryPrice: r.entry,
+      currentPrice: price > 0 ? price : null,
+      sl: r.sl,
+      tp: r.tp,
+      pnl: Math.round(pnl * 100) / 100,
       swap: 0,
       commission: 0,
-      openTime: t.entryTime,
-      comment: `HALO 3EL · C3 fire · ${t.slModeLabel}`,
+      openTime: r.entryTime,
+      comment: `HALO 3EL · ${who} · ${r.tf} · ${r.slModeLabel}`,
       ea: true,
       paper: true,
-      pips: Math.round(pips * 10) / 10,
+      pips: price > 0 ? Math.round(pips * 10) / 10 : null,
     });
   }
 
-  const margin =
-    positions.length > 0 && price > 0
-      ? Math.round(((price * volume * 100_000) / 500) * 100) / 100
-      : 0;
+  const margin = Math.round(marginSum * 100) / 100;
 
   base.kind = "paper";
   base.brokerLabel = "Paper EA";
@@ -381,22 +415,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, paper: true, balance: acct.balance });
     }
 
-    // paper EA trade → finalize through the engine
+    // paper EA trade → finalize through the runtime that holds it (chart
+    // bot, Scanner Bot, Market Scanner or sweep)
     if (body.action === "close" && (!body.positionId || body.positionId.startsWith("ea-"))) {
-      await closeOpenTrade();
-      return NextResponse.json({ ok: true, paper: true });
+      const dbId = body.positionId ? body.positionId.slice(3) : "";
+      if (dbId && (await closeRunningTrade(dbId))) return NextResponse.json({ ok: true, paper: true });
+      if (getBot().engine.snapshot().trade) {
+        await closeOpenTrade();
+        return NextResponse.json({ ok: true, paper: true });
+      }
+      return NextResponse.json({ ok: false, error: "That trade is no longer running." }, { status: 404 });
+    }
+
+    // paper EA trade SL/TP amendment → the holding runtime moves its stops
+    // (engine + trade book + global lock; the chart boxes follow)
+    if (body.action === "modify" && body.positionId?.startsWith("ea-")) {
+      const sl = body.sl != null && isFinite(body.sl) && body.sl > 0 ? body.sl : null;
+      const tp = body.tp != null && isFinite(body.tp) && body.tp > 0 ? body.tp : null;
+      if (sl === null && tp === null) return NextResponse.json({ ok: false, error: "provide a valid SL and/or TP" }, { status: 400 });
+      const r = await amendRunningTrade(body.positionId.slice(3), sl, tp);
+      return NextResponse.json({ ok: r.ok, paper: true, error: r.error ?? null, broker: r.broker ?? null }, { status: r.ok ? 200 : 400 });
     }
 
     const activeRow = await db.brokerAccount.findFirst({ where: { active: true } });
 
     // ── paper-mode close-all: the only open position is the EA trade ──
     if (body.action === "close-all" && (!activeRow || !isBrokerKind(activeRow.kind) || activeRow.kind === "paper")) {
-      const snap = getBot().engine.snapshot();
-      if (snap.trade) {
-        await closeOpenTrade();
-        return NextResponse.json({ ok: true, paper: true });
-      }
-      return NextResponse.json({ ok: true, paper: true }); // flat book — nothing to close
+      // every runtime's running trade (bot, Scanner Bot, scanner, sweep)
+      const n = await forceCloseRunningTrades();
+      if (getBot().engine.snapshot().trade) await closeOpenTrade(); // an unbooked chart-bot trade
+      return NextResponse.json({ ok: true, paper: true, closed: n });
     }
 
     if (!activeRow || !isBrokerKind(activeRow.kind) || activeRow.kind === "paper") {

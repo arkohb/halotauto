@@ -21,7 +21,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Candle } from "@/lib/halo/types";
-import { C, fmtPx, fmtPips, runPips, statusOf, type BotStateRes } from "@/lib/halo/ui-helpers";
+import { C, fmtPx, fmtPips, runPips, statusOf, type BotStateRes, openTrade } from "@/lib/halo/ui-helpers";
 import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
 
 type Mood = "sleep" | "scan" | "armed" | "alert" | "celebrate" | "sad";
@@ -291,7 +291,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
         lastLogKey.current = logKey;
         if (top.kind === "fire") {
           const dirTxt = top.dir === -1 ? "SELL" : "BUY";
-          const t = s.engine.trade;
+          const t = openTrade(s);
           setMood("alert");
           setFlashDir(top.dir);
           setJumpKey((k) => k + 1);
@@ -378,7 +378,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
       if (lastArmed.current === "") lastArmed.current = armedKey;
       if (armedKey !== lastArmed.current) {
         lastArmed.current = armedKey;
-        if (!s.engine.trade) {
+        if (!openTrade(s)) {
           if (s.engine.levels.length === 0) {
             setMood("scan");
             if (s.enabled) speak(`Levels burned. Scanning ${s.symbol} ${s.tf} for a fresh C1/C2…`, "info");
@@ -410,14 +410,15 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
 
       // 5) idle running status while a trade is open (throttled 25s)
       const since = Date.now() - lastTalk.current;
-      if (s.engine.trade && since > 25000) {
+      const ot = openTrade(s);
+      if (ot && since > 25000) {
         const rp = runPips(s);
-        setMood(s.engine.trade.dir === -1 ? "alert" : "alert");
+        setMood("alert");
         speak(
-          `Running ${s.engine.trade.dir === -1 ? "SELL" : "BUY"} · ${rp === null ? "—" : fmtPips(rp)} pips open · SL ${fmtPx(
-            s.engine.trade.sl,
+          `Running ${ot.dir === -1 ? "SELL" : "BUY"} · ${rp === null ? "—" : fmtPips(rp)} pips open · SL ${fmtPx(
+            ot.sl,
             s.mintick
-          )} · TP ${fmtPx(s.engine.trade.tp, s.mintick)}.`,
+          )} · TP ${fmtPx(ot.tp, s.mintick)}.`,
           "info"
         );
         return;
@@ -435,7 +436,7 @@ export function RobotAssistant({ state, candles }: { state: BotStateRes; candles
   // ── C3 forming tracker (fires before the engine does) ──
   useEffect(() => {
     const id = window.setTimeout(() => {
-      if (!state.enabled || state.engine.trade) return;
+      if (!state.enabled || openTrade(state)) return;
       const forming = c3FormCheck(candles[candles.length - 1], state.engine.levels, state.engine.atr, state.config);
       const best = bestC3Form(forming);
       const key = best ? `${best.levelId}:${best.stage}` : "";

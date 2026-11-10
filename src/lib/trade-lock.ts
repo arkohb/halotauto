@@ -40,6 +40,38 @@ interface LockParticipant {
   clearLevels: (time: number) => number;
   /** close this runtime's running trade at market (book + broker); true if one was closed */
   forceClose?: () => Promise<boolean>;
+  /** the trades this runtime is running right now (Trading Activity / Quick Actions) */
+  positions?: () => RunningPosition[];
+  /** close ONE running trade by its DB id; true if this runtime held and closed it */
+  closeTrade?: (dbId: string) => Promise<boolean>;
+  /** amend ONE running trade's SL/TP; null = this runtime does not hold that trade */
+  amendStops?: (dbId: string, sl: number | null, tp: number | null) => Promise<AmendResult | null>;
+}
+
+/** a trade an EA runtime (bot / scanner / sweep) is running right now */
+export interface RunningPosition {
+  dbId: string;
+  source: TradeLockSource;
+  symbol: string;
+  tf: string;
+  dir: -1 | 1;
+  entry: number;
+  sl: number;
+  tp: number;
+  /** last price this runtime saw for the symbol (0 = unknown) */
+  price: number;
+  riskPips: number;
+  rewardPips: number;
+  entryTime: number;
+  slModeLabel: string;
+  exec: "PAPER" | "LIVE";
+}
+
+export interface AmendResult {
+  ok: boolean;
+  error?: string;
+  /** what happened at the broker (live) — "paper" for simulated trades */
+  broker?: string;
 }
 
 const g = globalThis as unknown as {
@@ -69,6 +101,66 @@ export async function forceCloseRunningTrades(): Promise<number> {
     }
   }
   return n;
+}
+
+/** every trade running anywhere in the app, one row per trade (deduped by DB id) */
+export function listRunningPositions(): RunningPosition[] {
+  const out: RunningPosition[] = [];
+  const seen = new Set<string>();
+  for (const p of participants().values()) {
+    if (!p.positions) continue;
+    try {
+      for (const pos of p.positions()) {
+        if (seen.has(pos.dbId)) continue;
+        seen.add(pos.dbId);
+        out.push(pos);
+      }
+    } catch {
+      // a broken participant never hides the others
+    }
+  }
+  return out;
+}
+
+/** close one running trade by DB id, wherever it lives; true if closed */
+export async function closeRunningTrade(dbId: string): Promise<boolean> {
+  for (const p of participants().values()) {
+    if (!p.closeTrade) continue;
+    try {
+      if (await p.closeTrade(dbId)) return true;
+    } catch {
+      // try the next runtime
+    }
+  }
+  return false;
+}
+
+/** amend one running trade's SL/TP, wherever it lives */
+export async function amendRunningTrade(dbId: string, sl: number | null, tp: number | null): Promise<AmendResult> {
+  for (const p of participants().values()) {
+    if (!p.amendStops) continue;
+    const r = await p.amendStops(dbId, sl, tp);
+    if (r) return r;
+  }
+  return { ok: false, error: "That trade is no longer running." };
+}
+
+/** keep the lock's SL/TP in step with an amended trade (chart boxes read it) */
+export function updateTradeLockStops(dbId: string, sl: number, tp: number): void {
+  const lock = g.__haloTradeLock;
+  if (lock && lock.tradeDbId === dbId) g.__haloTradeLock = { ...lock, sl, tp };
+}
+
+// OPERATOR PAUSE · Quick Actions → PAUSE NEW ENTRIES. Mirrors the bot's
+// persisted pauseNew flag so executeFire() refuses NEW trades from every
+// source (chart bot, Scanner Bot, scanner, sweep, Pine, TradingView) while
+// an open trade stays fully managed.
+const gp = globalThis as unknown as { __haloEntriesPaused?: boolean };
+export function setEntriesPaused(paused: boolean): void {
+  gp.__haloEntriesPaused = paused;
+}
+export function entriesPaused(): boolean {
+  return gp.__haloEntriesPaused === true;
 }
 
 export function getTradeLock(): TradeLockState | null {

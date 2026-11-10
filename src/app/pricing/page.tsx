@@ -77,7 +77,14 @@ export default function PricingPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <a href="/login" className="rounded-lg px-4 py-2 text-[10px] font-extrabold tracking-[0.18em]" style={{ border: `1px solid ${C.line2}`, color: C.txt2 }}>SIGN IN</a>
+            {me?.authenticated ? (
+              <>
+                <a href="/" className="rounded-lg px-4 py-2 text-[10px] font-extrabold tracking-[0.18em]" style={{ border: `1px solid ${C.line2}`, color: C.txt2 }}>TRADING APP</a>
+                <a href="/account" className="rounded-lg px-4 py-2 text-[10px] font-extrabold tracking-[0.18em]" style={{ border: `1px solid ${C.line2}`, color: C.txt2 }}>MY ACCOUNT</a>
+              </>
+            ) : (
+              <a href="/login" className="rounded-lg px-4 py-2 text-[10px] font-extrabold tracking-[0.18em]" style={{ border: `1px solid ${C.line2}`, color: C.txt2 }}>SIGN IN</a>
+            )}
           </div>
         </div>
 

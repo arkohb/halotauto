@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { askClaude, friendlyClaudeError } from "@/lib/halo/claude";
 import { db } from "@/lib/db";
-import { botState, startBot, stopBot, closeOpenTrade, setPauseNew, updateBotConfig } from "@/lib/bot";
+import { botState, startBot, stopBot, closeAnyRunningTrade, setPauseNew, updateBotConfig } from "@/lib/bot";
 import { buildSnapshot } from "@/lib/halo/assistant-snapshot";
 import { getAction, validateActionParams, ACTIONS, VIEWS } from "@/lib/halo/actions";
 import { getCalendar, getNews, getQuote, type CalendarDay } from "@/lib/halo/intel";
@@ -474,12 +474,13 @@ async function executeConsequential(p: PendingAction): Promise<{ ok: boolean; de
     }
     if (id === "close_open_trade") {
       const before = await botState();
-      if (!before.engine.trade) {
+      if (!before.engine.trade && !before.scanLock) {
         return { ok: true, detail: "There is no open trade to close — the book is flat." };
       }
-      await closeOpenTrade();
+      await closeAnyRunningTrade();
       const st = await botState();
-      return { ok: !st.engine.trade, detail: st.engine.trade ? "Close did not verify — the trade still shows open. Check the dashboard." : "Confirmed: the position was closed at market and the result booked." };
+      const still = Boolean(st.engine.trade || st.scanLock);
+      return { ok: !still, detail: still ? "Close did not verify — the trade still shows open. Check the dashboard." : "Confirmed: the position was closed at market and the result booked." };
     }
     if (id === "set_execution_mode") {
       const mode = p.params.mode === "live" ? "live" : "paper";

@@ -21,10 +21,11 @@ import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
 import { ensurePineLibrary } from "./pine/library";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf, isSimOnlyGroup } from "./market-symbols";
-import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { onDerivTick } from "./deriv-feed";
+import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant, updateTradeLockStops, forceCloseRunningTrades, setEntriesPaused } from "./trade-lock";
 import { getEdgeSync, liveTradeManager } from "./edge/settings";
 import { getOverlay, overlayCfg, overlayManager } from "./edge/autopilot";
-import { applyManageLive } from "./edge/trade-manager";
+import { applyManageLive, applyStopsAmend, validateStops } from "./edge/trade-manager";
 import { ensureReconciled } from "./exec-lock";
 import { settleOrphanTradesOnce } from "@/lib/orphan-trades";
 import { ensurePropMonitor } from "@/lib/edge/prop";
@@ -73,6 +74,46 @@ registerLockParticipant({
     if (!bot.openTradeDbId || !bot.engine.snapshot().trade) return false;
     await closeOpenTrade();
     return true;
+  },
+  positions: () => {
+    const bot = getBot();
+    const t = bot.engine.snapshot().trade;
+    if (!bot.openTradeDbId || !t) return [];
+    return [{
+      dbId: bot.openTradeDbId,
+      source: "BOT",
+      symbol: bot.symbol,
+      tf: bot.tf,
+      dir: t.dir,
+      entry: t.entry,
+      sl: t.sl,
+      tp: t.tp,
+      price: bot.lastPrice || 0,
+      riskPips: t.riskPips,
+      rewardPips: t.rewardPips,
+      entryTime: t.entryTime,
+      slModeLabel: t.slModeLabel,
+      exec: bot.openTradeExec,
+    }];
+  },
+  closeTrade: async (dbId) => {
+    const bot = getBot();
+    if (bot.openTradeDbId !== dbId || !bot.engine.snapshot().trade) return false;
+    await closeOpenTrade();
+    return true;
+  },
+  amendStops: async (dbId, sl, tp) => {
+    const bot = getBot();
+    const t = bot.engine.snapshot().trade;
+    if (bot.openTradeDbId !== dbId || !t) return null;
+    const v = validateStops(t.dir, bot.lastPrice, t, sl, tp);
+    if (!v.ok) return { ok: false, error: v.error };
+    const broker = bot.openTradeExec === "LIVE" ? bot.liveBroker : null;
+    const res = await applyStopsAmend({ tradeDbId: dbId, broker, symbol: bot.symbol, dir: t.dir, sl: v.sl, tp: v.tp });
+    if (!res.ok) return { ok: false, error: res.error, broker: res.broker };
+    bot.engine.amendStops(v.sl, v.tp);
+    updateTradeLockStops(dbId, v.sl, v.tp);
+    return { ok: true, broker: res.broker };
   },
 });
 
@@ -168,6 +209,7 @@ async function loadPersisted(): Promise<void> {
       bot.enabled = row.enabled;
       bot.autoAttach = row.autoAttach;
       bot.pauseNew = Boolean(row.pauseNew);
+      setEntriesPaused(bot.pauseNew);
       bot.symbol = row.symbol;
       bot.tf = row.timeframe;
       bot.realizedPips = row.realizedPips;
@@ -603,8 +645,28 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
   void bar;
 }
 
+// ── DERIV PUSH · wake the engine on every Deriv tick of the bot's symbol ──
+// The 2 s timer stays as the heartbeat; for Deriv synthetics the engine also
+// ticks the moment Deriv moves (still throttled to one tick per 1.5 s below).
+const gPush = globalThis as unknown as { __haloDerivPush?: { symbol: string; off: () => void } };
+function ensureDerivPush(symbol: string): void {
+  const cur = gPush.__haloDerivPush;
+  if (cur?.symbol === symbol) return;
+  cur?.off();
+  gPush.__haloDerivPush = undefined;
+  let synth = false;
+  try {
+    synth = isSimOnlyGroup(getSymbolMeta(symbol).group);
+  } catch {
+    synth = false;
+  }
+  if (!synth) return;
+  gPush.__haloDerivPush = { symbol, off: onDerivTick(symbol, () => void tickBot().catch(() => {})) };
+}
+
 export async function tickBot(force = false): Promise<void> {
   const bot = getBot();
+  ensureDerivPush(bot.symbol);
   const now = Date.now();
   if (!force && now - bot.lastTickAt < 1500) return;
   bot.lastTickAt = now;
@@ -738,13 +800,14 @@ export async function setPauseNew(paused: boolean): Promise<void> {
   await ensureBoot();
   if (bot.pauseNew === paused) return;
   bot.pauseNew = paused;
+  setEntriesPaused(paused);
   await persistBot();
   void sendAlert({
     kind: "status",
     title: `HALO 3EL · NEW ENTRIES ${paused ? "PAUSED" : "RESUMED"}`,
     body: paused
-      ? `${bot.symbol} ${bot.tf} — no new positions while flat. An open trade (if any) stays fully managed by the engine + broker SL/TP.`
-      : `${bot.symbol} ${bot.tf} — the EA accepts new C3 fires again.`,
+      ? "No new positions from the EA bot, Scanner Bot, scanners, Pine or TradingView. An open trade (if any) stays fully managed by the engine + broker SL/TP."
+      : "The EA bot, Scanner Bot, scanners, Pine and TradingView accept new fires again.",
   });
 }
 
@@ -757,6 +820,24 @@ export async function closeOpenTrade(): Promise<void> {
   const price = bot.lastPrice || openTrade.entry;
   const events = bot.engine.forceClose(price, Date.now());
   await handleEvents(events, { time: Date.now(), open: price, high: price, low: price, close: price });
+}
+
+/**
+ * Close the running trade WHEREVER it lives — the chart bot's own trade, or
+ * a Scanner Bot / Market Scanner / sweep trade (via the trade-lock
+ * registry). Dashboard CLOSE, voice "close the trade" and Quick Actions all
+ * land here so a scanner-fired trade is never "unclosable".
+ */
+export async function closeAnyRunningTrade(): Promise<number> {
+  const bot = getBot();
+  await ensureBoot();
+  if (bot.engine.snapshot().trade) {
+    await closeOpenTrade();
+    return 1;
+  }
+  const n = await forceCloseRunningTrades();
+  if (n === 0) throw new Error("No open trade to close.");
+  return n;
 }
 
 export interface ConfigPatch {

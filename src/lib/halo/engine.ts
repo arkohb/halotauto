@@ -628,6 +628,21 @@ export class HaloEngine {
     return ev;
   }
 
+  /**
+   * Operator SL/TP amendment on the open trade (Quick Actions → MODIFY
+   * SL/TP). Validation against the live price happens in the caller. The
+   * ORIGINAL risk (origSl) is kept so R-based management and sizing stay
+   * anchored to the trade as it fired. Returns false when flat.
+   */
+  amendStops(sl: number | null, tp: number | null): boolean {
+    const t = this.state.trade;
+    if (!t) return false;
+    if (t.origSl === undefined) t.origSl = t.sl;
+    if (sl !== null) t.sl = sl;
+    if (tp !== null) t.tp = tp;
+    return true;
+  }
+
   /** Manually close the open trade at `price` (market close). Returns the close event. */
   forceClose(price: number, time: number): EngineEvent[] {
     const s = this.state;

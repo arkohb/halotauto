@@ -44,6 +44,8 @@ import { publishBotEvent } from "./halo/event-bus";
 import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } from "./execution";
 import { bookPaperCloseFromDb } from "./paper-account";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { rowPositionHooks } from "./runtime-positions";
+import { isTradableSymbol, tradingUniverseLabel } from "./trading-universe";
 
 const KV_KEY = "tfScannerConfig";
 const WARM_BARS = 400; // same warm-up depth as the sweep
@@ -182,6 +184,9 @@ registerLockParticipant({
     for (const row of rt().rows.values()) n += row.engine.clearArmedLevels(time);
     return n;
   },
+  // the running trade is visible + closable + amendable from Trading
+  // Activity / Quick Actions / Control Deck (and CLOSE ALL reaches it)
+  ...rowPositionHooks("SCAN", () => rt().rows.values(), (row, ev) => handleEvents(row, ev)),
 });
 
 function pushMsg(kind: ScannerMsg["kind"], text: string): void {
@@ -244,11 +249,16 @@ function rowKey(symbol: string, tf: string): string {
 
 function buildOrder(): string[] {
   const out: string[] = [];
+  // the trading universe only (gold for now) × every supported timeframe
   for (const s of SYMBOLS) {
+    if (!isTradableSymbol(s.id)) continue;
     for (const tf of TIMEFRAMES) out.push(rowKey(s.id, tf));
   }
   return out;
 }
+
+/** a small universe (gold × 9 timeframes) is re-checked IN FULL every slice */
+const FULL_SWEEP_MAX = 12;
 
 /** split the universe by feed cost — simulated-market rows tick for free */
 function buildSimRealOrders(order: string[]): { sim: string[]; real: string[] } {
@@ -613,7 +623,7 @@ async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
   }
   if (R.lockPausedAt) {
     R.lockPausedAt = 0;
-    pushMsg("resume", "The running trade has closed — Timeframe Scanner Bot has resumed scanning all supported markets and timeframes.");
+    pushMsg("resume", `The running trade has closed — Timeframe Scanner Bot has resumed scanning ${tradingUniverseLabel()} on every timeframe.`);
   }
 
   const cfg = await currentCfg();
@@ -639,15 +649,19 @@ async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
   // full pass completes minutes earlier and every setup is picked up while
   // it is still live.
   const before = R.passes;
-  const simTicked = await runLane(R, R.orderSim, "cursorSim", BOOT_SIM_PER_SLICE, WARM_SIM_PER_SLICE, cfg);
-  const realTicked = await runLane(R, R.orderReal, "cursorReal", BOOT_REAL_PER_SLICE, WARM_REAL_PER_SLICE, cfg);
+  // small universe (gold only): every row, every slice — a setup on any
+  // timeframe is picked up within one slice (≈2.5 s) and fires at once
+  const fullSim = R.orderSim.length <= FULL_SWEEP_MAX;
+  const fullReal = R.orderReal.length <= FULL_SWEEP_MAX;
+  const simTicked = await runLane(R, R.orderSim, "cursorSim", fullSim ? R.orderSim.length : BOOT_SIM_PER_SLICE, fullSim ? R.orderSim.length : WARM_SIM_PER_SLICE, cfg);
+  const realTicked = await runLane(R, R.orderReal, "cursorReal", fullReal ? R.orderReal.length : BOOT_REAL_PER_SLICE, fullReal ? R.orderReal.length : WARM_REAL_PER_SLICE, cfg);
   R.scannedRows += simTicked + realTicked;
   if (R.passes > before) {
     const found = R.opportunitiesFound;
     pushMsg(
       "info",
       found > 0
-        ? `Full scan pass complete — every supported market and timeframe was checked against the existing HALO strategy. ${found} qualifying opportunit${found === 1 ? "y" : "ies"} so far. The next pass is starting.`
+        ? `Full scan pass complete — ${tradingUniverseLabel()} was checked on every timeframe against the existing HALO strategy. ${found} qualifying opportunit${found === 1 ? "y" : "ies"} so far. The next pass is starting.`
         : "Scanning completed. No trading opportunity currently meets the existing HALO strategy conditions. I'll continue scanning.",
     );
   }
@@ -799,8 +813,8 @@ export async function configTfScanner(action: "start" | "pause" | "resume"): Pro
   pushMsg(
     "info",
     first
-      ? "Timeframe Scanner Bot is now scanning all supported markets and timeframes using the existing HALO trading strategy."
-      : "Timeframe Scanner Bot has resumed scanning all supported markets and timeframes using the existing HALO trading strategy.",
+      ? `Timeframe Scanner Bot is now scanning ${tradingUniverseLabel()} on every timeframe using the existing HALO trading strategy.`
+      : `Timeframe Scanner Bot has resumed scanning ${tradingUniverseLabel()} on every timeframe using the existing HALO trading strategy.`,
   );
 }
 
@@ -811,4 +825,4 @@ export function scannerPx(v: number, symbol: string): string {
 }
 
 /** test-only hook — drive a row's fire/close handling with engine events (scripts/fire-e2e-test.ts) */
-export const __tfScannerTest = { makeRow, handleEvents, currentCfg };
+export const __tfScannerTest = { makeRow, handleEvents, currentCfg, rt };
