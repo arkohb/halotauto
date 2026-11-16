@@ -77,13 +77,35 @@ export async function beginIntent(i: IntentInput): Promise<{ id: string; clientO
       state: "PENDING",
     },
   });
-  const got = await db.executionLock.updateMany({ where: { id: LOCK_ID, intentId: null }, data: { intentId: intent.id } });
+  let got = await db.executionLock.updateMany({ where: { id: LOCK_ID, intentId: null }, data: { intentId: intent.id } });
+  if (got.count !== 1 && (await releaseIfPaperTradeClosed())) {
+    got = await db.executionLock.updateMany({ where: { id: LOCK_ID, intentId: null }, data: { intentId: intent.id } });
+  }
   if (got.count !== 1) {
     await transition(intent.id, "ABANDONED", "another order holds the execution lock");
     return null;
   }
   await db.executionEvent.create({ data: { intentId: intent.id, fromState: "", toState: "PENDING", detail: "lock acquired" } });
   return { id: intent.id, clientOrderId };
+}
+
+/**
+ * The lock is held by a PAPER trade that has already closed in the book —
+ * its release was missed (the close path releases in the background), so
+ * release it now. Same rule as the restart reconcile; a LIVE holder is never
+ * released here (the broker position decides that).
+ */
+async function releaseIfPaperTradeClosed(): Promise<boolean> {
+  const row = await db.executionLock.findUnique({ where: { id: LOCK_ID } });
+  if (!row?.intentId) return false;
+  const holder = await db.executionIntent.findUnique({ where: { id: row.intentId } });
+  if (!holder || holder.state !== "OPEN" || holder.execMode !== "PAPER" || !holder.tradeId) return false;
+  const trade = await db.trade.findUnique({ where: { id: holder.tradeId }, select: { status: true } });
+  if (!trade || trade.status === "OPEN") return false;
+  await transition(holder.id, "CLOSED", `lock released late: paper trade already ${trade.status}`);
+  await releaseLock(holder.id);
+  console.warn(`[exec-lock] released a lock left behind by closed paper trade ${holder.tradeId} (${trade.status})`);
+  return true;
 }
 
 /** about to create the paper trade / call the broker */
