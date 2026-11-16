@@ -22,8 +22,12 @@ scripts:
   runCommand: node .next/standalone/server.js
 
 env:
+  # runtime only: at BUILD time NODE_ENV=production would make `npm ci` skip
+  # devDependencies (Prisma CLI, TypeScript, Tailwind) that the build needs —
+  # `next build` sets production mode by itself
   - variable: NODE_ENV
     value: production
+    availability: [RUNTIME]
   - variable: DATABASE_PROVIDER
     value: postgresql
     availability: [BUILD, RUNTIME]
