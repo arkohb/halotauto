@@ -75,6 +75,7 @@ const SECRET_KEYS = [
   "accountId",
   "identifier",
   "chatId",
+  "eaKey", // HALO Bridge EA pairing key — whoever holds it can act as the EA
 ];
 
 /** mask credentials for API/UI transport — never send raw secrets to the client */
