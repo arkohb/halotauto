@@ -61,6 +61,7 @@ import { TvSignalOverlay } from "./tv-signal-overlay";
 import { IndicatorRail } from "./indicator-rail";
 import { PineIndicatorRail } from "./pine-indicator-rail";
 import { CandleTimer } from "./candle-timer";
+import { Eye, EyeOff, Maximize2, Minimize2 } from "lucide-react";
 import { bestC3Form, c3FormCheck } from "@/lib/halo/c3-form";
 
 interface ChartProps {
@@ -84,6 +85,8 @@ interface ChartProps {
    * to THIS chart's symbol it renders exactly like an engine trade: the
    * ENTRY/SL/TP position tool plus the live price marker line. */
   scanLock?: { source: string; symbol: string; tf: string; dir: number; entry: number; sl: number; tp: number; openedAt: number } | null;
+  /** stretch to the height of the grid cell (min = the normal chart height) — no gap beside a taller side column */
+  fill?: boolean;
   /** EA bot running */
   enabled: boolean;
   /** EA auto-attaches to this chart (auto-start on boot) */
@@ -182,6 +185,7 @@ function applyLiveMark(m: { pl: IPriceLine; entry: number; dir: -1 | 1; pip: num
 
 type ChartMode = "tv" | "3el";
 const MODE_KEY = "halo3el.chartmode.v2"; // v2: default is now the 3EL indicator view
+const PANELS_KEY = "halo3el.chartpanels.v1"; // "0" = overlay panels hidden
 const VENUE_KEY = "halo3el.chartvenue.v1"; // broker filter for the pair picker
 const LEVELS_KEY = "halo3el.chartlevels.v2"; // "current" (default) | "all"
 
@@ -341,6 +345,62 @@ function ChartPanelView(props: ChartProps & BasisProps) {
   // running now. ALL LEVELS adds every level the engine still holds (fired,
   // burned), past fires, TP/SL hits and replayed signal positions.
   const [allLevels, setAllLevels] = useState(false);
+  // FULL SCREEN — the chart covers the whole viewport on every device. The
+  // page itself goes native full screen where the browser allows it (so the
+  // symbol / timeframe pickers, which render in a portal, stay visible); on
+  // iPhone, which has no element full screen, the fixed overlay alone fills
+  // the screen.
+  const [full, setFull] = useState(false);
+  // overlay panels (indicator legend / position card) — hideable for a clean chart
+  const [showPanels, setShowPanels] = useState(true); // restored with the other chart prefs below
+  const togglePanels = () => {
+    setShowPanels((v) => {
+      try {
+        localStorage.setItem(PANELS_KEY, v ? "0" : "1");
+      } catch {
+        // storage unavailable
+      }
+      return !v;
+    });
+  };
+  const toggleFull = () => {
+    const doc = document as Document & { webkitExitFullscreen?: () => Promise<void>; webkitFullscreenElement?: Element | null };
+    const root = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> };
+    if (!full) {
+      setFull(true);
+      const req = root.requestFullscreen?.bind(root) ?? root.webkitRequestFullscreen?.bind(root);
+      if (req && !(document.fullscreenElement ?? doc.webkitFullscreenElement)) void Promise.resolve(req()).catch(() => {});
+    } else {
+      setFull(false);
+      const exit = document.exitFullscreen?.bind(document) ?? doc.webkitExitFullscreen?.bind(doc);
+      if (exit && (document.fullscreenElement ?? doc.webkitFullscreenElement)) void Promise.resolve(exit()).catch(() => {});
+    }
+  };
+  useEffect(() => {
+    if (!full) return;
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFull(false);
+    };
+    // leaving native full screen (Esc / the browser's own control) ends ours too
+    let wasNative = !!(document.fullscreenElement ?? doc.webkitFullscreenElement);
+    const onFsChange = () => {
+      const native = !!(document.fullscreenElement ?? doc.webkitFullscreenElement);
+      if (wasNative && !native) setFull(false);
+      wasNative = native;
+    };
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, [full]);
   const elRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -396,6 +456,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
         const v = localStorage.getItem(VENUE_KEY);
         if (v === "deriv" || v === "mt5" || v === "binance") setVenue(v);
         if (localStorage.getItem(LEVELS_KEY) === "all") setAllLevels(true);
+        if (localStorage.getItem(PANELS_KEY) === "0") setShowPanels(false);
       } catch {
         // ignore
       }
@@ -1171,7 +1232,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
       const prim = new PineDrawOverlay();
       prim.data = dr!;
       prim.setPlots(pineData.plots);
-      prim.topInset = drawTarget === cs ? 44 : 0;
+      prim.topInset = drawTarget === cs ? 8 : 0; // the toolbar sits above the chart now
       prim.getBars = () => cs.data().map((b) => b.time as number);
       drawTarget.attachPrimitive(prim as unknown as ISeriesPrimitive<Time>);
       pineDrawRef.current = { s: drawTarget, prim };
@@ -1179,14 +1240,24 @@ function ChartPanelView(props: ChartProps & BasisProps) {
   }, [pineData, candles, mode, pineStrategy]);
 
   const heightCls = "h-[380px] sm:h-[440px] xl:h-[540px]";
+  const fill = !!props.fill;
+  // full screen: the body fills what the toolbar leaves of the viewport;
+  // fill: it grows with the grid cell, never below the normal chart height
+  const bodyCls = full ? "min-h-0 flex-1" : fill ? "min-h-[380px] flex-1 sm:min-h-[440px] xl:min-h-[540px]" : heightCls;
 
   return (
-    <div className="relative rounded-xl border border-[#0F2E58] bg-[#020B1A] overflow-hidden">
-      {/* ── EA AUTO-ATTACH OVERLAY · the chart IS the EA control surface ──
-          ONE wrapping row for the whole control strip: left tools flow, right
-          controls ride with ml-auto — flex-wrap guarantees they can never
-          collide on narrow charts (they wrap to the next line instead). */}
-      <div className="pointer-events-none absolute inset-x-2.5 top-2 z-20 flex flex-wrap items-center gap-1.5">
+    <div
+      className={
+        full
+          ? "fixed inset-0 z-[400] flex flex-col bg-[#020B1A] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]"
+          : `relative overflow-hidden rounded-xl border border-[#0F2E58] bg-[#020B1A] ${fill ? "flex h-full flex-col" : ""}`
+      }
+    >
+      {/* ── EA CONTROL TOOLBAR · the chart IS the EA control surface ──
+          A solid bar ABOVE the chart (it no longer floats over the candles).
+          ONE wrapping row: left tools flow, right controls ride with ml-auto —
+          flex-wrap means they can never collide on narrow charts. */}
+      <div className="relative z-20 flex shrink-0 flex-wrap items-center gap-1.5 border-b border-[#0F2E58] bg-[#021229] px-2.5 py-2">
         <Select value={symbol} onValueChange={(v) => onSymbol(v)} disabled={busy !== null}>
           <SelectTrigger
             aria-label="Chart symbol — the EA follows automatically"
@@ -1194,7 +1265,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
           >
             <SelectValue>{symbol}</SelectValue>
           </SelectTrigger>
-          <SelectContent className="max-h-[380px] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
+          <SelectContent className="z-[500] max-h-[380px] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
             {venue === null
               ? SYMBOL_GROUPS.map((g) => (
                   <SelectGroup key={g.key}>
@@ -1229,7 +1300,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
           >
             <SelectValue />
           </SelectTrigger>
-          <SelectContent className="border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
+          <SelectContent className="z-[500] border-[#1C4478] bg-[#041428] text-[#EAF3FF]">
             {TIMEFRAMES.map((t) => (
               <SelectItem key={t} value={t} className="text-xs">
                 {t}
@@ -1278,13 +1349,13 @@ function ChartPanelView(props: ChartProps & BasisProps) {
 
         {/* right controls: EA attach toggle + chart engine toggle — ride the
             same wrapping row (ml-auto) so they can never cover the left tools */}
-        <div className="pointer-events-auto ml-auto flex items-center gap-1.5">
+        <div className="pointer-events-auto ml-auto flex flex-wrap items-center justify-end gap-1.5">
           <button
             type="button"
             onClick={onToggleBot}
             disabled={busy !== null}
             aria-label={enabled ? "Stop EA bot" : "Start EA bot"}
-            className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] backdrop-blur transition-colors disabled:opacity-50"
+            className="flex items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] backdrop-blur transition-colors disabled:opacity-50"
             style={{
               borderColor: enabled ? "rgba(0,214,143,0.55)" : "#0F2E58",
               background: enabled ? "rgba(0,214,143,0.16)" : "rgba(2,18,41,0.95)",
@@ -1309,7 +1380,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
             onClick={toggleLevels}
             aria-pressed={allLevels}
             aria-label={allLevels ? "Showing all indicator levels — switch to current signal only" : "Showing current signal only — switch to all indicator levels"}
-            className="rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+            className="whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
             style={{
               borderColor: allLevels ? "rgba(233,185,78,0.6)" : "#0F2E58",
               background: allLevels ? "rgba(233,185,78,0.12)" : "rgba(2,18,41,0.95)",
@@ -1348,31 +1419,58 @@ function ChartPanelView(props: ChartProps & BasisProps) {
           <div className="flex overflow-hidden rounded-lg border border-[#0F2E58] bg-[#021229]/95 backdrop-blur">
             {(
               [
-                ["3el", "TRADINGVIEW · 3EL"],
-                ["tv", "TV WEB"],
-              ] as Array<[ChartMode, string]>
-            ).map(([m, label]) => (
+                ["3el", "TRADINGVIEW · 3EL", "3EL"],
+                ["tv", "TV WEB", "TV"],
+              ] as Array<[ChartMode, string, string]>
+            ).map(([m, label, short]) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => switchMode(m)}
                 aria-pressed={mode === m}
                 aria-label={`Show ${label} chart`}
-                className="px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
+                className="whitespace-nowrap px-2.5 py-1.5 text-[9px] font-extrabold tracking-[0.14em] transition-colors"
                 style={{
                   color: mode === m ? C.navy : C.muted,
                   background: mode === m ? C.gold : "transparent",
                 }}
               >
-                {label}
+                <span className="sm:hidden">{short}</span>
+                <span className="hidden sm:inline">{label}</span>
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={togglePanels}
+            aria-pressed={!showPanels}
+            aria-label={showPanels ? "Hide the chart's info panels" : "Show the chart's info panels"}
+            title={showPanels ? "Hide info panels — clean chart" : "Show info panels"}
+            className="grid h-7 w-7 place-items-center rounded-lg border border-[#0F2E58] bg-[#021229]/95 transition-colors hover:border-[#2ECCFF]/60"
+            style={{ color: showPanels ? C.muted : C.cyan }}
+          >
+            {showPanels ? <Eye size={13} strokeWidth={2.2} /> : <EyeOff size={13} strokeWidth={2.2} />}
+          </button>
+          <button
+            type="button"
+            onClick={toggleFull}
+            aria-pressed={full}
+            aria-label={full ? "Exit full screen" : "Full screen chart"}
+            title={full ? "Exit full screen (Esc)" : "Full screen"}
+            className="grid h-7 w-7 place-items-center rounded-lg border transition-colors hover:border-[#2ECCFF]/60"
+            style={{
+              borderColor: full ? "rgba(46,204,255,0.55)" : "#0F2E58",
+              background: full ? "rgba(46,204,255,0.14)" : "rgba(2,18,41,0.95)",
+              color: full ? C.cyan : C.muted,
+            }}
+          >
+            {full ? <Minimize2 size={13} strokeWidth={2.2} /> : <Maximize2 size={13} strokeWidth={2.2} />}
+          </button>
         </div>
       </div>
 
       {mode === "tv" ? (
-        <div className={`relative ${heightCls}`}>
+        <div className={`relative ${bodyCls}`}>
           <TvChart
             key={`${symbol}-${tf}`}
             symbol={symbol}
@@ -1389,7 +1487,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
             }}
           />
           {/* 3EL INDICATOR attached to the TradingView web chart (legend rail) */}
-          {pineStrategy ? (
+          {showPanels && (pineStrategy ? (
             <PineIndicatorRail
               name={pineStrategy.name}
               plots={(pineData?.plots ?? []).map((p) => ({ title: p.title, color: p.color }))}
@@ -1409,7 +1507,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
               cfg={cfg}
               mintick={mintick}
             />
-          )}
+          ))}
           {/* approximate price ladder — current-signal lines drawn OVER the
               free embed (C1/C2/wick + ENTRY/SL/TP), drag-to-align */}
           <TvSignalOverlay
@@ -1438,7 +1536,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
           {/* EA attach HUD — EA state drawn over the TradingView chart */}
           <div
             aria-label="EA attach status"
-            className="pointer-events-none absolute bottom-2.5 left-3 z-10 max-w-[calc(100%-160px)] rounded-lg border border-[#0F2E58] bg-[#021229]/92 px-3 py-2 backdrop-blur-sm sm:max-w-[78%]"
+            className={`pointer-events-none absolute bottom-2.5 left-3 z-10 ${showPanels ? "" : "hidden"} max-w-[calc(100%-160px)] rounded-lg border border-[#0F2E58] bg-[#021229]/92 px-3 py-2 backdrop-blur-sm sm:max-w-[78%]`}
           >
             <div className="flex items-center gap-1.5 text-[9px] font-extrabold tracking-[0.16em]">
               <span
@@ -1479,11 +1577,11 @@ function ChartPanelView(props: ChartProps & BasisProps) {
           <CandleTimer tf={tf} barOpenTime={liveStat.active && liveBar ? liveBar.time : liveCandle ? liveCandle.time : null} />
         </div>
       ) : (
-        <div className="relative">
-          <div ref={elRef} className={`${heightCls} w-full`} />
+        <div className={`relative ${full || fill ? bodyCls : ""}`}>
+          <div ref={elRef} className={full || fill ? "absolute inset-0" : `${heightCls} w-full`} />
           {/* 3EL INDICATOR legend — TradingView-style top-left legend, always
               visible so the indicator is unmistakably attached to the chart */}
-          {pineStrategy ? (
+          {showPanels && (pineStrategy ? (
             <PineIndicatorRail
               name={pineStrategy.name}
               plots={(pineData?.plots ?? []).map((p) => ({ title: p.title, color: p.color }))}
@@ -1502,7 +1600,7 @@ function ChartPanelView(props: ChartProps & BasisProps) {
               cfg={cfg}
               mintick={mintick}
             />
-          )}
+          ))}
           {/* CANDLE TIMER — same countdown badge as the TV WEB view */}
           <CandleTimer tf={tf} barOpenTime={liveStat.active && liveBar ? liveBar.time : liveCandle ? liveCandle.time : null} />
         </div>

@@ -51,7 +51,7 @@ export function IndicatorRail({ levels, trade, live, price, atr, cfg, mintick, s
       aria-label="3EL indicator overlay attached to TradingView chart"
       className={`pointer-events-none absolute z-10 flex w-[192px] flex-col gap-1.5 xl:w-[214px] ${
         side === "left" ? "left-2" : "right-2"
-      } top-[80px] sm:top-10`}
+      } top-2.5`}
     >
       {/* header chip */}
       <div className="flex items-center justify-between rounded-lg border border-[#1C4478] bg-[#021229]/92 px-2 py-1.5 backdrop-blur">

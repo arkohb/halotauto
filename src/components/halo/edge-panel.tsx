@@ -168,14 +168,20 @@ export function EdgePanel({ symbol, tf, notify }: { symbol: string; tf: string; 
   if (!settings) return <StateFrame state="loading" title="Loading EDGE…" />;
 
   return (
+    // two independent columns (not paired rows): cards of very different
+    // heights stack without leaving holes beside the shorter ones
     <div className="grid items-start gap-4 xl:grid-cols-2">
-      <QualityCard s={settings} save={save} saving={saving} />
-      <ManagerCard s={settings} save={save} saving={saving} />
-      <GuardianCard s={settings} save={save} saving={saving} />
-      <FiltersCard s={settings} save={save} saving={saving} />
-      <PropCard key={JSON.stringify(settings.prop)} s={settings} save={save} saving={saving} notify={notify} />
-      <SpreadCard s={settings} save={save} saving={saving} />
-      <AutopilotCard s={settings} save={save} symbol={symbol} tf={tf} notify={notify} />
+      <div className="flex min-w-0 flex-col gap-4">
+        <QualityCard s={settings} save={save} saving={saving} />
+        <GuardianCard s={settings} save={save} saving={saving} />
+        <SpreadCard s={settings} save={save} saving={saving} />
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">
+        <ManagerCard s={settings} save={save} saving={saving} />
+        <FiltersCard s={settings} save={save} saving={saving} />
+        <PropCard key={JSON.stringify(settings.prop)} s={settings} save={save} saving={saving} notify={notify} />
+        <AutopilotCard s={settings} save={save} symbol={symbol} tf={tf} notify={notify} />
+      </div>
       <div className="xl:col-span-2">
         <CompareCard symbol={symbol} tf={tf} notify={notify} />
       </div>

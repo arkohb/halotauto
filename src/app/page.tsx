@@ -492,9 +492,11 @@ export default function Page() {
                   </div>
 
                   {/* row 1 · the chart + the AI right rail (orb · market overview · account) */}
-                  <div className="col-span-12 min-w-0 space-y-3 xl:col-span-8">
+                  <div className="col-span-12 flex min-w-0 flex-col gap-3 xl:col-span-8">
                     <StatusBanner state={state} />
+                    <div className="min-h-0 flex-1">
                     <ChartPanel
+                      fill
                       candles={candles}
                       drawings={state.engine.drawings}
                       log={state.engine.log}
@@ -522,21 +524,23 @@ export default function Page() {
                       pinePosition={state.strategy?.selected.kind === "pine" ? state.strategy?.position ?? null : null}
                       scanLock={state.scanLock ?? null}
                     />
+                    </div>
                   </div>
-                  <div className="col-span-12 space-y-3 md:col-span-6 xl:col-span-4">
+                  <div className="col-span-12 grid content-start gap-3 md:grid-cols-2 xl:col-span-4 xl:grid-cols-1">
                     <HaloCore state={state} />
                     <MarketOverview state={state} />
-                    <AccountSummary />
                   </div>
 
-                  {/* row 2 · signal / monitoring / recent trades (mockup bottom row) */}
-                  <div className="col-span-12 md:col-span-6 xl:col-span-4">
-                    <LatestSignal state={state} />
+                  {/* row 2 · account / signal + monitoring / recent trades —
+                      equal-height cards (each card stretches to the row) */}
+                  <div className="col-span-12 flex flex-col md:col-span-6 xl:col-span-4 [&>*]:flex-1">
+                    <AccountSummary />
                   </div>
-                  <div className="col-span-12 md:col-span-6 xl:col-span-4">
+                  <div className="col-span-12 flex flex-col gap-3 md:col-span-6 xl:col-span-4 [&>*]:flex-1">
+                    <LatestSignal state={state} />
                     <MonitorStatus state={state} />
                   </div>
-                  <div className="col-span-12 min-h-[260px] xl:col-span-4">
+                  <div className="col-span-12 flex min-h-[260px] flex-col xl:col-span-4 [&>*]:flex-1">
                     <RecentTrades onOpenHistory={() => gotoView("trade-history")} />
                   </div>
 
@@ -586,8 +590,9 @@ export default function Page() {
                   title="Market Intelligence"
                   sub="AI-powered market analysis and opportunities — live chart, armed levels and external feeds, sources stamped, nothing invented."
                 />
-                <div className="col-span-12 min-w-0 xl:col-span-8">
+                <div className="col-span-12 flex min-w-0 flex-col xl:col-span-8">
                   <ChartPanel
+                    fill
                     candles={candles}
                     drawings={state.engine.drawings}
                     log={state.engine.log}
@@ -637,17 +642,21 @@ export default function Page() {
                 />
                 <TradeCard state={state} />
                 <TradingActivity state={state} histKey={histKey} />
-                <QuickActions state={state} notify={notify} />
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <Mt5MobileApp notify={notify} />
-                  <ControlDeck
-                    state={state}
-                    busy={busy}
-                    view={view}
-                    onView={(v) => gotoView(v)}
-                    onControl={control}
-                    onExecMode={setExecMode}
-                  />
+                <div className="grid items-start gap-4 lg:grid-cols-2">
+                  <div className="min-w-0 space-y-4">
+                    <QuickActions state={state} notify={notify} />
+                    <ControlDeck
+                      state={state}
+                      busy={busy}
+                      view={view}
+                      onView={(v) => gotoView(v)}
+                      onControl={control}
+                      onExecMode={setExecMode}
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <Mt5MobileApp notify={notify} />
+                  </div>
                 </div>
               </div>
             )}
@@ -750,14 +759,14 @@ export default function Page() {
 
             {/* ════════ HALO VOICE COMMAND CENTER (mockup 08) ════════ */}
             {view === "voice" && (
-              <div className="grid grid-cols-12 gap-3">
+              <div className="grid grid-cols-12 items-start gap-3">
                 <PageHeader
                   className="col-span-full"
                   icon={Mic}
                   title="Voice Command Center"
                   sub="Talk to HALO — say the wake word, type in the console, or run the allowlisted operator actions."
                 />
-                <div className="col-span-12 min-h-[560px] xl:col-span-8">
+                <div className="col-span-12 h-[70vh] min-h-[520px] xl:sticky xl:top-[72px] xl:col-span-8 xl:h-[calc(100vh-96px)]">
                   <JarvisConsole variant="docked" />
                 </div>
                 <div className="col-span-12 space-y-3 xl:col-span-4">
@@ -794,7 +803,7 @@ export default function Page() {
 
             {/* ════════ PERFORMANCE ════════ */}
             {view === "performance" && (
-              <div className="grid items-start gap-4 lg:grid-cols-3">
+              <div className="grid items-start gap-4 lg:grid-cols-2">
                 <PageHeader
                   className="col-span-full"
                   icon={TrendingUp}
@@ -803,7 +812,9 @@ export default function Page() {
                 />
                 <DashboardPanel state={state} />
                 <PerformanceIntel refreshKey={histKey} />
-                <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
+                <div className="col-span-full min-w-0">
+                  <HistoryPanel mintick={state.mintick} refreshKey={histKey} filter={histFilter} />
+                </div>
               </div>
             )}
 
@@ -847,18 +858,18 @@ export default function Page() {
                   title="SETTINGS"
                   sub="Strategy inputs (Pine v1.2), FX ambience, HALO voice & profile, and the TradingView EA bridge."
                 />
-                <div className="min-w-0">
-                  <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
-                </div>
                 <div className="min-w-0 space-y-4">
-                  <FxSettingsCard />
-                  <VoiceSettingsCard />
+                  <SettingsPanel config={state.config} saving={saving} onSave={saveConfig} />
                   <EaAttachCard
                     state={state}
                     notify={notify}
                     busy={busy}
                     onToggleBot={() => void control(state.enabled ? "stop" : "start")}
                   />
+                </div>
+                <div className="min-w-0 space-y-4">
+                  <FxSettingsCard />
+                  <VoiceSettingsCard />
                 </div>
               </div>
             )}

@@ -55,7 +55,7 @@ export function PineIndicatorRail({ name, plots, inputs, position, mintick, note
   return (
     <div
       aria-label="Attached Pine indicator legend"
-      className="pointer-events-none absolute left-2 z-10 flex w-[192px] flex-col gap-1.5 xl:w-[214px] top-[80px] sm:top-10"
+      className="pointer-events-none absolute left-2 z-10 flex w-[192px] flex-col gap-1.5 xl:w-[214px] top-2.5"
     >
       {/* header chip — the trader's indicator is the one attached now */}
       <div className="flex items-center justify-between rounded-lg border border-[#1C4478] bg-[#021229]/92 px-2 py-1.5 backdrop-blur">
