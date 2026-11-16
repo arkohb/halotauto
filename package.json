@@ -105,8 +105,5 @@
   },
   "engines": {
     "node": ">=20"
-  },
-  "overrides": {
-    "deepmerge-ts": "8.0.2"
   }
 }
