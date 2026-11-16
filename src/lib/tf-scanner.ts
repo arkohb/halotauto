@@ -459,9 +459,18 @@ async function tickRow(row: ScanRow): Promise<void> {
   // watchlist scanner). The lock holder is identified by source+symbol+tf.
   if (!isLockHolder("SCAN", row.symbol, row.tf)) return;
 
+  // a real market whose feed fell back to the simulator must never feed the
+  // engine: simulated bars would leave fake levels behind that later fire on
+  // real prices (the price guard only sees the CURRENT source)
+  const realMarket = !isSimOnlyGroup(getSymbolMeta(row.symbol).group);
+
   if (!row.bootstrapped) {
     const { candles, source } = await getKlines(row.symbol, row.tf, WARM_BARS, { deep: true });
     row.source = source;
+    if (realMarket && source === "simulator") {
+      row.lastError = "waiting for real prices — the live feed is unavailable";
+      return; // stay unbootstrapped; the next slice tries again
+    }
     let lastConfirmed = 0;
     for (const c of candles) {
       if (c.time + secMs <= now) {
@@ -480,6 +489,19 @@ async function tickRow(row: ScanRow): Promise<void> {
 
   const { candles, source } = await getKlines(row.symbol, row.tf, 4, { fresh: true });
   row.source = source;
+  if (realMarket && source === "simulator") {
+    // skip the fake bars; when flat, rebuild from real history once the feed
+    // is back (same as the EA bot's re-anchor) — an open trade keeps its
+    // engine and simply waits for real bars to judge its SL/TP
+    if (!row.openTradeDbId && row.bootstrapped) {
+      row.engine = new HaloEngine(row.engine.cfg, getSymbolMeta(row.symbol).mintick);
+      row.lastConfirmedTime = 0;
+      row.armed = 0;
+      row.bootstrapped = false;
+    }
+    row.lastError = "waiting for real prices — the live feed is unavailable";
+    return;
+  }
   for (const c of candles) {
     if (c.time > row.lastConfirmedTime && c.time + secMs <= now) {
       const ev = row.engine.processBar(c, true);
@@ -825,4 +847,4 @@ export function scannerPx(v: number, symbol: string): string {
 }
 
 /** test-only hook — drive a row's fire/close handling with engine events (scripts/fire-e2e-test.ts) */
-export const __tfScannerTest = { makeRow, handleEvents, currentCfg, rt };
+export const __tfScannerTest = { makeRow, handleEvents, currentCfg, rt, tickRow };
