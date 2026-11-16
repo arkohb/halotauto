@@ -10,6 +10,6 @@ crons = ["* * * * *"]
 
 [vars]
 # public origin of the app behind Cloudflare, no trailing slash
-APP_ORIGIN = "https://app.example.com"
+APP_ORIGIN = "https://halo-autotrader--halo-autotrader-cab82.us-central1.hosted.app"
 
 # secret: wrangler secret put HALO_CRON_SECRET   (same value as in App Hosting)
