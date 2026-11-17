@@ -252,6 +252,52 @@ export default function Page() {
     }
   }, [state, view, gotoView, notify]);
 
+  // ── ARMED-LEVEL CHART FOLLOW · a marked level is always on screen ──
+  // The Scanner Bot watches every timeframe of the chart's symbol. When a
+  // NEW level is marked on a timeframe other than the chart's, the chart
+  // (and the EA, one /api/bot/config call) switches to it so the armed
+  // level waiting for its entry is drawn. Rules:
+  //   • a running trade owns the chart (live-trade follow above) — never switch then,
+  //   • the chart's own armed level stays on screen — no switch away from it,
+  //   • only a NEW level triggers it, so a manual timeframe pick is respected
+  //     until the next level is marked.
+  const prevArmKeyRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state || state.armedSetup === undefined) return; // config replies carry no scanner view
+    const a = state.armedSetup;
+    const key = a ? `${state.symbol}:${a.tf}:${a.newest}` : "";
+    if (key === prevArmKeyRef.current) return;
+    prevArmKeyRef.current = key;
+    if (!a || a.tf === state.tf) return;
+    if (state.scanLock) return;
+    const t = state.engine.trade;
+    if (t && t.traded !== false) return;
+    if (state.engine.levels.length > 0) return;
+    if (followBusyRef.current) {
+      prevArmKeyRef.current = null; // busy — retry on the next poll
+      return;
+    }
+    followBusyRef.current = true;
+    void (async () => {
+      try {
+        const r = await fetch("/api/bot/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tf: a.tf }),
+        });
+        const j = (await r.json()) as { ok: boolean; state?: BotStateRes };
+        if (j.ok && j.state) {
+          setState(j.state);
+          notify("LEVEL MARKED", `${state.symbol} ${a.tf} — the chart switched to the timeframe where the level is armed and waiting for entry.`);
+        } else prevArmKeyRef.current = null;
+      } catch {
+        prevArmKeyRef.current = null; // transient — retry on the next poll
+      } finally {
+        followBusyRef.current = false;
+      }
+    })();
+  }, [state, notify]);
+
   // refresh history when a trade closes
   useEffect(() => {
     if (!state) return;

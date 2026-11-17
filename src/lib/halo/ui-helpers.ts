@@ -148,6 +148,8 @@ export interface BotStateRes {
   strategy?: StrategyRes;
   /** GLOBAL TRADE LOCK — a trade is running somewhere; scanning is paused until TP/SL */
   scanLock?: { source: string; symbol: string; tf: string; dir: number; entry: number; sl: number; tp: number; openedAt: number } | null;
+  /** the timeframe of this symbol whose armed level was marked most recently (Scanner Bot) — the chart follows it */
+  armedSetup?: { tf: string; count: number; newest: number } | null;
 }
 
 export function decimalsOf(mintick: number): number {

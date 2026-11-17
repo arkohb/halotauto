@@ -811,6 +811,37 @@ export async function tfScannerState(): Promise<TfScannerState> {
   };
 }
 
+/** a timeframe of this symbol with a freshly armed level awaiting entry */
+export interface ArmedSetup {
+  tf: string;
+  /** armed levels on that timeframe */
+  count: number;
+  /** C2 open time of its newest armed level (ms) — changes when a new level arms */
+  newest: number;
+}
+
+/**
+ * The timeframe whose armed level was marked most recently on `symbol`
+ * (warmed rows; real markets on real prices only). The chart follows it so a marked
+ * level is always on screen while it waits for the entry. null = nothing
+ * armed on any timeframe of this symbol.
+ */
+export function armedSetupFor(symbol: string): ArmedSetup | null {
+  let best: ArmedSetup | null = null;
+  for (const row of rt().rows.values()) {
+    if (row.symbol !== symbol || !row.bootstrapped || row.armed <= 0) continue;
+    // a real market's levels count only on real prices (simulated bars never arm the chart)
+    if (row.source === "simulator" && !isSimOnlyGroup(getSymbolMeta(row.symbol).group)) continue;
+    const levels = row.engine.snapshot().levels;
+    if (levels.length === 0) continue;
+    const newest = Math.max(...levels.map((l) => l.b2Time));
+    if (!best || newest > best.newest || (newest === best.newest && tfSec(row.tf) < tfSec(best.tf))) {
+      best = { tf: row.tf, count: levels.length, newest };
+    }
+  }
+  return best;
+}
+
 /** Start / pause / resume — the ONLY controls the scanner bot exposes. */
 export async function configTfScanner(action: "start" | "pause" | "resume"): Promise<void> {
   const R = await ensureTfScanner();
