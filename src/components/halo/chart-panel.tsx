@@ -529,7 +529,13 @@ function ChartPanelView(props: ChartProps & BasisProps) {
         attributionLogo: false,
       },
       grid: { vertLines: { color: "#061B38" }, horzLines: { color: "#061B38" } },
-      crosshair: { mode: CrosshairMode.Normal },
+      // TradingView-style crosshair: clearly visible dashed lines that move
+      // freely, with labelled price and time tags on the axes
+      crosshair: {
+        mode: CrosshairMode.Normal,
+        vertLine: { color: "rgba(138,162,194,0.75)", width: 1, style: LineStyle.Dashed, labelVisible: true, labelBackgroundColor: "#1C4478" },
+        horzLine: { color: "rgba(138,162,194,0.75)", width: 1, style: LineStyle.Dashed, labelVisible: true, labelBackgroundColor: "#1C4478" },
+      },
       rightPriceScale: { borderColor: C.line },
       timeScale: { borderColor: C.line, timeVisible: true, secondsVisible: false, rightOffset: 10 },
     });
