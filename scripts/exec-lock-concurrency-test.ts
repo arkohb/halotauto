@@ -96,6 +96,14 @@ async function main(): Promise<void> {
   await lock.releaseForTrade(tr.id, "test: TP hit");
   ok((await lock.lockHolder()) === null, "trade closed → lock released");
 
+  // 5b · a finished (CLOSED) order still holding the lock — its release was
+  // missed — must not block the next order
+  const z = await lock.beginIntent(intent(30));
+  await db.executionIntent.update({ where: { id: z!.id }, data: { state: "CLOSED" } });
+  const z2 = await lock.beginIntent(intent(31));
+  ok(z2 !== null && (await lock.lockHolder())?.intentId === z2.id, "a CLOSED order left holding the lock is freed by the next order");
+  await lock.markRejected(z2!.id, "test: cleanup");
+
   // 6 · restart during a PENDING order (crash before submission) → abandoned + released
   await reset();
   const p = await lock.beginIntent(intent(4));

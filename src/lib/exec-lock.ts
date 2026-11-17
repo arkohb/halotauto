@@ -36,8 +36,15 @@ async function transition(intentId: string, to: IntentState, detail = "", data: 
   const cur = await db.executionIntent.findUnique({ where: { id: intentId } });
   if (!cur) return;
   await db.executionIntent.update({ where: { id: intentId }, data: { state: to, detail: detail.slice(0, 250), ...data } });
-  await db.executionEvent.create({ data: { intentId, fromState: cur.state, toState: to, detail: detail.slice(0, 250) } });
+  // the audit row is best-effort: a failed log write must never skip the
+  // lock release that follows a transition (it once left a CLOSED trade
+  // holding the lock and every new order was refused)
+  await db.executionEvent
+    .create({ data: { intentId, fromState: cur.state, toState: to, detail: detail.slice(0, 250) } })
+    .catch((e) => console.error(`[exec-lock] audit event ${cur.state} -> ${to} not written for ${intentId}:`, (e as Error).message));
 }
+
+const TERMINAL: ReadonlySet<string> = new Set(["CLOSED", "REJECTED", "ABANDONED"]);
 
 async function releaseLock(intentId: string): Promise<void> {
   await db.executionLock.updateMany({ where: { id: LOCK_ID, intentId }, data: { intentId: null } });
@@ -99,7 +106,14 @@ async function releaseIfPaperTradeClosed(): Promise<boolean> {
   const row = await db.executionLock.findUnique({ where: { id: LOCK_ID } });
   if (!row?.intentId) return false;
   const holder = await db.executionIntent.findUnique({ where: { id: row.intentId } });
-  if (!holder || holder.state !== "OPEN" || holder.execMode !== "PAPER" || !holder.tradeId) return false;
+  // a holder that is gone or already finished (CLOSED / REJECTED / ABANDONED)
+  // has nothing open — the lock outlived it, so free it (paper or live)
+  if (!holder || TERMINAL.has(holder.state)) {
+    await db.executionLock.updateMany({ where: { id: LOCK_ID, intentId: row.intentId }, data: { intentId: null } });
+    console.warn(`[exec-lock] released a lock held by a finished order (${holder?.state ?? "missing"})`);
+    return true;
+  }
+  if (holder.state !== "OPEN" || holder.execMode !== "PAPER" || !holder.tradeId) return false;
   const trade = await db.trade.findUnique({ where: { id: holder.tradeId }, select: { status: true } });
   if (!trade || trade.status === "OPEN") return false;
   await transition(holder.id, "CLOSED", `lock released late: paper trade already ${trade.status}`);
@@ -134,10 +148,11 @@ export async function markUncertain(id: string, detail: string): Promise<void> {
 /** the trade with this DB id closed — release its lock */
 export async function releaseForTrade(tradeId: string | null | undefined, detail: string): Promise<void> {
   if (!tradeId) return;
-  const intent = await db.executionIntent.findFirst({ where: { tradeId, state: "OPEN" } });
+  const intent = await db.executionIntent.findFirst({ where: { tradeId }, orderBy: { createdAt: "desc" } });
   if (!intent) return;
-  await transition(intent.id, "CLOSED", detail);
+  // another close path may already have written CLOSED — release regardless
   await releaseLock(intent.id);
+  if (intent.state === "OPEN") await transition(intent.id, "CLOSED", detail);
 }
 
 /** is the persistent lock held (by anything)? */
@@ -202,6 +217,8 @@ async function reconcile(): Promise<void> {
   }
 
   if (intent.state === "OPEN") return watchOpen(intent.id);
+  // finished order still holding the lock (its release was missed) — free it
+  if (TERMINAL.has(intent.state)) await releaseLock(intent.id);
 }
 
 /** what the broker knows about this intent's order — by HALO's client order id
@@ -356,8 +373,9 @@ async function closeWatched(intentId: string, symbol: string, tf: string, result
   if (gRec.__haloWatched?.intentId === intentId) gRec.__haloWatched = null;
   const lock = getTradeLock();
   if (lock && lock.symbol === symbol) maybeReleaseLock(lock.source, symbol, lock.tf, result, pips);
-  await transition(intentId, "CLOSED", "closed (restart monitor)");
+  // release first: the trade is over whatever happens to the state write
   await releaseLock(intentId);
+  await transition(intentId, "CLOSED", "closed (restart monitor)");
   void tf;
 }
 
