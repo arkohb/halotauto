@@ -1,4 +1,10 @@
 import type { NextConfig } from "next";
+import { readFileSync } from "node:fs";
+
+// OFFICIAL RELEASE · the "version" in package.json. Bumping it (and only
+// that) is what raises the dashboard's "new version — reload" alert; routine
+// deploys and server restarts never do.
+const HALO_RELEASE = (JSON.parse(readFileSync("./package.json", "utf8")) as { version?: string }).version ?? "0.0.0";
 
 // Security headers on every response. The Content-Security-Policy itself is
 // set per request in src/proxy.ts (it needs a fresh nonce for every page).
@@ -17,6 +23,7 @@ const nextConfig: NextConfig = {
   // overwriting the .next/standalone build the server is running from
   distDir: process.env.HALO_DIST_DIR || ".next",
   poweredByHeader: false,
+  env: { NEXT_PUBLIC_HALO_RELEASE: HALO_RELEASE },
   /* config options here */
   typescript: {
     ignoreBuildErrors: true,

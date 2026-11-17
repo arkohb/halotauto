@@ -1,26 +1,23 @@
 "use client";
 
 // ══════════════════════════════════════════════════════════════════════════
-//  UPDATE ALERT · "new version deployed — reload to apply"
+//  UPDATE ALERT · "new HALO version — reload to apply"
 //
-//  An open dashboard (or installed PWA) keeps running the JS bundle it was
-//  loaded with, even after the server has been restarted with new code —
-//  the service worker's skipWaiting activates the new shell but old chunks
-//  live until a reload. This component closes that gap:
+//  Shown ONLY for an official release: the server's release (package.json
+//  "version", GET /api/version) is NEWER than the release this page was
+//  built with (NEXT_PUBLIC_HALO_RELEASE). Routine deploys, server restarts,
+//  cold starts, the several instances Firebase runs side by side and
+//  service-worker refreshes never raise it.
 //
-//   1. VERSION POLL  — probes GET /api/version at mount, then every 60 s
-//      and immediately on focus / tab-visible / network-online. The server
-//      answers with an opaque id bound to its process boot, so any deploy
-//      restart changes it and every open dashboard raises the alert.
-//   2. SW UPDATEFOUND — production only: when the service worker finds a
-//      newer worker (e.g. a sw.js-only change that never restarts the
-//      server) the alert is raised as well.
+//  Publishing an official update = bump "version" in package.json
+//  (e.g. 0.2.1 → 0.2.2) and deploy.
+//
+//  Probes at mount, every 60 s and on focus / tab-visible / online. A
+//  dismissal is remembered per release, so it never nags again for that
+//  release. Detection failures (offline, 401 when signed out) stay silent.
 //
 //  The alert is a floating bottom-centre pill (bottom-right is occupied by
-//  the robot assistant + JARVIS console; the header must stay unobstructed)
-//  with a Reload-now action; it stays until reloaded or dismissed for that
-//  specific version, and re-arms itself if yet another version lands.
-//  Detection failures (offline, 401 when signed out) stay silent.
+//  the robot assistant + JARVIS console; the header must stay unobstructed).
 // ══════════════════════════════════════════════════════════════════════════
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -30,11 +27,12 @@ import { A, C } from "@/lib/halo/ui-helpers";
 import { useToast } from "@/hooks/use-toast";
 
 const POLL_MS = 60_000;
+const OWN_RELEASE = process.env.NEXT_PUBLIC_HALO_RELEASE ?? "0.0.0"; // baked in at build
+const DISMISS_KEY = "halo.update.dismissed";
 
 interface VersionRes {
   ok: boolean;
   version: string;
-  deployedAt?: string;
 }
 
 async function fetchVersion(): Promise<VersionRes | null> {
@@ -48,31 +46,41 @@ async function fetchVersion(): Promise<VersionRes | null> {
   }
 }
 
+/** true when release a is newer than b ("0.2.10" > "0.2.9") */
+export function newerRelease(a: string, b: string): boolean {
+  const pa = a.split(".").map((x) => parseInt(x, 10) || 0);
+  const pb = b.split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d !== 0) return d > 0;
+  }
+  return false;
+}
+
+function readDismissed(): string | null {
+  try {
+    return localStorage.getItem(DISMISS_KEY);
+  } catch {
+    return null;
+  }
+}
+
 export function UpdateAlert() {
   const { toast } = useToast();
-  const [updateKey, setUpdateKey] = useState<string | null>(null);
-  const [deployedLabel, setDeployedLabel] = useState<string | null>(null);
-  const baseline = useRef<string | null>(null); // version this tab was loaded with
-  const dismissed = useRef<string | null>(null); // update key the user dismissed
-  const announced = useRef<string | null>(null); // update key already toasted
-
-  const deployTime = useCallback((iso?: string) => {
-    if (!iso) return null;
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return null;
-    return `${d.toLocaleTimeString("en-GB", { hour12: false, timeZone: "UTC" })} UTC`;
-  }, []);
+  const [release, setRelease] = useState<string | null>(null); // newer official release, when one is out
+  const dismissed = useRef<string | null>(null); // release the user dismissed
+  const announced = useRef<string | null>(null); // release already toasted
 
   const raise = useCallback(
-    (key: string, deployed: string | null) => {
-      if (dismissed.current === key) return; // user already dismissed this one
-      setUpdateKey(key);
-      setDeployedLabel(deployed);
-      if (announced.current !== key) {
-        announced.current = key;
+    (next: string) => {
+      if (dismissed.current === null) dismissed.current = readDismissed();
+      if (dismissed.current === next) return; // already dismissed for this release
+      setRelease(next);
+      if (announced.current !== next) {
+        announced.current = next;
         toast({
           title: "Update available",
-          description: "A new HALO version was deployed — reload to apply it.",
+          description: `HALO ${next} is out — reload to apply it.`,
         });
       }
     },
@@ -82,19 +90,12 @@ export function UpdateAlert() {
   const check = useCallback(async () => {
     const v = await fetchVersion();
     if (!v) return;
-    if (!baseline.current) {
-      baseline.current = v.version; // first probe → the version this tab runs
-      return;
-    }
-    if (v.version === baseline.current) return;
-    // server is running a different build than this tab was loaded with
-    raise(v.version, deployTime(v.deployedAt));
-  }, [raise, deployTime]);
+    // only an official release newer than the one this page runs
+    if (newerRelease(v.version, OWN_RELEASE)) raise(v.version);
+  }, [raise]);
 
-  // ── channel 1 · deployment version polling ──────────────────────────────
   useEffect(() => {
-    // first probe deferred a tick (same pattern as the header UTC clock) so
-    // the effect body itself never setState-synchronously
+    // first probe deferred a tick so the effect body never setStates synchronously
     const first = setTimeout(() => void check(), 0);
     const id = setInterval(() => void check(), POLL_MS);
     const wake = () => void check();
@@ -110,43 +111,21 @@ export function UpdateAlert() {
     };
   }, [check]);
 
-  // ── channel 2 · service worker update detection (production installs) ──
-  useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
-    let attaching: ServiceWorker | null = null;
-    const onState = () => {
-      // sw.js installs with skipWaiting → activating/activated means a newer
-      // app shell exists than the JS this tab is running
-      raise("service-worker", null);
-    };
-    navigator.serviceWorker
-      .getRegistration()
-      .then((reg) => {
-        if (!reg) return;
-        if (reg.installing) {
-          attaching = reg.installing;
-          attaching.addEventListener("statechange", onState);
-        }
-        reg.addEventListener("updatefound", () => {
-          attaching?.removeEventListener("statechange", onState);
-          if (reg.installing) {
-            attaching = reg.installing;
-            attaching.addEventListener("statechange", onState);
-          }
-        });
-      })
-      .catch(() => {});
-    return () => attaching?.removeEventListener("statechange", onState);
-  }, [raise]);
-
   const dismiss = useCallback(() => {
-    if (updateKey) dismissed.current = updateKey;
-    setUpdateKey(null);
-  }, [updateKey]);
+    if (release) {
+      dismissed.current = release;
+      try {
+        localStorage.setItem(DISMISS_KEY, release);
+      } catch {
+        // storage blocked — dismissed for this session only
+      }
+    }
+    setRelease(null);
+  }, [release]);
 
   return (
     <AnimatePresence>
-      {updateKey && (
+      {release && (
         <motion.div
           key="halo-update-alert"
           initial={{ opacity: 0, y: 24, scale: 0.96 }}
@@ -175,11 +154,10 @@ export function UpdateAlert() {
 
             <div className="min-w-0 flex-1">
               <div className="text-sm font-bold tracking-wide" style={{ color: C.txt }}>
-                New version available
+                HALO {release} available
               </div>
               <div className="truncate text-[11px]" style={{ color: C.muted }}>
-                Reload to apply the latest update
-                {deployedLabel ? ` · deployed ${deployedLabel}` : ""}.
+                Official update · reload to apply it.
               </div>
             </div>
 
