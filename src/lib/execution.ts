@@ -13,6 +13,7 @@ import type { BrokerKind } from "./brokers/types";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf, getSymbolMeta } from "./market-symbols";
 import { engageTradeLock, entriesPaused, getTradeLock, type TradeLockSource } from "./trade-lock";
+import { getActiveStrategySel, pineAutoTradeActive } from "./strategy-select";
 import { gateOrder } from "./edge/gate";
 import type { SignalGrade } from "./edge/quality";
 import { getEdgeSync } from "./edge/settings";
@@ -112,6 +113,8 @@ export interface FireJob {
   levelBot: number;
   slModeLabel: string;
   exec: ExecSettings;
+  /** set by the Pine auto-trader; anything else is a built-in 3EL order */
+  strategy?: "pine";
 }
 
 /**
@@ -128,6 +131,21 @@ export async function executeFire(job: FireJob): Promise<string | null> {
       kind: "status",
       title: `HALO 3EL · ORDER REFUSED — ${job.symbol} NOT TRADED YET`,
       body: `${job.source} ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: HALO currently trades only ${tradingUniverseLabel()}.`,
+    });
+    return null;
+  }
+  // ── SINGLE ACTIVE STRATEGY — while a Pine strategy / indicator is attached
+  // it is the ONLY thing that trades: a built-in 3EL order from any engine
+  // (chart bot, Scanner Bot, sweep, Market Scanner) is refused here, the
+  // backstop behind each engine's own stand-down ──
+  // (right after a restart the attachment is re-read from the DB first)
+  if (job.strategy !== "pine") await import("./pine-bot").then((m) => m.ensurePineBoot()).catch(() => {});
+  if (pineAutoTradeActive() && job.strategy !== "pine") {
+    const sel = getActiveStrategySel();
+    void sendAlert({
+      kind: "status",
+      title: "HALO 3EL · ORDER SKIPPED — PINE STRATEGY ATTACHED",
+      body: `${job.source} 3EL ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: the attached strategy "${sel.name}" is the only one trading. Detach it in the Strategy Studio to trade 3EL again.`,
     });
     return null;
   }

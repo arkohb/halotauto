@@ -714,7 +714,7 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
             <div className="rounded-lg p-3" style={{ boxShadow: `inset 0 0 0 1px ${C.lineInner}` }}>
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[9px] font-extrabold tracking-[0.2em]" style={{ color: C.label }}>
-                  MANUAL SIGNAL SERIES · FOR INDICATOR SCRIPTS
+                  MANUAL SIGNAL SERIES · OPTIONAL OVERRIDE
                 </span>
                 <button
                   type="button"
@@ -730,7 +730,7 @@ export function StrategyStudio({ state, notify }: { state: BotStateRes; notify: 
                 <div>
                   LONG when
                   <select value={sigMap.longVar} onChange={(e) => setSigMap((m) => ({ ...m, longVar: e.target.value }))} className="mt-1 w-full rounded px-1.5 py-1" style={{ background: C.deep, border: `1px solid ${C.line2}`, color: C.txt }}>
-                    <option value="">— script entry() —</option>
+                    <option value="">— auto: entry() / BUY·SELL alerts —</option>
                     {boolChoices.map((b) => (
                       <option key={b} value={b}>
                         {b}

@@ -44,6 +44,7 @@ import { publishBotEvent } from "./halo/event-bus";
 import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } from "./execution";
 import { bookPaperCloseFromDb } from "./paper-account";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { getActiveStrategySel, pineAutoTradeActive, registerScannerProbe } from "./strategy-select";
 import { rowPositionHooks } from "./runtime-positions";
 import { isTradableSymbol, tradingUniverseLabel } from "./trading-universe";
 
@@ -188,6 +189,10 @@ registerLockParticipant({
   // Activity / Quick Actions / Control Deck (and CLOSE ALL reaches it)
   ...rowPositionHooks("SCAN", () => rt().rows.values(), (row, ev) => handleEvents(row, ev)),
 });
+
+// the Pine auto-trader scans with the attached strategy only while the
+// Scanner Bot is started (Start / Pause stay the only controls)
+registerScannerProbe(() => ({ enabled: rt().enabled }));
 
 function pushMsg(kind: ScannerMsg["kind"], text: string): void {
   const R = rt();
@@ -459,6 +464,21 @@ async function tickRow(row: ScanRow): Promise<void> {
   // watchlist scanner). The lock holder is identified by source+symbol+tf.
   if (!isLockHolder("SCAN", row.symbol, row.tf)) return;
 
+  // SINGLE ACTIVE STRATEGY: while a Pine strategy is attached it does the
+  // scanning (pine-bot.ts) — this 3EL row stands down unless it is still
+  // managing a trade it opened before the switch
+  if (pineAutoTradeActive() && !row.engine.snapshot().trade) {
+    if (row.bootstrapped) {
+      // forget the 3EL board: when the strategy is detached the row re-warms
+      // from full history instead of resuming across a gap
+      row.engine = new HaloEngine(row.engine.cfg, getSymbolMeta(row.symbol).mintick);
+      row.bootstrapped = false;
+      row.lastConfirmedTime = 0;
+    }
+    row.armed = 0;
+    return;
+  }
+
   // a real market whose feed fell back to the simulator must never feed the
   // engine: simulated bars would leave fake levels behind that later fire on
   // real prices (the price guard only sees the CURRENT source)
@@ -680,6 +700,10 @@ async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
   R.scannedRows += simTicked + realTicked;
   if (R.passes > before) {
     const found = R.opportunitiesFound;
+    if (pineAutoTradeActive()) {
+      pushMsg("info", `Scanning ${tradingUniverseLabel()} on every timeframe with the attached strategy "${getActiveStrategySel().name}" — its signals trade automatically through the same execution path. I'll continue scanning.`);
+      return;
+    }
     pushMsg(
       "info",
       found > 0

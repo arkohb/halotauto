@@ -18,6 +18,16 @@
 //  Selecting a Pine strategy makes it the bot's ONLY active strategy: the
 //  3EL engine stays armed for levels/charting but its fires are skipped
 //  (single-strategy semantics, alerted honestly).
+//
+//  INDICATORS TRADE TOO: a script declared with indicator() has no
+//  strategy.entry calls, so its own alertcondition() BUY / SELL alerts are
+//  the signals (title or message containing BUY/LONG or SELL/SHORT), and
+//  its exit / SL / TP alerts close the position.
+//
+//  SCANNER BOT: while a Pine strategy is attached the Scanner Bot scans with
+//  it — one Pine runtime per tradable symbol × timeframe (source SCAN), same
+//  signals, same SL/TP rules, same execution path and global trade lock —
+//  instead of the built-in 3EL engine.
 // ════════════════════════════════════════════════════════════════════════
 
 import { db } from "@/lib/db";
@@ -30,9 +40,12 @@ import {
   BUILTIN_STRATEGY_NAME,
   botProbe,
   getActiveStrategySel,
+  scannerEnabled,
   setActiveStrategySel,
 } from "@/lib/strategy-select";
 import { getTradeLock, maybeReleaseLock } from "@/lib/trade-lock";
+import { TIMEFRAMES, isSimOnlyGroup } from "@/lib/market-symbols";
+import { TRADING_SYMBOLS } from "@/lib/trading-universe";
 import { bookPaperCloseFromDb } from "@/lib/paper-account";
 
 export interface PineSignalCfg {
@@ -55,6 +68,8 @@ interface PinePos {
 }
 
 interface PineState {
+  /** BOT = the chart strategy (follows the chart) · SCAN = a Scanner Bot row */
+  source: "BOT" | "SCAN";
   strategyId: string;
   name: string;
   src: string;
@@ -72,6 +87,7 @@ interface PineState {
   atr: number | null; // independent ATR(14) tracker for the risk overlay
   atrPrevClose: number | null;
   feedSource: string;
+  lastTickAt: number;
 }
 
 const g = globalThis as unknown as {
@@ -82,14 +98,24 @@ const g = globalThis as unknown as {
     lastTickAt: number;
     booting: Promise<void> | null;
     symbolWarned: boolean;
+    /** Scanner Bot rows running the attached strategy, keyed symbol:tf */
+    scan: Map<string, PineState>;
+    /** positions left open by a deactivated strategy — managed until they close */
+    drain: PineState[];
+    scanCursor: number;
   };
 };
 
 function slot(): NonNullable<typeof g.__haloPineBot> {
   if (!g.__haloPineBot) {
-    g.__haloPineBot = { state: null, timer: null, tickGen: 0, lastTickAt: 0, booting: null, symbolWarned: false };
+    g.__haloPineBot = { state: null, timer: null, tickGen: 0, lastTickAt: 0, booting: null, symbolWarned: false, scan: new Map(), drain: [], scanCursor: 0 };
   }
-  return g.__haloPineBot;
+  const s = g.__haloPineBot;
+  // a slot created by an older build (dev hot reload) lacks the newer fields
+  s.scan ??= new Map();
+  s.drain ??= [];
+  s.scanCursor ??= 0;
+  return s;
 }
 
 function pipSize(symbol: string): number {
@@ -107,12 +133,16 @@ export interface PineBotInfo {
   warmed: boolean;
   rev: number; // row updatedAt — the chart watches this to redraw the indicator the moment it changes
   position: { dir: 1 | -1; entry: number; sl: number | null; tp: number | null; entryTime: number } | null;
+  /** how the script produces signals: strategy.entry calls, an indicator's BUY/SELL alerts, or mapped variables */
+  signals: "strategy" | "alerts" | "manual" | null;
+  /** Scanner Bot rows scanning with this strategy (symbol × timeframe) */
+  scan: { rows: number; warmed: number; tfs: string[] };
 }
 
 export function getPineBotInfo(): PineBotInfo {
   const st = slot().state;
   if (!st) {
-    return { active: false, id: null, name: BUILTIN_STRATEGY_NAME, kind: "builtin", symbol: "", tf: "", warmed: false, rev: 0, position: null };
+    return { active: false, id: null, name: BUILTIN_STRATEGY_NAME, kind: "builtin", symbol: "", tf: "", warmed: false, rev: 0, position: null, signals: null, scan: { rows: 0, warmed: 0, tfs: [] } };
   }
   return {
     active: true,
@@ -124,7 +154,19 @@ export function getPineBotInfo(): PineBotInfo {
     warmed: st.warmed,
     rev: st.rev,
     position: st.pos ? { dir: st.pos.dir, entry: st.pos.entry, sl: st.pos.sl, tp: st.pos.tp, entryTime: st.pos.entryTime } : null,
+    signals: signalSource(st),
+    scan: {
+      rows: slot().scan.size,
+      warmed: [...slot().scan.values()].filter((x) => x.warmed).length,
+      tfs: [...slot().scan.values()].map((x) => x.tf),
+    },
   };
+}
+
+/** where this script's trade signals come from */
+function signalSource(st: PineState): "strategy" | "alerts" | "manual" {
+  if (st.signal.mode === "manual") return "manual";
+  return st.meta.kind === "indicator" ? "alerts" : "strategy";
 }
 
 export function selectedStrategyInfo(): { id: string | null; name: string; kind: "builtin" | "pine" } {
@@ -143,6 +185,7 @@ export async function activatePineStrategy(id: string): Promise<{ ok: boolean; e
   await db.pineStrategy.update({ where: { id }, data: { active: true, lastTradedAt: new Date() } });
 
   const probe = botProbe();
+  retireStates(); // a previous strategy's open positions keep being managed
   const state = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, probe.symbol, probe.tf);
   slot().state = state;
   setActiveStrategySel({ id: row.id, name: row.name, kind: "pine" });
@@ -150,7 +193,7 @@ export async function activatePineStrategy(id: string): Promise<{ ok: boolean; e
   void sendAlert({
     kind: "status",
     title: `STRATEGY ACTIVATED · ${row.name}`,
-    body: `The bot now auto-trades the Pine strategy "${row.name}" on ${state.symbol || probe.symbol || "the chart symbol"} ${state.tf || probe.tf}. The built-in 3EL engine stays armed for levels but its fires are skipped while a Pine strategy is selected.`,
+    body: `The bot now auto-trades the Pine ${state.meta.kind === "indicator" ? "indicator" : "strategy"} "${row.name}" on ${state.symbol || probe.symbol || "the chart symbol"} ${state.tf || probe.tf}${state.meta.kind === "indicator" ? " — its own BUY / SELL alerts are the entry signals" : ""}. The Scanner Bot scans every ${TRADING_SYMBOLS.join(", ")} timeframe with it too. The built-in 3EL engine stays armed for levels but no 3EL trade is placed while a Pine strategy is attached.`,
   });
   void tickPine(true).catch(() => {});
   return { ok: true };
@@ -159,8 +202,9 @@ export async function activatePineStrategy(id: string): Promise<{ ok: boolean; e
 export async function deactivatePineStrategy(): Promise<void> {
   const st = slot().state;
   await db.pineStrategy.updateMany({ data: { active: false } }).catch(() => {});
-  stopTimer();
+  retireStates();
   slot().state = null;
+  if (slot().drain.length === 0) stopTimer();
   setActiveStrategySel({ id: null, name: BUILTIN_STRATEGY_NAME, kind: "builtin" });
   if (st) {
     void sendAlert({
@@ -169,6 +213,18 @@ export async function deactivatePineStrategy(): Promise<void> {
       body: `The bot is back on the built-in ${BUILTIN_STRATEGY_NAME} engine. ${st.pos ? "The Pine strategy's open position keeps its broker SL/TP." : ""}`,
     });
   }
+}
+
+/**
+ * Move every runtime that holds an open position to the drain list (it is
+ * still managed — SL/TP and exit signals — until it closes, but takes no new
+ * entries) and forget the flat Scanner Bot rows.
+ */
+function retireStates(): void {
+  const s = slot();
+  const all = [s.state, ...s.scan.values()].filter((x): x is PineState => !!x);
+  for (const st of all) if (st.pos && !s.drain.includes(st)) s.drain.push(st);
+  s.scan.clear();
 }
 
 /**
@@ -201,6 +257,17 @@ export async function resyncActivePineRow(row: {
   const state = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, old.symbol || probe.symbol, old.tf || probe.tf);
   if (old.pos) state.pos = old.pos;
   s.state = state;
+  // Scanner Bot rows: a row with an open position is rebuilt on the new code
+  // carrying its position; flat rows are dropped and re-warm lazily
+  for (const [key, sc] of [...s.scan]) {
+    if (!sc.pos) {
+      s.scan.delete(key);
+      continue;
+    }
+    const next = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, sc.symbol, sc.tf, "SCAN");
+    next.pos = sc.pos;
+    s.scan.set(key, next);
+  }
   setActiveStrategySel({ id: row.id, name: row.name, kind: "pine" });
   startTimer();
   void tickPine(true).catch(() => {});
@@ -214,7 +281,8 @@ async function buildState(
   signalJson: string,
   row: { useSlATR: boolean; slATRm: number; useSlPts: boolean; slPts: number; rrMult: number; updatedAt?: Date | string },
   symbol: string,
-  tf: string
+  tf: string,
+  origin: "BOT" | "SCAN" = "BOT"
 ): Promise<PineState> {
   let meta: CompiledPine | null = null;
   try {
@@ -230,6 +298,7 @@ async function buildState(
     // default: strategy mode
   }
   const st: PineState = {
+    source: origin,
     strategyId: id,
     name,
     src: source,
@@ -247,6 +316,7 @@ async function buildState(
     atr: null,
     atrPrevClose: null,
     feedSource: "—",
+    lastTickAt: 0,
   };
   await warmPine(st);
   return st;
@@ -376,6 +446,28 @@ export async function ensurePineBoot(): Promise<void> {
         } catch {
           // recovery is best-effort; broker-side SL/TP protects live positions regardless
         }
+        // Scanner Bot rows that were holding a Pine position before the restart
+        try {
+          const scanOpen = await db.trade.findMany({ where: { status: "OPEN", mode: "SCAN", slMode: { startsWith: "Pine" } } });
+          const exec = scanOpen.length > 0 ? await loadExecSettings() : null;
+          for (const t of scanOpen) {
+            const st = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, t.symbol, t.timeframe, "SCAN");
+            st.pos = {
+              dbId: t.id,
+              dir: t.direction === -1 ? -1 : 1,
+              entry: t.entry,
+              sl: t.sl,
+              tp: t.tp,
+              entryTime: t.openedAt.getTime(),
+              exec: t.execMode === "LIVE" ? "LIVE" : "PAPER",
+              broker: t.execMode === "LIVE" && exec ? await resolveBroker(exec.brokerAccountId) : null,
+              entryId: "PINE",
+            };
+            s.scan.set(`${t.symbol}:${t.timeframe}`, st);
+          }
+        } catch {
+          // best-effort, like the chart strategy's recovery above
+        }
         setActiveStrategySel({ id: row.id, name: row.name, kind: "pine" });
         startTimer();
       } else if (row) {
@@ -393,6 +485,14 @@ export async function ensurePineBoot(): Promise<void> {
 
 // ── the tick ─────────────────────────────────────────────────────────────
 export async function tickPine(force = false): Promise<void> {
+  await tickDrain();
+  if (!slot().state) return;
+  await tickMain(force);
+  await tickScanRows();
+}
+
+/** the chart strategy (source BOT) — runs while the EA is ON */
+async function tickMain(force: boolean): Promise<void> {
   const s = slot();
   const st = s.state;
   if (!st) return;
@@ -444,6 +544,99 @@ export async function tickPine(force = false): Promise<void> {
   }
 }
 
+// ── Scanner Bot rows · the attached strategy on every tradable timeframe ──
+const SCAN_ROW_MIN_MS = 15_000; // a 1m row is re-checked every 15 s
+const SCAN_ROW_MAX_MS = 300_000; // a 1d row every 5 min
+const SCAN_ROWS_PER_TICK = 3;
+
+function scanInterval(tf: string): number {
+  return Math.min(SCAN_ROW_MAX_MS, Math.max(SCAN_ROW_MIN_MS, (tfSec(tf) * 1000) / 4));
+}
+
+/**
+ * Keep one Pine runtime per tradable symbol × timeframe while the Scanner
+ * Bot is started, and feed each its confirmed bars. A row on the chart's own
+ * symbol + timeframe keeps processing bars but takes no entries (the chart
+ * strategy trades that one — never twice). Rows holding a position are always
+ * managed, even with the Scanner Bot paused.
+ */
+async function tickScanRows(): Promise<void> {
+  const s = slot();
+  const main = s.state;
+  if (!main) return;
+  const on = scannerEnabled();
+  if (on) {
+    // warm at most ONE new row per tick (a deep fetch + full replay)
+    outer: for (const sym of TRADING_SYMBOLS) {
+      for (const tf of TIMEFRAMES) {
+        const key = `${sym}:${tf}`;
+        if (s.scan.has(key)) continue;
+        const row = await db.pineStrategy.findUnique({ where: { id: main.strategyId } }).catch(() => null);
+        if (!row || row.status !== "compiled" || slot().state?.strategyId !== main.strategyId) return;
+        const st = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, sym, tf, "SCAN");
+        // a strategy switch while warming must not leave a stale row behind
+        if (slot().state?.strategyId === main.strategyId) s.scan.set(key, st);
+        break outer;
+      }
+    }
+  }
+  const rows = [...s.scan.values()];
+  if (rows.length === 0) return;
+  const now = Date.now();
+  let done = 0;
+  for (let i = 0; i < rows.length && done < SCAN_ROWS_PER_TICK; i++) {
+    const st = rows[(s.scanCursor + i) % rows.length];
+    if (!on && !st.pos) continue; // paused: only open positions are managed
+    if (now - st.lastTickAt < scanInterval(st.tf)) continue;
+    st.lastTickAt = now;
+    done++;
+    const chartRow = st.symbol === main.symbol && st.tf === main.tf;
+    await tickPineRow(st, on && !chartRow).catch((e) => console.error(`[pine-bot] scan ${st.symbol} ${st.tf}:`, (e as Error).message));
+  }
+  s.scanCursor = (s.scanCursor + 1) % Math.max(1, rows.length);
+}
+
+/** positions left by a deactivated / replaced strategy: manage until closed */
+async function tickDrain(): Promise<void> {
+  const s = slot();
+  if (s.drain.length === 0) return;
+  const now = Date.now();
+  for (const st of [...s.drain]) {
+    if (st.pos && now - st.lastTickAt >= SCAN_ROW_MIN_MS) {
+      st.lastTickAt = now;
+      await tickPineRow(st, false).catch(() => {});
+    }
+    if (!st.pos) s.drain.splice(s.drain.indexOf(st), 1);
+  }
+  if (s.drain.length === 0 && !s.state) stopTimer();
+}
+
+/** feed one runtime its new confirmed bars (re-warm across a gap) */
+async function tickPineRow(st: PineState, allowEntries: boolean): Promise<void> {
+  const { candles, source } = await getKlines(st.symbol, st.tf, 4, { fresh: true });
+  // a real market's simulated bars must never feed the strategy
+  if (source === "simulator" && !isSimOnlyGroup(getSymbolMeta(st.symbol).group)) return;
+  const prevSource = st.feedSource;
+  st.feedSource = source;
+  const now = Date.now();
+  const secMs = tfSec(st.tf) * 1000;
+  const firstNew = candles.find((c) => c.time > st.lastConfirmedTime);
+  const gap = !st.warmed || prevSource === "simulator" || (firstNew !== undefined && st.lastConfirmedTime > 0 && firstNew.time > st.lastConfirmedTime + secMs);
+  if (gap && !st.pos) {
+    await warmPine(st);
+    return;
+  }
+  for (const c of candles) {
+    if (c.time > st.lastConfirmedTime && c.time + secMs <= now) {
+      await processConfirmedBar(st, c, allowEntries);
+      st.lastConfirmedTime = c.time;
+      st.lastPrice = c.close;
+    }
+  }
+  const live = candles[candles.length - 1];
+  if (live) st.lastPrice = live.close;
+}
+
 // ── bar processing ───────────────────────────────────────────────────────
 interface BarSignals {
   long: boolean;
@@ -469,6 +662,7 @@ function collectSignals(st: PineState): BarSignals {
     out.closeAll = ex === true;
     return out;
   }
+  if (signalSource(st) === "alerts") return alertSignals(st.rt.barAlertConds);
   for (const en of st.rt.plan.entries) {
     if (en.dir === 1) out.long = true;
     else out.short = true;
@@ -478,7 +672,37 @@ function collectSignals(st: PineState): BarSignals {
   return out;
 }
 
-async function processConfirmedBar(st: PineState, c: Candle): Promise<void> {
+const RX_LONG = /\b(buy|long|bull(ish)?)\b/i;
+const RX_SHORT = /\b(sell|short|bear(ish)?)\b/i;
+const RX_EXIT = /\b(exit|close|sl|tp|stop(ped)?|take[\s-]?profit|target)\b/i;
+
+/**
+ * An INDICATOR's signals = its alertcondition() calls that are true on this
+ * bar. Each alert is read by its title first (what TradingView shows in the
+ * alert dialog), then its message: BUY / LONG → long entry, SELL / SHORT →
+ * short entry, EXIT / CLOSE / SL / TP / STOP → close. An alert naming both a
+ * side and an exit (e.g. "SL hit on BUY") is an exit, never an entry.
+ */
+export function alertSignals(conds: { title: string; message: string }[]): BarSignals {
+  const out: BarSignals = { long: false, short: false, closeAll: false, closeIds: [] };
+  for (const a of conds) {
+    const text = a.title.trim() || a.message;
+    const exit = RX_EXIT.test(text);
+    const lng = RX_LONG.test(text);
+    const shrt = RX_SHORT.test(text);
+    if (exit) out.closeAll = true;
+    else if (lng && !shrt) out.long = true;
+    else if (shrt && !lng) out.short = true;
+  }
+  // both sides on one bar is no signal at all
+  if (out.long && out.short) {
+    out.long = false;
+    out.short = false;
+  }
+  return out;
+}
+
+async function processConfirmedBar(st: PineState, c: Candle, allowEntries = true): Promise<void> {
   const probe = botProbe();
   stepAtr(st, c);
   st.rt.externalPos = st.pos ? { dir: st.pos.dir, entry: st.pos.entry } : { dir: 0, entry: 0 };
@@ -510,6 +734,7 @@ async function processConfirmedBar(st: PineState, c: Candle): Promise<void> {
   const wantLong = sig.long && (!st.pos || st.pos.dir === -1);
   const wantShort = sig.short && (!st.pos || st.pos.dir === 1);
   if ((wantLong || wantShort) && !st.pos) {
+    if (!allowEntries) return; // manage-only (draining / the chart strategy owns this timeframe)
     if (probe.pauseNew) return; // engine keeps watching; no entry while flat
     await openPineTrade(st, wantLong ? 1 : -1, c);
   }
@@ -528,6 +753,9 @@ function stopTargetHit(pos: PinePos, c: Candle): { kind: "sl" | "tp"; px: number
 
 // ── execution (reuses the 3EL execution path verbatim) ───────────────────
 async function openPineTrade(st: PineState, dir: 1 | -1, bar: Candle): Promise<void> {
+  // one trade at a time: a Scanner Bot row stays quiet while another trade
+  // runs (the chart strategy keeps the honest "refused" alert below)
+  if (st.source === "SCAN" && getTradeLock()) return;
   const entry = st.lastPrice || bar.close;
   const entryId = st.rt.plan.entries.find((e) => e.dir === dir)?.id ?? "PINE";
   // SL/TP: the script's own strategy.exit prices for this entry…
@@ -564,7 +792,8 @@ async function openPineTrade(st: PineState, dir: 1 | -1, bar: Candle): Promise<v
   const rewardPips = tp !== null ? Math.abs(tp - entry) / pip : 0;
   const exec = await loadExecSettings();
   const tradeId = await executeFire({
-    source: "BOT",
+    source: st.source,
+    strategy: "pine",
     symbol: st.symbol,
     tf: st.tf,
     fire: {
@@ -580,7 +809,7 @@ async function openPineTrade(st: PineState, dir: 1 | -1, bar: Candle): Promise<v
       levelBot: entry,
       ext: entry,
       time: bar.time,
-      message: `Pine strategy "${st.name}" ${dir === -1 ? "SELL" : "BUY"} signal (confirmed bar close).`,
+      message: `Pine ${st.meta.kind === "indicator" ? "indicator" : "strategy"} "${st.name}" ${dir === -1 ? "SELL" : "BUY"} signal${st.source === "SCAN" ? " (Scanner Bot)" : ""} (confirmed bar close).`,
     },
     levelTop: entry,
     levelBot: entry,
@@ -599,7 +828,7 @@ async function openPineTrade(st: PineState, dir: 1 | -1, bar: Candle): Promise<v
   st.pos = { dbId: tradeId, dir, entry, sl, tp, entryTime: bar.time, exec: live ? "LIVE" : "PAPER", broker: live ? await resolveBroker(exec.brokerAccountId) : null, entryId };
   void sendAlert({
     kind: "fire",
-    title: `PINE ${dir === -1 ? "SELL" : "BUY"} · ${st.name} · ${st.symbol}`,
+    title: `PINE ${dir === -1 ? "SELL" : "BUY"} · ${st.name} · ${st.symbol} ${st.tf}${st.source === "SCAN" ? " · SCANNER" : ""}`,
     body: `Entry ${entry}\nSL ${sl ?? "—"} · TP ${tp ?? "—"}\nRisk ${riskPips.toFixed(1)} pips → reward ${rewardPips.toFixed(1)} pips\nMode: ${live ? `LIVE · ${st.pos.broker?.label ?? "broker"}` : "PAPER"}\nTF ${st.tf} · confirmed-bar signal`,
   });
 }
@@ -628,7 +857,7 @@ async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "
   // close must release it or every scanner/sweep/bot fire stays refused.
   // Only when this position owns the lock.
   if (getTradeLock()?.tradeDbId === pos.dbId) {
-    maybeReleaseLock("BOT", st.symbol, st.tf, status === "WIN" ? "win" : "loss", Math.abs(pips));
+    maybeReleaseLock(st.source, st.symbol, st.tf, status === "WIN" ? "win" : "loss", Math.abs(pips));
   }
   void sendAlert({
     kind: status === "WIN" ? "win" : "loss",
@@ -642,7 +871,7 @@ async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "
 export async function pineBookSummary(): Promise<{ wins: number; losses: number; netPips: number }> {
   try {
     const trades = await db.trade.findMany({
-      where: { mode: "BOT", slMode: { startsWith: "Pine" }, status: { in: ["WIN", "LOSS"] } },
+      where: { mode: { in: ["BOT", "SCAN"] }, slMode: { startsWith: "Pine" }, status: { in: ["WIN", "LOSS"] } },
       select: { status: true, resultPips: true },
     });
     const wins = trades.filter((t) => t.status === "WIN").length;

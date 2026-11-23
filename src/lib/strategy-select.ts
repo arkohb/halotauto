@@ -53,3 +53,18 @@ export function registerBotProbe(probe: () => BotProbe): void {
 export function botProbe(): BotProbe {
   return g.__haloBotProbe?.() ?? { enabled: false, pauseNew: false, symbol: "", tf: "5m" };
 }
+
+// ── SCANNER BOT PROBE · tf-scanner.ts registers it (same no-cycle pattern) ──
+// When a Pine strategy is attached, the Scanner Bot scans with THAT strategy
+// (pine-bot.ts runs it on every tradable timeframe); this tells pine-bot
+// whether the trader has the Scanner Bot started or paused.
+const gs = globalThis as unknown as { __haloScannerProbe?: () => { enabled: boolean } };
+
+export function registerScannerProbe(probe: () => { enabled: boolean }): void {
+  gs.__haloScannerProbe = probe;
+}
+
+/** is the Scanner Bot started? false before tf-scanner.ts registers */
+export function scannerEnabled(): boolean {
+  return gs.__haloScannerProbe?.().enabled ?? false;
+}

@@ -17,6 +17,7 @@ import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } fro
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
+import { pineAutoTradeActive } from "./strategy-select";
 import { rowPositionHooks } from "./runtime-positions";
 import { liveTradeManager } from "./edge/settings";
 import { applyManageLive } from "./edge/trade-manager";
@@ -336,6 +337,20 @@ async function tickRow(row: ScannerRow): Promise<void> {
   // bar feeding, no arming, no fires) — only the lock's own row keeps
   // ticking so the running trade's TP/SL are detected.
   if (!isLockHolder("SCAN", row.symbol, row.tf)) return;
+
+  // SINGLE ACTIVE STRATEGY: while a Pine strategy is attached it does the
+  // scanning (pine-bot.ts) — this 3EL row stands down unless it is still
+  // managing a trade it opened before the switch
+  if (pineAutoTradeActive() && !row.engine.snapshot().trade) {
+    if (row.bootstrapped) {
+      // forget the 3EL board: when the strategy is detached the row re-warms
+      // from full history instead of resuming across a gap
+      row.engine = new HaloEngine(row.engine.cfg, getSymbolMeta(row.symbol).mintick);
+      row.bootstrapped = false;
+      row.lastConfirmedTime = 0;
+    }
+    return;
+  }
 
   if (!row.bootstrapped) {
     const { candles, source } = await getKlines(row.symbol, row.tf, 500, { deep: true });

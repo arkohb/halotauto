@@ -1120,7 +1120,10 @@ const FUNCS: Record<string, Fn> = {
   },
   alertcondition: (rt, pos, named) => {
     const r = a(["condition", "title", "message"], pos, named);
-    if (!rt.isSecondary && truthy(r.condition ?? null)) rt.barAlerts.push(typeof r.message === "string" ? r.message : typeof r.title === "string" ? r.title : "alertcondition");
+    if (!rt.isSecondary && truthy(r.condition ?? null)) {
+      rt.barAlerts.push(typeof r.message === "string" ? r.message : typeof r.title === "string" ? r.title : "alertcondition");
+      rt.barAlertConds.push({ title: typeof r.title === "string" ? r.title : "", message: typeof r.message === "string" ? r.message : "" });
+    }
     return null;
   },
   indicator: SKIP,

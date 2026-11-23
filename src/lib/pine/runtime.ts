@@ -262,6 +262,9 @@ export class PineRuntime {
     return false;
   }
   barAlerts: string[] = [];
+  /** alertcondition() calls that were TRUE on this bar (title + message) — an
+   *  indicator's BUY / SELL / exit alerts, read by the Pine auto-trader */
+  barAlertConds: { title: string; message: string }[] = [];
   inputs: { id: string; kind: string; title: string; defval: PValue; minval?: number; maxval?: number; step?: number; options?: PValue[]; group?: string }[] = [];
   inputSites = new Map<number, PValue>();
   capturedBool = new Map<string, boolean[]>();
@@ -367,6 +370,7 @@ export class PineRuntime {
     this.deadline = Date.now() + this.budgetMs;
     this.stmtTick = 0;
     this.barAlerts = [];
+    this.barAlertConds = [];
     this.plan = { entries: [], exits: [], closes: [], closeAll: false, cancels: [] };
     const b = this.bar;
     const vol = c.volume ?? 0;
