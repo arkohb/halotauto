@@ -341,7 +341,8 @@ async function tickRow(row: ScannerRow): Promise<void> {
   // SINGLE ACTIVE STRATEGY: while a Pine strategy is attached it does the
   // scanning (pine-bot.ts) — this 3EL row stands down unless it is still
   // managing a trade it opened before the switch
-  if (pineAutoTradeActive() && !row.engine.snapshot().trade) {
+  // (an unbooked engine trade — a refused fire — is dropped with the board)
+  if (pineAutoTradeActive() && !row.openTradeDbId) {
     if (row.bootstrapped) {
       // forget the 3EL board: when the strategy is detached the row re-warms
       // from full history instead of resuming across a gap

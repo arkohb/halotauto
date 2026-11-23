@@ -282,6 +282,19 @@ function simFeedNote(symbol: string): string {
   return "Live feeds unreachable — running built-in market simulator";
 }
 
+/**
+ * PINE STRATEGY ATTACHED: a 3EL engine trade with no booked order behind it
+ * (a fire that was refused or rejected) is only a signal marker. Left alone it
+ * keeps the 3EL engine running and shows as a "running trade" on the chart, so
+ * it is dropped and the engine stands down for the attached strategy. A BOOKED
+ * 3EL trade keeps its full lifecycle until it closes.
+ */
+function dropUnbookedEngineTrade(bot: ReturnType<typeof getBot>): void {
+  const t = bot.engine.snapshot().trade;
+  if (!t || bot.openTradeDbId) return;
+  bot.engine.forceClose(bot.lastPrice || t.entry, Date.now());
+}
+
 async function warmEngine(): Promise<void> {
   const bot = getBot();
   const meta = getSymbolMeta(bot.symbol);
@@ -405,6 +418,7 @@ function liveTrial(live: Candle): void {
   // PAUSE NEW ENTRIES / PINE STRATEGY ACTIVE: while flat, new signals are not
   // evaluated at all — the engine can never emit a fire we would refuse to
   // execute. An open trade keeps its full lifecycle (win/loss detection).
+  if (getPineBotInfo().active) dropUnbookedEngineTrade(bot);
   if ((bot.pauseNew || getPineBotInfo().active) && !bot.engine.snapshot().trade) return;
   if (bot.cfg.sigMode !== "instant") return;
   const clone = bot.engine.clone();
@@ -716,6 +730,7 @@ export async function tickBot(force = false): Promise<void> {
         // no new C1/C2 evaluation, so it can never emit a fire that would be
         // refused (or a phantom internal trade) while another strategy trades.
         // When a trade is open the engine keeps processing (SL/TP detection).
+        if (getPineBotInfo().active) dropUnbookedEngineTrade(bot);
         if ((bot.pauseNew || getPineBotInfo().active) && !bot.engine.snapshot().trade) {
           bot.lastConfirmedTime = c.time;
           bot.lastPrice = c.close;
