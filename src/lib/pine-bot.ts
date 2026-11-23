@@ -88,6 +88,8 @@ interface PineState {
   atrPrevClose: number | null;
   feedSource: string;
   lastTickAt: number;
+  /** side of the script's latest BUY/SELL signal (a "label moved" alert re-enters on it) */
+  lastSide: 1 | -1 | 0;
 }
 
 const g = globalThis as unknown as {
@@ -317,6 +319,7 @@ async function buildState(
     atrPrevClose: null,
     feedSource: "—",
     lastTickAt: 0,
+    lastSide: 0,
   };
   await warmPine(st);
   return st;
@@ -343,6 +346,7 @@ async function warmPine(st: PineState): Promise<void> {
         stepAtr(st, c);
         st.rt.externalPos = st.pos ? { dir: st.pos.dir, entry: st.pos.entry } : { dir: 0, entry: 0 };
         st.rt.processBar(c);
+        noteSide(st, collectSignals(st));
         st.lastConfirmedTime = c.time;
         lastConfirmed = c.time;
       }
@@ -643,6 +647,15 @@ interface BarSignals {
   short: boolean;
   closeAll: boolean;
   closeIds: string[];
+  /** a "label moved to a new extreme" alert (no side named) — re-enter on the latest signal's side */
+  move?: boolean;
+}
+
+/** remember the side of the script's latest BUY/SELL signal */
+function noteSide(st: PineState, sig: BarSignals): void {
+  st.lastSide ??= 0;
+  if (sig.long && !sig.short) st.lastSide = 1;
+  else if (sig.short && !sig.long) st.lastSide = -1;
 }
 
 function collectSignals(st: PineState): BarSignals {
@@ -675,6 +688,9 @@ function collectSignals(st: PineState): BarSignals {
 const RX_LONG = /\b(buy|long|bull(ish)?)\b/i;
 const RX_SHORT = /\b(sell|short|bear(ish)?)\b/i;
 const RX_EXIT = /\b(exit|close|sl|tp|stop(ped)?|take[\s-]?profit|target)\b/i;
+// "label moved / add-on" style alerts (English + Russian): the signal label
+// jumped to a new extreme. No side is named; the latest BUY/SELL decides it.
+const RX_MOVE = /(\bmoved?\b|\brelocat|\bre-?anchor|new extreme|переезд|переехал|новый экстремум|долив)/i;
 
 /**
  * An INDICATOR's signals = its alertcondition() calls that are true on this
@@ -693,6 +709,7 @@ export function alertSignals(conds: { title: string; message: string }[]): BarSi
     if (exit) out.closeAll = true;
     else if (lng && !shrt) out.long = true;
     else if (shrt && !lng) out.short = true;
+    else if (!lng && !shrt && (RX_MOVE.test(a.title) || RX_MOVE.test(a.message))) out.move = true;
   }
   // both sides on one bar is no signal at all
   if (out.long && out.short) {
@@ -719,6 +736,7 @@ async function processConfirmedBar(st: PineState, c: Candle, allowEntries = true
 
   // 2 · signals from this bar
   const sig = collectSignals(st);
+  noteSide(st, sig);
   const wantsClose =
     st.pos &&
     (sig.closeAll ||
@@ -730,9 +748,28 @@ async function processConfirmedBar(st: PineState, c: Candle, allowEntries = true
     st.pos = null;
   }
 
+  // 2b · LABEL MOVED: the script re-anchored its latest signal at a new
+  // extreme → close the trade on that side and re-enter at the new level
+  // (or enter, when flat). Only where entries are allowed — a manage-only
+  // row never closes a trade it could not re-open.
+  let moveDir: 1 | -1 | 0 = 0;
+  if (sig.move && !sig.long && !sig.short && !sig.closeAll && st.lastSide && allowEntries && !probe.pauseNew) {
+    moveDir = st.lastSide;
+    if (st.pos && st.pos.dir === moveDir) {
+      const closedId = st.pos.dbId;
+      await closePineTrade(st, c.close, "move");
+      st.pos = null;
+      // the re-entry follows at once: free the persistent execution lock
+      // now instead of waiting for the background release
+      await import("./exec-lock").then((m) => m.releaseForTrade(closedId, "label moved — re-entering")).catch(() => {});
+    } else if (st.pos) {
+      moveDir = 0; // holding the other side — the move is not ours
+    }
+  }
+
   // 3 · new entries (PAUSE NEW ENTRIES blocks entries while flat, like 3EL)
-  const wantLong = sig.long && (!st.pos || st.pos.dir === -1);
-  const wantShort = sig.short && (!st.pos || st.pos.dir === 1);
+  const wantLong = (sig.long || moveDir === 1) && (!st.pos || st.pos.dir === -1);
+  const wantShort = (sig.short || moveDir === -1) && (!st.pos || st.pos.dir === 1);
   if ((wantLong || wantShort) && !st.pos) {
     if (!allowEntries) return; // manage-only (draining / the chart strategy owns this timeframe)
     if (probe.pauseNew) return; // engine keeps watching; no entry while flat
@@ -833,7 +870,7 @@ async function openPineTrade(st: PineState, dir: 1 | -1, bar: Candle): Promise<v
   });
 }
 
-async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "signal"): Promise<void> {
+async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "signal" | "move"): Promise<void> {
   const pos = st.pos;
   if (!pos) return;
   const pip = pipSize(st.symbol);
@@ -845,7 +882,7 @@ async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "
   try {
     await db.trade.update({
       where: { id: pos.dbId },
-      data: { status, resultPips: pips, closedAt: new Date(), note: reason === "signal" ? "Pine exit signal" : reason === "sl" ? "Pine SL hit" : "Pine TP hit" },
+      data: { status, resultPips: pips, closedAt: new Date(), note: reason === "signal" ? "Pine exit signal" : reason === "move" ? "Pine label moved — re-entered at the new extreme" : reason === "sl" ? "Pine SL hit" : "Pine TP hit" },
     });
   } catch {
     // book already closed (broker-side SL/TP) — keep going
@@ -862,7 +899,7 @@ async function closePineTrade(st: PineState, px: number, reason: "sl" | "tp" | "
   void sendAlert({
     kind: status === "WIN" ? "win" : "loss",
     title: `PINE ${status === "WIN" ? "CLOSE +" : "CLOSE −"}${Math.abs(pips).toFixed(1)} PIPS · ${st.name}`,
-    body: `${st.symbol} · ${reason === "signal" ? "exit signal" : reason === "sl" ? "stop-loss hit" : "take-profit hit"} @ ${px}\nEntry was ${pos.entry} · Mode ${pos.exec}`,
+    body: `${st.symbol} · ${reason === "signal" ? "exit signal" : reason === "move" ? "label moved — re-entering at the new extreme" : reason === "sl" ? "stop-loss hit" : "take-profit hit"} @ ${px}\nEntry was ${pos.entry} · Mode ${pos.exec}`,
   });
   st.pos = null;
 }
