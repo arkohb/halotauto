@@ -44,7 +44,7 @@ import { publishBotEvent } from "./halo/event-bus";
 import { closeBrokerPosition, executeFire, loadExecSettings, resolveBroker } from "./execution";
 import { bookPaperCloseFromDb } from "./paper-account";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant } from "./trade-lock";
-import { getActiveStrategySel, pineAutoTradeActive, registerScannerProbe } from "./strategy-select";
+import { getActiveStrategySel, pineAutoTradeActive, registerScannerProbe, threeElTradesTf } from "./strategy-select";
 import { rowPositionHooks } from "./runtime-positions";
 import { isTradableSymbol, tradingUniverseLabel } from "./trading-universe";
 
@@ -464,11 +464,11 @@ async function tickRow(row: ScanRow): Promise<void> {
   // watchlist scanner). The lock holder is identified by source+symbol+tf.
   if (!isLockHolder("SCAN", row.symbol, row.tf)) return;
 
-  // SINGLE ACTIVE STRATEGY: while a Pine strategy is attached it does the
-  // scanning (pine-bot.ts) — this 3EL row stands down unless it is still
-  // managing a trade it opened before the switch
+  // TIMEFRAME SPLIT: 3EL scans and trades only 30m · 1h · 2h · 4h (the
+  // attached Pine strategy owns the rest, pine-bot.ts) — a row on another
+  // timeframe stands down unless it is still managing a trade it opened
   // (an unbooked engine trade — a refused fire — is dropped with the board)
-  if (pineAutoTradeActive() && !row.openTradeDbId) {
+  if (!threeElTradesTf(row.tf) && !row.openTradeDbId) {
     if (row.bootstrapped) {
       // forget the 3EL board: when the strategy is detached the row re-warms
       // from full history instead of resuming across a gap
@@ -702,7 +702,7 @@ async function scanSliceBody(R: TfScannerRuntime): Promise<void> {
   if (R.passes > before) {
     const found = R.opportunitiesFound;
     if (pineAutoTradeActive()) {
-      pushMsg("info", `Scanning ${tradingUniverseLabel()} on every timeframe with the attached strategy "${getActiveStrategySel().name}" — its signals trade automatically through the same execution path. I'll continue scanning.`);
+      pushMsg("info", `Scanning ${tradingUniverseLabel()}: HALO 3EL on 30m · 1h · 2h · 4h (${found} opportunit${found === 1 ? "y" : "ies"} so far), the attached strategy "${getActiveStrategySel().name}" on 1m · 3m · 5m · 15m · 1d. I'll continue scanning.`);
       return;
     }
     pushMsg(

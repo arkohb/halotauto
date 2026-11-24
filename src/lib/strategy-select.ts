@@ -39,6 +39,24 @@ export function getActiveStrategySel(): ActiveStrategySel {
   return g.__haloActiveStrategy ?? { id: null, name: BUILTIN_STRATEGY_NAME, kind: "builtin" };
 }
 
+/**
+ * TIMEFRAME SPLIT · the built-in HALO 3EL bot owns 30m · 1h · 2h · 4h — only
+ * it trades or scans those, whether or not a Pine strategy is attached. The
+ * attached Pine strategy owns every other timeframe (1m · 3m · 5m · 15m · 1d);
+ * with no Pine strategy attached those timeframes do not trade.
+ */
+export const THREE_EL_TFS: readonly string[] = ["30m", "1h", "2h", "4h"];
+
+/** may the built-in 3EL bot scan / trade this timeframe? */
+export function threeElTradesTf(tf: string): boolean {
+  return THREE_EL_TFS.includes(tf);
+}
+
+/** may the attached Pine strategy scan / trade this timeframe? */
+export function pineTradesTf(tf: string): boolean {
+  return pineAutoTradeActive() && !threeElTradesTf(tf);
+}
+
 /** true when a trader-authored Pine strategy is selected for auto-trading */
 export function pineAutoTradeActive(): boolean {
   return !!g.__haloActiveStrategy?.id;

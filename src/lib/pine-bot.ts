@@ -40,6 +40,7 @@ import {
   BUILTIN_STRATEGY_NAME,
   botProbe,
   getActiveStrategySel,
+  pineTradesTf,
   scannerEnabled,
   setActiveStrategySel,
 } from "@/lib/strategy-select";
@@ -536,7 +537,9 @@ async function tickMain(force: boolean): Promise<void> {
     const secMs = tfSec(st.tf) * 1000;
     for (const c of candles) {
       if (c.time > st.lastConfirmedTime && c.time + secMs <= now) {
-        await processConfirmedBar(st, c);
+        // 30m · 1h · 2h · 4h belong to HALO 3EL: the chart strategy only
+        // manages a position there, it never opens one
+        await processConfirmedBar(st, c, pineTradesTf(st.tf));
         st.lastConfirmedTime = c.time;
         st.lastPrice = c.close;
       }
@@ -574,7 +577,7 @@ async function tickScanRows(): Promise<void> {
     outer: for (const sym of TRADING_SYMBOLS) {
       for (const tf of TIMEFRAMES) {
         const key = `${sym}:${tf}`;
-        if (s.scan.has(key)) continue;
+        if (s.scan.has(key) || !pineTradesTf(tf)) continue; // 30m–4h: HALO 3EL only
         const row = await db.pineStrategy.findUnique({ where: { id: main.strategyId } }).catch(() => null);
         if (!row || row.status !== "compiled" || slot().state?.strategyId !== main.strategyId) return;
         const st = await buildState(row.id, row.name, row.pineSource, row.compiledJson, row.signalJson, row, sym, tf, "SCAN");
@@ -590,12 +593,18 @@ async function tickScanRows(): Promise<void> {
   let done = 0;
   for (let i = 0; i < rows.length && done < SCAN_ROWS_PER_TICK; i++) {
     const st = rows[(s.scanCursor + i) % rows.length];
+    if (!pineTradesTf(st.tf) && !st.pos) {
+      s.scan.delete(`${st.symbol}:${st.tf}`); // a 3EL timeframe — release the row
+      continue;
+    }
     if (!on && !st.pos) continue; // paused: only open positions are managed
     if (now - st.lastTickAt < scanInterval(st.tf)) continue;
     st.lastTickAt = now;
     done++;
-    const chartRow = st.symbol === main.symbol && st.tf === main.tf;
-    await tickPineRow(st, on && !chartRow).catch((e) => console.error(`[pine-bot] scan ${st.symbol} ${st.tf}:`, (e as Error).message));
+    // the chart strategy trades its own symbol + timeframe while EA is ON;
+    // with EA OFF the Scanner Bot row takes those signals instead
+    const chartRow = botProbe().enabled && st.symbol === main.symbol && st.tf === main.tf;
+    await tickPineRow(st, on && !chartRow && pineTradesTf(st.tf)).catch((e) => console.error(`[pine-bot] scan ${st.symbol} ${st.tf}:`, (e as Error).message));
   }
   s.scanCursor = (s.scanCursor + 1) % Math.max(1, rows.length);
 }

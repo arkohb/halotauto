@@ -19,8 +19,17 @@ const MAX_BARS = 2000;
 interface CacheEntry {
   candles: Candle[];
   source: string;
-  at: number;
+  at: number; // last refresh ATTEMPT (paces retries)
+  okAt?: number; // last SUCCESSFUL live refresh (decides "stale")
 }
+/**
+ * A failed refresh only makes the cached bars "stale" when the last good
+ * refresh is older than this. Under Exness's 2-requests/second candle limit a
+ * single refresh can be refused while the bars are seconds old — that must
+ * not block an order (the price guard also rejects a frozen feed by the age
+ * of the newest candle).
+ */
+const STALE_AFTER_MS = 45_000;
 // Cache, simulator state and in-flight dedup MUST live on globalThis:
 // Next.js dev bundles each route separately, so module-scope Maps would be
 // per-route copies (bot route sees "simulator" while the chart route sees
@@ -387,8 +396,9 @@ async function fullFetch(sym: string, tf: string, key: string, want: number, now
         mergeInto(entry.candles, r.candles, tf);
         entry.source = r.source;
         entry.at = Date.now();
+        entry.okAt = entry.at;
       } else {
-        cache.set(key, { candles: r.candles.slice(-MAX_BARS), source: r.source, at: Date.now() });
+        cache.set(key, { candles: r.candles.slice(-MAX_BARS), source: r.source, at: Date.now(), okAt: Date.now() });
       }
       return { candles: r.candles, source: r.source };
     } catch (e) {
@@ -430,7 +440,7 @@ export async function getKlines(
     if (now - entry.at > 60_000) {
       try {
         const r = await fetchFromSources(sym, tf, want);
-        cache.set(key, { candles: r.candles.slice(-MAX_BARS), source: r.source, at: now });
+        cache.set(key, { candles: r.candles.slice(-MAX_BARS), source: r.source, at: now, okAt: now });
         return { candles: r.candles.slice(-want), source: r.source };
       } catch (e) {
         console.error(`[market] ${sym}:${tf} simulator-retry failed:`, (e as Error).message);
@@ -475,10 +485,12 @@ export async function getKlines(
       if (freshBars.candles.length) mergeInto(entry.candles, freshBars.candles, tf);
       entry.source = freshBars.source;
       entry.at = now;
+      entry.okAt = now;
       return { candles: entry.candles.slice(-want), source: freshBars.source };
     } catch {
       entry.at = now;
-      return { candles: entry.candles.slice(-want), source: entry.source, stale: true };
+      const stale = now - (entry.okAt ?? 0) > STALE_AFTER_MS;
+      return { candles: entry.candles.slice(-want), source: entry.source, ...(stale ? { stale: true } : {}) };
     }
   }
 

@@ -13,7 +13,7 @@ import type { BrokerKind } from "./brokers/types";
 import { publishBotEvent } from "./halo/event-bus";
 import { decimalsOf, getSymbolMeta } from "./market-symbols";
 import { engageTradeLock, entriesPaused, getTradeLock, type TradeLockSource } from "./trade-lock";
-import { getActiveStrategySel, pineAutoTradeActive } from "./strategy-select";
+import { getActiveStrategySel, pineTradesTf, threeElTradesTf } from "./strategy-select";
 import { gateOrder } from "./edge/gate";
 import type { SignalGrade } from "./edge/quality";
 import { getEdgeSync } from "./edge/settings";
@@ -134,18 +134,21 @@ export async function executeFire(job: FireJob): Promise<string | null> {
     });
     return null;
   }
-  // ── SINGLE ACTIVE STRATEGY — while a Pine strategy / indicator is attached
-  // it is the ONLY thing that trades: a built-in 3EL order from any engine
-  // (chart bot, Scanner Bot, sweep, Market Scanner) is refused here, the
-  // backstop behind each engine's own stand-down ──
-  // (right after a restart the attachment is re-read from the DB first)
+  // ── STRATEGY OWNERSHIP — which strategy may trade this timeframe
+  // (right after a restart the Pine attachment is re-read from the DB first) ──
   if (job.strategy !== "pine") await import("./pine-bot").then((m) => m.ensurePineBoot()).catch(() => {});
-  if (pineAutoTradeActive() && job.strategy !== "pine") {
+  // TIMEFRAME SPLIT: 3EL owns 30m · 1h · 2h · 4h, the attached Pine strategy
+  // the rest — an order from the strategy that does not own this timeframe
+  // is refused (backstop behind each engine's own stand-down)
+  const isPine = job.strategy === "pine";
+  if (isPine ? !pineTradesTf(job.tf) : !threeElTradesTf(job.tf)) {
     const sel = getActiveStrategySel();
     void sendAlert({
       kind: "status",
-      title: "HALO 3EL · ORDER SKIPPED — PINE STRATEGY ATTACHED",
-      body: `${job.source} 3EL ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: the attached strategy "${sel.name}" is the only one trading. Detach it in the Strategy Studio to trade 3EL again.`,
+      title: isPine ? "PINE · ORDER SKIPPED — 3EL TIMEFRAME" : "HALO 3EL · ORDER SKIPPED — NOT A 3EL TIMEFRAME",
+      body: isPine
+        ? `${job.source} Pine ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: 30m · 1h · 2h · 4h are traded by HALO 3EL only.`
+        : `${job.source} 3EL ${fire.dir === -1 ? "SELL" : "BUY"} @ ${fire.entry} on ${job.symbol} ${job.tf} was NOT executed: HALO 3EL trades 30m · 1h · 2h · 4h only${sel.kind === "pine" ? ` — "${sel.name}" trades ${job.tf}` : ""}.`,
     });
     return null;
   }

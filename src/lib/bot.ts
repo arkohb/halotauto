@@ -15,7 +15,7 @@ import { Candle, DEFAULT_CONFIG, EngineEvent, HaloConfig } from "./halo/types";
 import { getKlines, getSymbolMeta, markPrioritySymbol, tfSec } from "./market";
 import { closeBrokerPosition, clampExec, edgeInfoFor, executeFire, gradeSpeech, loadExecSettings, resolveBroker, saveExecSettings, type ActiveBroker, type ExecSettings } from "./execution";
 import { sendAlert } from "./alerts";
-import { registerBotProbe } from "./strategy-select";
+import { registerBotProbe, threeElTradesTf } from "./strategy-select";
 import { maybeAnnounceRangeOpportunities } from "./range-scan";
 import { ensurePineBoot, getPineBotInfo } from "./pine-bot";
 import { ensurePineLibrary } from "./pine/library";
@@ -283,10 +283,10 @@ function simFeedNote(symbol: string): string {
 }
 
 /**
- * PINE STRATEGY ATTACHED: a 3EL engine trade with no booked order behind it
+ * NOT A 3EL TIMEFRAME: a 3EL engine trade with no booked order behind it
  * (a fire that was refused or rejected) is only a signal marker. Left alone it
  * keeps the 3EL engine running and shows as a "running trade" on the chart, so
- * it is dropped and the engine stands down for the attached strategy. A BOOKED
+ * it is dropped and the engine stands down (30m–4h only trade 3EL). A BOOKED
  * 3EL trade keeps its full lifecycle until it closes.
  */
 function dropUnbookedEngineTrade(bot: ReturnType<typeof getBot>): void {
@@ -415,11 +415,11 @@ function liveTrial(live: Candle): void {
   // (no intrabar evaluation, no new levels, no fires). The lock holder keeps
   // its full lifecycle.
   if (!isLockHolder("BOT", bot.symbol, bot.tf)) return;
-  // PAUSE NEW ENTRIES / PINE STRATEGY ACTIVE: while flat, new signals are not
+  // PAUSE NEW ENTRIES / NOT A 3EL TIMEFRAME: while flat, new signals are not
   // evaluated at all — the engine can never emit a fire we would refuse to
   // execute. An open trade keeps its full lifecycle (win/loss detection).
-  if (getPineBotInfo().active) dropUnbookedEngineTrade(bot);
-  if ((bot.pauseNew || getPineBotInfo().active) && !bot.engine.snapshot().trade) return;
+  if (!threeElTradesTf(bot.tf)) dropUnbookedEngineTrade(bot);
+  if ((bot.pauseNew || !threeElTradesTf(bot.tf)) && !bot.engine.snapshot().trade) return;
   if (bot.cfg.sigMode !== "instant") return;
   const clone = bot.engine.clone();
   const events = clone.processBar(live, false);
@@ -471,14 +471,13 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
         });
         continue;
       }
-      // SINGLE ACTIVE STRATEGY — when a Pine strategy is selected in the
-      // Strategy Studio, the 3EL engine stays armed for levels & charting but
-      // its fires are NOT executed. Alerted honestly, never dropped silently.
-      if (getPineBotInfo().active) {
+      // TIMEFRAME SPLIT — 3EL executes on 30m · 1h · 2h · 4h only (the
+      // attached Pine strategy owns the rest). Alerted, never dropped silently.
+      if (!threeElTradesTf(bot.tf)) {
         void sendAlert({
           kind: "status",
-          title: "HALO 3EL · FIRE SKIPPED — PINE STRATEGY ACTIVE",
-          body: `${e.dir === -1 ? "SELL" : "BUY"} @ ${e.entry} on ${bot.symbol} ${bot.tf} was NOT executed: the bot is currently trading the Pine strategy "${getPineBotInfo().name}". Deactivate it in the Strategy Studio to restore 3EL auto-trading.`,
+          title: "HALO 3EL · FIRE SKIPPED — NOT A 3EL TIMEFRAME",
+          body: `${e.dir === -1 ? "SELL" : "BUY"} @ ${e.entry} on ${bot.symbol} ${bot.tf} was NOT executed: HALO 3EL trades 30m · 1h · 2h · 4h only${getPineBotInfo().active ? ` — "${getPineBotInfo().name}" trades ${bot.tf}` : ""}.`,
         });
         publishBotEvent({
           kind: "status",
@@ -486,8 +485,8 @@ async function handleEvents(events: EngineEvent[], bar: Candle): Promise<void> {
           symbol: bot.symbol,
           tf: bot.tf,
           time: e.time,
-          title: `3EL FIRE SKIPPED · PINE ACTIVE · ${symLabel}`,
-          spoken: `A ${e.dir === -1 ? "sell" : "buy"} signal appeared on ${symLabel}, but it was not executed — the Pine strategy ${getPineBotInfo().name} is trading instead.`,
+          title: `3EL FIRE SKIPPED · ${bot.tf} · ${symLabel}`,
+          spoken: `A ${e.dir === -1 ? "sell" : "buy"} signal appeared on ${symLabel}, but it was not executed — HALO 3EL trades the thirty minute to four hour charts only.`,
         });
         continue;
       }
@@ -725,13 +724,13 @@ export async function tickBot(force = false): Promise<void> {
 
     for (const c of candles) {
       if (c.time > bot.lastConfirmedTime && c.time + secMs <= now) {
-        // PAUSE NEW ENTRIES / PINE STRATEGY ACTIVE: when flat, keep the bar
+        // PAUSE NEW ENTRIES / NOT A 3EL TIMEFRAME: when flat, keep the bar
         // cursor moving (price book stays fresh) but do NOT feed the engine —
         // no new C1/C2 evaluation, so it can never emit a fire that would be
         // refused (or a phantom internal trade) while another strategy trades.
         // When a trade is open the engine keeps processing (SL/TP detection).
-        if (getPineBotInfo().active) dropUnbookedEngineTrade(bot);
-        if ((bot.pauseNew || getPineBotInfo().active) && !bot.engine.snapshot().trade) {
+        if (!threeElTradesTf(bot.tf)) dropUnbookedEngineTrade(bot);
+        if ((bot.pauseNew || !threeElTradesTf(bot.tf)) && !bot.engine.snapshot().trade) {
           bot.lastConfirmedTime = c.time;
           bot.lastPrice = c.close;
           continue;

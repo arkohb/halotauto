@@ -32,6 +32,8 @@ export const PRICE_GUARD_SETTING_KEY = "price_guard.max_deviation_atr";
 export const MAX_QUOTE_AGE_MS = 15_000;
 /** grace on top of one timeframe before the newest candle counts as stale */
 const BAR_GRACE_MS = 90_000;
+/** wait before the one retry of a failed feed check */
+const RETRY_MS = 1_500;
 
 export type GuardVerdict = { ok: true; px: number; atr: number | null } | { ok: false; reason: string };
 
@@ -144,12 +146,18 @@ export async function verifyOrderPrice(job: {
   live: boolean;
   broker: ActiveBroker | null;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
-  let feed: GuardVerdict;
-  try {
-    const k = await getKlines(job.symbol, job.tf, 50, { fresh: true });
-    feed = evaluateFeed({ source: k.source, stale: k.stale, candles: k.candles, tfMs: tfSec(job.tf) * 1000, now: Date.now() });
-  } catch {
-    feed = { ok: false, reason: "price feed unavailable" };
+  let feed: GuardVerdict = { ok: false, reason: "price feed unavailable" };
+  // one retry: a refresh refused by the broker's candle rate limit usually
+  // succeeds a moment later
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, RETRY_MS));
+    try {
+      const k = await getKlines(job.symbol, job.tf, 50, { fresh: true });
+      feed = evaluateFeed({ source: k.source, stale: k.stale, candles: k.candles, tfMs: tfSec(job.tf) * 1000, now: Date.now() });
+    } catch {
+      feed = { ok: false, reason: "price feed unavailable" };
+    }
+    if (feed.ok || feed.reason.startsWith("simulated")) break;
   }
   if (!feed.ok) return feed;
   if (!job.live) return { ok: true };

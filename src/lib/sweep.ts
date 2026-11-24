@@ -31,7 +31,7 @@ import { executeFire, loadExecSettings, resolveBroker, closeBrokerPosition } fro
 import { sendAlert } from "./alerts";
 import { publishBotEvent } from "./halo/event-bus";
 import { getTradeLock, isLockHolder, maybeReleaseLock, registerLockParticipant, type TradeLockState } from "./trade-lock";
-import { pineAutoTradeActive } from "./strategy-select";
+import { threeElTradesTf } from "./strategy-select";
 import { rowPositionHooks } from "./runtime-positions";
 import { liveTradeManager } from "./edge/settings";
 import { applyManageLive } from "./edge/trade-manager";
@@ -372,11 +372,11 @@ async function tickRow(row: SweepRow): Promise<void> {
   // GLOBAL TRADE LOCK: only the row holding the running trade keeps ticking
   if (!isLockHolder("SWEEP", row.symbol, row.tf)) return;
 
-  // SINGLE ACTIVE STRATEGY: while a Pine strategy is attached it does the
-  // scanning (pine-bot.ts) — this 3EL row stands down unless it is still
-  // managing a trade it opened before the switch
+  // TIMEFRAME SPLIT: 3EL scans and trades only 30m · 1h · 2h · 4h (the
+  // attached Pine strategy owns the rest, pine-bot.ts) — a row on another
+  // timeframe stands down unless it is still managing a trade it opened
   // (an unbooked engine trade — a refused fire — is dropped with the board)
-  if (pineAutoTradeActive() && !row.openTradeDbId) {
+  if (!threeElTradesTf(row.tf) && !row.openTradeDbId) {
     if (row.bootstrapped) {
       // forget the 3EL board: when the strategy is detached the row re-warms
       // from full history instead of resuming across a gap
